@@ -119,11 +119,19 @@ fn validation_rejects_escape_conflicts_and_arbitrary_cleanup() {
         "",
         "a/b/../../c",
         "C:evil",
-        "a\\b",
         ".spotiamp-update-other/file",
     ] {
         assert!(validate_relative(Path::new(path)).is_err(), "{path}");
     }
+    // This validator receives native Paths; raw ZIP names have their own validator.
+    assert!(validate_relative(&Path::new("a").join("b")).is_ok());
+    #[cfg(windows)]
+    {
+        assert!(validate_relative(Path::new(r"a\b")).is_ok());
+        assert!(validate_relative(Path::new(r"a\..\..\outside")).is_err());
+    }
+    #[cfg(unix)]
+    assert!(validate_relative(Path::new(r"a\b")).is_err());
     let fixture = Fixture::new(false);
     fixture.payload(BINARY, b"new executable");
     fixture.payload("README.md", b"readme");
