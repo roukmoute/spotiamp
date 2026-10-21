@@ -258,8 +258,66 @@ unsafe extern "system" fn wnd_proc(
             char_down(wnd, wparam as u32);
         }
 
-        winuser::WM_LBUTTONDOWN => wnd.mouse.state[0] = true,
-        winuser::WM_LBUTTONUP => wnd.mouse.state[0] = false,
+        winuser::WM_LBUTTONDOWN
+        | winuser::WM_LBUTTONUP
+        | winuser::WM_MBUTTONDOWN
+        | winuser::WM_MBUTTONUP
+        | winuser::WM_RBUTTONDOWN
+        | winuser::WM_RBUTTONUP
+        | winuser::WM_XBUTTONDOWN
+        | winuser::WM_XBUTTONUP => {
+            let (index, button, down) = match msg {
+                winuser::WM_LBUTTONDOWN => (0, MouseButton::Left, true),
+                winuser::WM_LBUTTONUP => (0, MouseButton::Left, false),
+                winuser::WM_MBUTTONDOWN => (1, MouseButton::Middle, true),
+                winuser::WM_MBUTTONUP => (1, MouseButton::Middle, false),
+                winuser::WM_RBUTTONDOWN => (2, MouseButton::Right, true),
+                winuser::WM_RBUTTONUP => (2, MouseButton::Right, false),
+                _ => {
+                    let (index, button) = match GET_XBUTTON_WPARAM(wparam) {
+                        1 => (3, MouseButton::Back),
+                        2 => (4, MouseButton::Forward),
+                        _ => return 0,
+                    };
+                    (index, button, msg == winuser::WM_XBUTTONDOWN)
+                }
+            };
+            wnd.mouse.state[index] = down;
+            // Mouse-message coordinates are signed client coordinates, not the
+            // cursor position sampled before the message pump.
+            let scale = wnd.scale_factor as f32;
+            let x = (lparam as u16 as i16) as f32 / scale;
+            let y = ((lparam >> 16) as u16 as i16) as f32 / scale;
+            if let Some(callback) = wnd.key_handler.key_callback.as_mut() {
+                callback.set_mouse_button_state(button, down, x, y);
+            }
+            let all_released = !wnd.mouse.state.iter().any(|state| *state);
+            // Do not access wnd after these calls: capture changes can
+            // synchronously re-enter this WndProc with the same state pointer.
+            if down {
+                winuser::SetCapture(window);
+            } else if all_released && winuser::GetCapture() == window {
+                winuser::ReleaseCapture();
+            }
+            return if msg == winuser::WM_XBUTTONDOWN || msg == winuser::WM_XBUTTONUP {
+                1
+            } else {
+                0
+            };
+        }
+
+        winuser::WM_CAPTURECHANGED => {
+            cancel_mouse_input(wnd);
+            return 0;
+        }
+
+        winuser::WM_CANCELMODE | winuser::WM_KILLFOCUS => {
+            cancel_mouse_input(wnd);
+            if winuser::GetCapture() == window {
+                winuser::ReleaseCapture();
+            }
+            return 0;
+        }
 
         winuser::WM_MOUSEMOVE => {
             let button_checks = [
@@ -271,20 +329,6 @@ unsafe extern "system" fn wnd_proc(
             for (i, button) in button_checks.iter().enumerate() {
                 wnd.mouse.state[i] = (wparam & *button) == *button;
             }
-        }
-
-        winuser::WM_MBUTTONDOWN => wnd.mouse.state[1] = true,
-        winuser::WM_MBUTTONUP => wnd.mouse.state[1] = false,
-        winuser::WM_RBUTTONDOWN => wnd.mouse.state[2] = true,
-        winuser::WM_RBUTTONUP => wnd.mouse.state[2] = false,
-
-        winuser::WM_XBUTTONDOWN => {
-            let button = GET_XBUTTON_WPARAM(wparam); // XBUTTON1 or XBUTTON2
-            wnd.mouse.state[2 + button as usize] = true;
-        }
-        winuser::WM_XBUTTONUP => {
-            let button = GET_XBUTTON_WPARAM(wparam); // XBUTTON1 or XBUTTON2
-            wnd.mouse.state[2 + button as usize] = false;
         }
 
         winuser::WM_CLOSE => {
@@ -476,6 +520,13 @@ fn to_wstring(str: &str) -> Vec<u16> {
         .encode_wide()
         .chain(Some(0).into_iter())
         .collect::<Vec<u16>>()
+}
+
+fn cancel_mouse_input(window: &mut WindowState) {
+    window.mouse.state.fill(false);
+    if let Some(callback) = window.key_handler.key_callback.as_mut() {
+        callback.mouse_input_cancelled();
+    }
 }
 
 #[derive(Default)]

@@ -264,6 +264,8 @@ void* mfb_open(const char* name, int width, int height, uint32_t flags, int scal
     window->height = height;
     window->scale = scale;
     window->key_callback = 0;
+    window->mouse_button_callback = 0;
+    window->mouse_cancel_callback = 0;
     window->shared_data = 0;
     window->active_menu_id = -1;
     window->prev_cursor = 0;
@@ -600,6 +602,16 @@ void mfb_set_mouse_data(void* window, SharedData* shared_data) {
     win->shared_data = shared_data;
 }
 
+void mfb_set_mouse_callback(
+    void* window,
+    void (*button_callback)(void* user_data, int button, int state, float x, float y),
+    void (*cancel_callback)(void* user_data)
+) {
+    OSXWindow* win = (OSXWindow*)window;
+    win->mouse_button_callback = button_callback;
+    win->mouse_cancel_callback = cancel_callback;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 void mfb_set_cursor_style(void* window, int cursor) {
@@ -623,7 +635,7 @@ void mfb_set_cursor_style(void* window, int cursor) {
 
 uint32_t mfb_is_active(void* window) {
     OSXWindow* win = (OSXWindow*)window;
-    return win->is_active;
+    return [win isKeyWindow] && [NSApp isActive];
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

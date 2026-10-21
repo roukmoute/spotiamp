@@ -23,10 +23,49 @@ use std::{
 struct TextInput {
     chars: Rc<RefCell<Vec<char>>>,
     keys: Rc<RefCell<Vec<(Key, bool)>>>,
+    mouse: Rc<RefCell<Vec<MouseInput>>>,
     held: [bool; 512],
     modifiers: u8,
 }
+
+#[derive(Clone, Copy, Debug)]
+enum MouseInput {
+    Button {
+        button: MouseButton,
+        down: bool,
+        x: f32,
+        y: f32,
+    },
+    Cancel,
+}
+
+fn inside_window(x: f32, y: f32) -> Option<(usize, usize)> {
+    (x >= 0.0 && y >= 0.0 && x < ui::WIDTH as f32 && y < ui::HEIGHT as f32)
+        .then_some((x as usize, y as usize))
+}
+
+impl TextInput {
+    fn mouse_event(&mut self, event: MouseInput) {
+        let mut events = self.mouse.borrow_mut();
+        if events.len() >= 128 {
+            // Never keep an unmatched press after overflowing the bounded queue.
+            events.clear();
+            events.push(MouseInput::Cancel);
+        } else {
+            events.push(event);
+        }
+    }
+}
+
 impl InputCallback for TextInput {
+    fn set_mouse_button_state(&mut self, button: MouseButton, down: bool, x: f32, y: f32) {
+        self.mouse_event(MouseInput::Button { button, down, x, y });
+    }
+
+    fn mouse_input_cancelled(&mut self) {
+        self.mouse_event(MouseInput::Cancel);
+    }
+
     fn add_char(&mut self, code: u32) {
         if let Some(c) = char::from_u32(code).filter(|c| !c.is_control()) {
             if self.modifiers != 0 {
@@ -113,15 +152,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     window.set_target_fps(30);
     let input = Rc::new(RefCell::new(Vec::new()));
     let key_events = Rc::new(RefCell::new(Vec::new()));
+    let mouse_events = Rc::new(RefCell::new(Vec::with_capacity(16)));
     window.set_input_callback(Box::new(TextInput {
         chars: input.clone(),
         keys: key_events.clone(),
+        mouse: mouse_events.clone(),
         held: [false; 512],
         modifiers: 0,
     }));
     let engine = engine::Engine::spawn();
     let mut clipboard = None;
-    let mut last_mouse = false;
+    let mut actions = Vec::with_capacity(8);
     let mut fingerprint = None;
     let mut snapshot = model::Snapshot::default();
     let start = Instant::now();
@@ -140,29 +181,54 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         let pressed = |key| keys.iter().any(|(k, _)| *k == key);
         let shortcut = |key| keys.iter().any(|(k, control)| *k == key && *control);
         let mut action = None;
+        view.set_focus(window.is_active());
+        actions.clear();
         if pressed(Key::F1) {
+            view.cancel_pointer();
             view.help = !view.help;
         }
         if pressed(Key::Escape) {
+            view.cancel_pointer();
             view.help = false;
             view.input_active = false;
         }
         if pressed(Key::Tab) {
             view.input_active = !view.input_active;
         }
-        let mouse = window.get_mouse_down(MouseButton::Left);
-        if let Some((x, y)) = window.get_mouse_pos(MouseMode::Discard) {
-            if mouse && !last_mouse {
-                action = view.click(x as usize, y as usize, &snapshot);
-            }
-            if mouse && last_mouse {
-                action = view.drag(x as usize, y as usize, &snapshot).or(action);
+        // Process native edges in order: a press and release within one 30 Hz
+        // poll must still activate once and must not leave the button stuck.
+        for event in mouse_events.borrow_mut().drain(..) {
+            let next = match event {
+                MouseInput::Button {
+                    button: MouseButton::Left,
+                    down,
+                    x,
+                    y,
+                } => {
+                    let position = inside_window(x, y);
+                    if down {
+                        position.and_then(|(x, y)| view.pointer_down(x, y, &snapshot))
+                    } else {
+                        view.pointer_up(position, &snapshot)
+                    }
+                }
+                MouseInput::Cancel => {
+                    view.cancel_pointer();
+                    None
+                }
+                _ => None,
+            };
+            if let Some(next) = next {
+                actions.push(next);
             }
         }
-        if !mouse {
-            view.end_drag();
+        let pointer = window.get_mouse_pos(MouseMode::Pass);
+        view.pointer_move(pointer.and_then(|(x, y)| inside_window(x, y)));
+        if window.is_active() && window.get_mouse_down(MouseButton::Left) {
+            if let Some((x, y)) = pointer {
+                action = view.drag(x as usize, y as usize, &snapshot);
+            }
         }
-        last_mouse = mouse;
         if let Some((_, y)) = window.get_scroll_wheel() {
             view.scroll(y, snapshot.queue.len());
         }
@@ -210,6 +276,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         input.borrow_mut().clear();
         if let Some(action) = action {
+            actions.push(action);
+        }
+        for action in actions.drain(..) {
             let command = match action {
                 ui::Action::Send(c) => Some(c),
                 ui::Action::Submit => {
@@ -257,6 +326,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(test)]
+mod pointer_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     #[test]
@@ -266,6 +338,7 @@ mod tests {
         let mut input = TextInput {
             chars: chars.clone(),
             keys: keys.clone(),
+            mouse: Rc::new(RefCell::new(Vec::new())),
             held: [false; 512],
             modifiers: 0,
         };

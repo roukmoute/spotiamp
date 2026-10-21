@@ -241,7 +241,9 @@ impl DisplayInfo {
 impl Drop for DisplayInfo {
     fn drop(&mut self) {
         unsafe {
-            if !self.gc.is_null() { (self.lib.XFreeGC)(self.display, self.gc); }
+            if !self.gc.is_null() {
+                (self.lib.XFreeGC)(self.display, self.gc);
+            }
             (self.lib.XCloseDisplay)(self.display);
         }
     }
@@ -1092,6 +1094,10 @@ impl Window {
             }
             xlib::FocusOut => {
                 self.active = false;
+                self.buttons.fill(0);
+                if let Some(callback) = self.key_handler.key_callback.as_mut() {
+                    callback.mouse_input_cancelled();
+                }
             }
             xlib::FocusIn => {
                 self.active = true;
@@ -1173,31 +1179,25 @@ impl Window {
     }
 
     unsafe fn process_button(&mut self, ev: xlib::XEvent, is_down: bool) {
-        match ev.button.button {
-            xlib::Button1 => {
-                self.buttons[0] = if is_down { 1 } else { 0 };
-                return;
+        let button = match ev.button.button {
+            xlib::Button1 => Some((0, MouseButton::Left)),
+            xlib::Button2 => Some((1, MouseButton::Middle)),
+            xlib::Button3 => Some((2, MouseButton::Right)),
+            Button8 => Some((3, MouseButton::Back)),
+            Button9 => Some((4, MouseButton::Forward)),
+            _ => None,
+        };
+        if let Some((index, button)) = button {
+            self.buttons[index] = u8::from(is_down);
+            if let Some(callback) = self.key_handler.key_callback.as_mut() {
+                callback.set_mouse_button_state(
+                    button,
+                    is_down,
+                    ev.button.x as f32 / self.scale as f32,
+                    ev.button.y as f32 / self.scale as f32,
+                );
             }
-            xlib::Button2 => {
-                self.buttons[1] = if is_down { 1 } else { 0 };
-                return;
-            }
-            xlib::Button3 => {
-                self.buttons[2] = if is_down { 1 } else { 0 };
-                return;
-            }
-
-            Button8 => {
-                self.buttons[3] = if is_down { 1 } else { 0 };
-                return;
-            }
-
-            Button9 => {
-                self.buttons[4] = if is_down { 1 } else { 0 };
-                return;
-            }
-
-            _ => {}
+            return;
         }
 
         // Wheel buttons emit both press and release. Count a detent once.

@@ -206,6 +206,16 @@ pub trait InputCallback {
     /// key in the `state` argument, as well as the translated key in the `key` argument.
     /// This includes control characters such as `Key::LeftShift`.
     fn set_key_state(&mut self, _key: Key, _state: bool) {}
+
+    /// Called for each native mouse-button press and release, including pairs
+    /// received in one update. Coordinates use buffer pixels after applying the
+    /// window scale and may lie outside the window. Implemented on Windows,
+    /// X11 and macOS. The default keeps existing callbacks source-compatible.
+    fn set_mouse_button_state(&mut self, _button: MouseButton, _down: bool, _x: f32, _y: f32) {}
+
+    /// Cancels an in-progress pointer interaction after loss of focus/capture.
+    /// This is not a button release and should never activate a control.
+    fn mouse_input_cancelled(&mut self) {}
 }
 
 /// Window is used to open up a window. It's possible to optionally display a 32-bit buffer when

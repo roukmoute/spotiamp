@@ -1,5 +1,6 @@
 #import "OSXWindow.h"
 #import "OSXWindowFrameView.h"
+#include <string.h>
 
 @implementation OSXWindow
 
@@ -144,12 +145,14 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 - (void)mainWindowChanged:(NSNotification *)note {
-    void* window = [note object];
-
-    if (window == self) {
-        self->is_active = true;
-    } else {
-        self->is_active = false;
+    self->is_active = [[note name] isEqualToString:NSWindowDidBecomeKeyNotification];
+    if (!self->is_active) {
+        if (shared_data) {
+            memset(shared_data->mouse_state, 0, sizeof(shared_data->mouse_state));
+        }
+        if (mouse_cancel_callback) {
+            mouse_cancel_callback(rust_data);
+        }
     }
 }
 
@@ -183,13 +186,13 @@
         [[NSNotificationCenter defaultCenter]
             addObserver:self
             selector:@selector(mainWindowChanged:)
-            name:NSWindowDidBecomeMainNotification
+            name:NSWindowDidBecomeKeyNotification
             object:self];
 
         [[NSNotificationCenter defaultCenter]
             addObserver:self
             selector:@selector(mainWindowChanged:)
-            name:NSWindowDidResignMainNotification
+            name:NSWindowDidResignKeyNotification
             object:self];
 
         frameView = [[[OSXWindowFrameView alloc] initWithFrame:bounds] autorelease];

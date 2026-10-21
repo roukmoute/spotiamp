@@ -343,57 +343,55 @@ uint32_t upper_power_of_two(uint32_t v) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-- (void)mouseDown:(NSEvent*)event {
-    (void)event;
+- (void)reportMouseButton:(NSInteger)button down:(BOOL)down event:(NSEvent*)event {
     OSXWindow* window = (OSXWindow*)[self window];
-    window->shared_data->mouse_state[0] = 1;
+    if (window->shared_data) {
+        window->shared_data->mouse_state[button] = down ? 1 : 0;
+    }
+    if (window->mouse_button_callback) {
+        NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
+        float y = [self isFlipped] ? p.y : NSHeight([self bounds]) - p.y;
+        window->mouse_button_callback(window->rust_data, (int)button, down ? 1 : 0, p.x, y);
+    }
+}
+
+- (void)mouseDown:(NSEvent*)event {
+    [self reportMouseButton:0 down:YES event:event];
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 - (void)mouseUp:(NSEvent*)event {
-    (void)event;
-    OSXWindow* window = (OSXWindow*)[self window];
-    window->shared_data->mouse_state[0] = 0;
+    [self reportMouseButton:0 down:NO event:event];
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 - (void)rightMouseDown:(NSEvent*)event {
-    (void)event;
-    OSXWindow* window = (OSXWindow*)[self window];
-    window->shared_data->mouse_state[2] = 1;
+    [self reportMouseButton:2 down:YES event:event];
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 - (void)rightMouseUp:(NSEvent*)event {
-    (void)event;
-    OSXWindow* window = (OSXWindow*)[self window];
-    window->shared_data->mouse_state[2] = 0;
+    [self reportMouseButton:2 down:NO event:event];
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 - (void)otherMouseDown:(NSEvent*)event {
-    (void)event;
-    OSXWindow* window = (OSXWindow*)[self window];
-
     NSInteger button = [event buttonNumber];
-    if (button == 3 || button == 4) {
-        window->shared_data->mouse_state[button] = 1;
+    if (button == 2 || button == 3 || button == 4) {
+        [self reportMouseButton:(button == 2 ? 1 : button) down:YES event:event];
     }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 - (void)otherMouseUp:(NSEvent*)event {
-    (void)event;
-    OSXWindow* window = (OSXWindow*)[self window];
-
     NSInteger button = [event buttonNumber];
-    if (button == 3 || button == 4) {
-        window->shared_data->mouse_state[button] = 0;
+    if (button == 2 || button == 3 || button == 4) {
+        [self reportMouseButton:(button == 2 ? 1 : button) down:NO event:event];
     }
 }
 

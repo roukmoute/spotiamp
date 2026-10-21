@@ -2,6 +2,8 @@ name: Build and check
 
 on:
   push:
+    # A release tag points to an already checked commit; avoid rebuilding it twice.
+    branches: ['**']
   pull_request:
   workflow_dispatch:
 
@@ -43,7 +45,7 @@ jobs:
           key: ${{ matrix.target }}
       - name: Linux native dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev libdbus-1-dev libx11-dev libxrandr-dev libxcursor-dev libxi-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install --yes libasound2-dev libdbus-1-dev libx11-dev libxrandr-dev libxcursor-dev libxi-dev pkg-config xvfb xdotool
       - name: Fetch locked dependency manifests for packaging
         # cargo metadata needs manifests from all targets, even with --filter-platform.
         run: cargo fetch --locked
@@ -53,11 +55,16 @@ jobs:
         run: cargo test --locked --target ${{ matrix.target }}
       - name: Test playback quality changes
         run: cargo test --locked -p librespot-playback --lib quality_tests --target ${{ matrix.target }}
+      - name: Test native X11 pointer and wheel events
+        if: runner.os == 'Linux'
+        run: LC_ALL=C XMODIFIERS=@im=none xvfb-run -a cargo test --locked --bin spotiamp --target ${{ matrix.target }} x11_ -- --ignored --test-threads=1
       - name: Build release
         run: cargo build --release --locked --target ${{ matrix.target }} --bin spotiamp
       - name: Package binary, sources, and dependency licenses
         run: python scripts/package.py --target ${{ matrix.target }}
       - uses: actions/upload-artifact@v4
+        # The action already retries transient HTTP errors (five attempts).
+        # Exhausted retries must still fail the job so missing artifacts stay visible.
         with:
           name: spotiamp-${{ matrix.target }}
           path: |

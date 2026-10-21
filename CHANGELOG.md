@@ -1,5 +1,17 @@
 # Changements
 
+## 0.1.0-alpha.4 — 21 octobre 2026
+
+- Skin plus proche du Winamp classique : touches métalliques, pictogrammes de
+  transport, bordures encastrées, bandeaux compacts et curseurs rainurés.
+- Boutons enfoncés pendant l'appui, activation au relâchement dans le même bouton.
+  Un relâchement à l'extérieur ou une perte de focus/capture annule l'action.
+- Clics courts conservés même si l'appui et le relâchement arrivent dans le même
+  rafraîchissement, avec coordonnées adaptées au mode `--scale 2`.
+- État actif/inactif de la fenêtre macOS corrigé.
+- Tests natifs des événements souris Windows et X11 ; CI déclenchée une seule
+  fois par changement de branche, sans nouvelle compilation pour le tag de release.
+
 ## 0.1.0-alpha.3 — 21 octobre 2026
 
 - Qualité demandée par défaut : 320 kb/s au lieu de 160, maximum du moteur actuel.

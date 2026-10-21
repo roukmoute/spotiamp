@@ -39,5 +39,45 @@ to a minifb window to exercise this conversion and event accumulation.
 
 Windows wheel semantics: https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-mousewheel
 
+## Mouse-button events and interaction cancellation
+
+Two default-empty `InputCallback` methods preserve compatibility with existing
+callback implementations:
+
+- `set_mouse_button_state(button, down, x, y)` delivers each native button
+  transition on Windows, X11 and macOS. Coordinates are taken from that event,
+  divided by the window scale, and remain signed/unclamped outside the window.
+  A press and release received in one update are both delivered, even though
+  `get_mouse_down` only exposes the final state.
+- `mouse_input_cancelled()` reports loss of focus or capture. Applications must
+  cancel active interactions without activating the control as a release would.
+
+Windows captures the mouse during a button interaction to receive releases
+outside the client area, releases capture when all buttons are up, and cancels
+on `WM_CAPTURECHANGED`, `WM_CANCELMODE` or `WM_KILLFOCUS`. References to mutable
+window state are no longer used when the capture API is called, because it can
+synchronously re-enter the window procedure. Normal `ReleaseCapture` can also
+emit a cancellation after the button-up callback.
+
+X11 retains the server's implicit button grab and emits cancellation on
+`FocusOut`. Wheel button handling remains separate from ordinary button events.
+
+macOS forwards native mouse-event coordinates through a small C callback bridge
+and registers data/callbacks before pumping the first events. Key-window loss
+clears mouse state and emits cancellation. Active-window reporting now tests
+the key window and active application, and the Rust wrapper no longer inverts
+that result. Native middle-button events are mapped to the existing middle
+button slot.
+
+The callbacks add no event buffer or dependencies; Spotiamp owns a bounded
+callback queue. Its native Windows/X11 tests exercise same-update press/release
+delivery and coordinate scaling. macOS execution requires the macOS CI runner.
+
+Native behavior references:
+- https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setcapture
+- https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-capturechanged
+- https://www.x.org/Development/Documentation/GrabProcessing/
+- https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/EventOverview/HandlingMouseEvents/HandlingMouseEvents.html
+
 Upstream source: https://crates.io/crates/minifb/0.29.0
 Original licenses are preserved in this directory.

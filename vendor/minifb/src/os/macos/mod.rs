@@ -177,6 +177,11 @@ extern "C" {
         cb: unsafe extern "C" fn(*mut c_void, u32),
     );
     fn mfb_set_mouse_data(window_handle: *mut c_void, shared_data: *mut SharedData);
+    fn mfb_set_mouse_callback(
+        window: *mut c_void,
+        button_callback: unsafe extern "C" fn(*mut c_void, i32, i32, f32, f32),
+        cancel_callback: unsafe extern "C" fn(*mut c_void),
+    );
     fn mfb_set_cursor_style(window: *mut c_void, cursor: u32);
     fn mfb_set_cursor_visibility(window: *mut c_void, visibility: bool);
     fn mfb_should_close(window: *mut c_void) -> i32;
@@ -283,6 +288,39 @@ unsafe extern "C" fn char_callback(window: *mut c_void, code_point: u32) {
 
     if let Some(callback) = (*win).key_handler.key_callback.as_mut() {
         callback.add_char(code_point);
+    }
+}
+
+unsafe extern "C" fn mouse_button_callback(
+    window: *mut c_void,
+    button: i32,
+    down: i32,
+    x: f32,
+    y: f32,
+) {
+    let Some(win) = (window as *mut WindowState).as_mut() else {
+        return;
+    };
+    let button = match button {
+        0 => MouseButton::Left,
+        1 => MouseButton::Middle,
+        2 => MouseButton::Right,
+        3 => MouseButton::Back,
+        4 => MouseButton::Forward,
+        _ => return,
+    };
+    let scale = win.scale_factor as f32;
+    if let Some(callback) = win.key_handler.key_callback.as_mut() {
+        callback.set_mouse_button_state(button, down != 0, x / scale, y / scale);
+    }
+}
+
+unsafe extern "C" fn mouse_cancel_callback(window: *mut c_void) {
+    let Some(win) = (window as *mut WindowState).as_mut() else {
+        return;
+    };
+    if let Some(callback) = win.key_handler.key_callback.as_mut() {
+        callback.mouse_input_cancelled();
     }
 }
 
@@ -397,6 +435,21 @@ impl Window {
         mfb_set_mouse_data(self.window_handle, &mut self.shared_data);
     }
 
+    unsafe fn set_input_data(&mut self) {
+        self.set_mouse_data();
+        mfb_set_key_callback(
+            self.window_handle,
+            self.state.as_mut() as *mut WindowState as *mut c_void,
+            key_callback,
+            char_callback,
+        );
+        mfb_set_mouse_callback(
+            self.window_handle,
+            mouse_button_callback,
+            mouse_cancel_callback,
+        );
+    }
+
     #[inline]
     pub fn set_background_color(&mut self, color: u32) {
         self.shared_data.bg_color = color;
@@ -421,19 +474,13 @@ impl Window {
         check_buffer_size(buffer, buf_width, buf_height, buf_stride)?;
 
         unsafe {
+            self.set_input_data();
             mfb_update_with_buffer(
                 self.window_handle,
                 buffer.as_ptr() as *const u8,
                 buf_width as u32,
                 buf_height as u32,
                 buf_stride as u32,
-            );
-            self.set_mouse_data();
-            mfb_set_key_callback(
-                self.window_handle,
-                self.state.as_mut() as *mut WindowState as *mut c_void,
-                key_callback,
-                char_callback,
             );
         }
 
@@ -444,14 +491,8 @@ impl Window {
         self.key_handler.update();
 
         unsafe {
+            self.set_input_data();
             mfb_update(self.window_handle);
-            self.set_mouse_data();
-            mfb_set_key_callback(
-                self.window_handle,
-                self.state.as_mut() as *mut WindowState as *mut c_void,
-                key_callback,
-                char_callback,
-            );
         }
     }
 
@@ -615,7 +656,7 @@ impl Window {
 
     #[inline]
     pub fn is_active(&self) -> bool {
-        unsafe { mfb_is_active(self.window_handle) == 0 }
+        unsafe { mfb_is_active(self.window_handle) != 0 }
     }
 
     unsafe fn get_scale_factor(width: usize, height: usize, scale: Scale) -> i32 {

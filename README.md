@@ -14,9 +14,11 @@ Les résultats et leurs limites sont dans `PERFORMANCE.md`.
 **[Télécharger la préversion Windows et ses sources](https://github.com/roukmoute/spotiamp/releases).**
 Choisir l'archive `Spotiamp-Windows-x64.zip`, puis la décompresser.
 
-La préversion **0.1.0-alpha.3** demande **320 kb/s par défaut** et permet de
-choisir 96 / 160 / 320 dans le lecteur. Elle conserve la correction de molette :
-un cran avance d'un titre, avec conservation des mouvements fractionnaires.
+La préversion **0.1.0-alpha.4** adopte un skin plus proche du Winamp classique :
+touches métalliques, boutons enfoncés pendant l'appui, cadres encastrés et
+poignées rainurées. Le rendu reste dessiné directement dans le buffer existant,
+sans image de skin à charger, nouvelle dépendance ni animation permanente.
+La qualité **320 kb/s par défaut** et la molette d'un titre par cran sont conservées.
 
 ![Interface de Spotiamp](preview.png)
 
@@ -38,6 +40,10 @@ précédemment nommé Spool ; le paquet Spotiamp est reconstruit après renommag
    **Ctrl+V**, puis **+ AJ.** ou Entrée.
 4. Double-cliquer sur un titre. Les boutons et la barre de position pilotent
    le moteur audio local. Le client Spotify officiel peut être fermé.
+
+Les boutons s'activent au relâchement de la souris dans le bouton pressé.
+Relâcher à l'extérieur annule le clic ; une perte de focus annule aussi l'appui.
+Les barres de volume et de position réagissent dès l'appui et pendant le glissement.
 
 Les boutons **96 / 160 / 320**, à côté de **KB/S** sous la liste, règlent la
 qualité demandée. Le choix est mémorisé et appliqué au prochain chargement de
@@ -127,6 +133,11 @@ Le test X11 demande un écran virtuel et `xdotool` et se lance explicitement :
 ```sh
 LC_ALL=C XMODIFIERS=@im=none xvfb-run -a cargo test --locked --bin spotiamp x11_wheel_press_and_release_count_as_one_notch -- --ignored
 ```
+
+Les tests d'interface vérifient les états visuels pressé/relâché, l'annulation
+hors bouton, les contrôles désactivés et la perte de focus. Les tests natifs
+Windows et X11 injectent aussi des clics courts et vérifient leurs coordonnées
+en taille double. La CI exécute les tests X11 dans Xvfb, avec `xdotool`.
 
 Windows : Rust avec la cible `x86_64-pc-windows-msvc` et les outils de compilation
 Visual Studio C++. macOS : outils Xcode. Linux Debian/Ubuntu :

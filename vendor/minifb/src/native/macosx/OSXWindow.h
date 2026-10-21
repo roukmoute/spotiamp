@@ -39,6 +39,8 @@ void build_submenu(NSMenu* menu, MenuDesc* desc);
     NSView* childContentView;
     @public void (*key_callback)(void* user_data, int key, int state);
     @public void (*char_callback)(void* user_data, unsigned int key);
+    @public void (*mouse_button_callback)(void* user_data, int button, int state, float x, float y);
+    @public void (*mouse_cancel_callback)(void* user_data);
     @public float width;
     @public float height;
     @public int scale;

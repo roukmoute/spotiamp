@@ -3185,7 +3185,7 @@ dependencies = [
 
 [[package]]
 name = "spotiamp"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "arboard",
  "font8x8",

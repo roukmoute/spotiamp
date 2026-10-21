@@ -1,0 +1,580 @@
+//! Classic bitmap skin. Geometry is shared with the input code in `ui.rs`.
+//! All decoration is drawn directly into the existing software framebuffer.
+use super::*;
+
+#[derive(Clone, Copy)]
+enum TransportIcon {
+    Previous,
+    Play,
+    Pause,
+    Stop,
+    Next,
+}
+
+impl View {
+    fn rect(&mut self, x: usize, y: usize, w: usize, h: usize, color: u32) {
+        for yy in y.min(HEIGHT)..y.saturating_add(h).min(HEIGHT) {
+            self.pixels[yy * WIDTH + x.min(WIDTH)..yy * WIDTH + x.saturating_add(w).min(WIDTH)]
+                .fill(color);
+        }
+    }
+
+    fn bevel(&mut self, x: usize, y: usize, w: usize, h: usize, fill: u32, inset: bool) {
+        self.rect(x, y, w, h, fill);
+        if w < 3 || h < 3 {
+            return;
+        }
+        let (top, bottom, inner_top, inner_bottom) = if inset {
+            (SHADOW, LIGHT, 0x080912, 0x48485b)
+        } else {
+            (LIGHT, SHADOW, 0x5a5a70, 0x1b1b2a)
+        };
+        self.rect(x, y, w, 1, top);
+        self.rect(x, y, 1, h, top);
+        self.rect(x, y + h - 1, w, 1, bottom);
+        self.rect(x + w - 1, y, 1, h, bottom);
+        self.rect(x + 1, y + 1, w - 2, 1, inner_top);
+        self.rect(x + 1, y + 1, 1, h - 2, inner_top);
+        self.rect(x + 1, y + h - 2, w - 2, 1, inner_bottom);
+        self.rect(x + w - 2, y + 1, 1, h - 2, inner_bottom);
+    }
+
+    fn text(&mut self, x: usize, y: usize, text: &str, color: u32, max: usize) {
+        for (index, c) in text.chars().take(max).enumerate() {
+            let glyph = font8x8::BASIC_FONTS
+                .get(c)
+                .or_else(|| font8x8::LATIN_FONTS.get(c))
+                .or_else(|| font8x8::BASIC_FONTS.get('?'));
+            if let Some(glyph) = glyph {
+                for (row, bits) in glyph.iter().enumerate() {
+                    for column in 0..8 {
+                        if bits & (1 << column) != 0 {
+                            self.rect(x + index * 8 + column, y + row, 1, 1, color);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Five-pixel capitals keep title strips as compact as the original skin.
+    fn tiny_text(&mut self, x: usize, y: usize, text: &str, color: u32) {
+        for (index, c) in text.chars().enumerate() {
+            let rows = match c {
+                'A' => [14, 17, 31, 17, 17],
+                'B' => [30, 17, 30, 17, 30],
+                'C' => [15, 16, 16, 16, 15],
+                'D' => [30, 17, 17, 17, 30],
+                'E' => [31, 16, 30, 16, 31],
+                'F' => [31, 16, 30, 16, 16],
+                'G' => [15, 16, 23, 17, 15],
+                'H' => [17, 17, 31, 17, 17],
+                'I' => [7, 2, 2, 2, 7],
+                'J' => [7, 1, 1, 17, 14],
+                'K' => [17, 18, 28, 18, 17],
+                'L' => [16, 16, 16, 16, 31],
+                'M' => [17, 27, 21, 17, 17],
+                'N' => [17, 25, 21, 19, 17],
+                'O' => [14, 17, 17, 17, 14],
+                'P' => [30, 17, 30, 16, 16],
+                'Q' => [14, 17, 17, 19, 15],
+                'R' => [30, 17, 30, 18, 17],
+                'S' => [15, 16, 14, 1, 30],
+                'T' => [31, 4, 4, 4, 4],
+                'U' => [17, 17, 17, 17, 14],
+                'V' => [17, 17, 17, 10, 4],
+                'W' => [17, 17, 21, 27, 17],
+                'X' => [17, 10, 4, 10, 17],
+                'Y' => [17, 10, 4, 4, 4],
+                'Z' => [31, 2, 4, 8, 31],
+                '/' => [1, 2, 4, 8, 16],
+                _ => [0; 5],
+            };
+            for (row, bits) in rows.iter().enumerate() {
+                for column in 0..5 {
+                    if bits & (1 << (4 - column)) != 0 {
+                        self.rect(x + index * 6 + column, y + row, 1, 1, color);
+                    }
+                }
+            }
+        }
+    }
+
+    fn metal_face(&mut self, x: usize, y: usize, w: usize, h: usize, enabled: bool, down: bool) {
+        self.rect(x, y, w, h, 0x0b0d17);
+        let (high, face, low) = if enabled {
+            (0xe8edf0, 0xb6bec8, 0x747d91)
+        } else {
+            (0x9194a3, 0x7a7e90, 0x53586d)
+        };
+        let (top, bottom) = if down { (low, high) } else { (high, low) };
+        self.rect(x + 1, y + 1, w - 2, h - 2, face);
+        self.rect(x + 1, y + 1, w - 2, 1, top);
+        self.rect(x + 1, y + 1, 1, h - 2, top);
+        self.rect(x + 1, y + h - 2, w - 2, 1, bottom);
+        self.rect(x + w - 2, y + 1, 1, h - 2, bottom);
+        if down {
+            self.rect(x + 2, y + 2, w - 4, 1, 0x646b7d);
+            self.rect(x + 2, y + 2, 1, h - 4, 0x646b7d);
+        } else {
+            self.rect(
+                x + 2,
+                y + 2,
+                w - 4,
+                2,
+                if enabled { 0xd6dee4 } else { 0x8b8fa0 },
+            );
+            self.rect(
+                x + 2,
+                y + 4,
+                w - 4,
+                2,
+                if enabled { 0xc6cfd8 } else { 0x85899b },
+            );
+            self.rect(
+                x + 2,
+                y + h - 5,
+                w - 4,
+                2,
+                if enabled { 0x9aa5b5 } else { 0x666d83 },
+            );
+            self.rect(x + 2, y + h - 3, w - 4, 1, 0x5b6378);
+        }
+    }
+
+    fn button(&mut self, x: usize, y: usize, w: usize, label: &str, active: bool) {
+        let down = self.button_down(x, y);
+        self.metal_face(x, y, w, 22, active, down);
+        let offset = usize::from(down);
+        let left = x + w.saturating_sub(label.chars().count() * 8) / 2 + offset;
+        self.text(
+            left,
+            y + 7 + offset,
+            label,
+            if active { 0x242b40 } else { 0x51586b },
+            w / 8,
+        );
+    }
+
+    fn triangle(&mut self, x: usize, y: usize, size: usize, right: bool, color: u32) {
+        for column in 0..size {
+            let half = if right { size - 1 - column } else { column };
+            self.rect(x + column, y + size - 1 - half, 1, half * 2 + 1, color);
+        }
+    }
+
+    fn transport_glyph(&mut self, cx: usize, cy: usize, icon: TransportIcon, color: u32) {
+        match icon {
+            TransportIcon::Previous => {
+                self.rect(cx - 8, cy - 5, 2, 11, color);
+                self.triangle(cx - 4, cy - 5, 6, false, color);
+            }
+            TransportIcon::Play => self.triangle(cx - 4, cy - 5, 6, true, color),
+            TransportIcon::Pause => {
+                self.rect(cx - 5, cy - 5, 3, 11, color);
+                self.rect(cx + 2, cy - 5, 3, 11, color);
+            }
+            TransportIcon::Stop => self.rect(cx - 5, cy - 5, 10, 11, color),
+            TransportIcon::Next => {
+                self.triangle(cx - 4, cy - 5, 6, true, color);
+                self.rect(cx + 4, cy - 5, 2, 11, color);
+            }
+        }
+    }
+
+    fn transport_button(&mut self, x: usize, icon: TransportIcon, enabled: bool) {
+        let down = self.button_down(x, 116);
+        self.metal_face(x, 116, 38, 22, enabled, down);
+        let offset = usize::from(down);
+        let (cx, cy) = (x + 19 + offset, 127 + offset);
+        self.transport_glyph(
+            cx + 1,
+            cy + 1,
+            icon,
+            if enabled { 0xe2e8ec } else { 0x969bae },
+        );
+        self.transport_glyph(cx, cy, icon, if enabled { 0x293247 } else { 0x555c70 });
+    }
+
+    fn header(&mut self, y: usize, name: &str) {
+        self.bevel(3, y, WIDTH - 6, 18, BG, false);
+        self.rect(6, y + 2, WIDTH - 12, 1, 0x171725);
+        self.rect(6, y + 14, WIDTH - 12, 1, 0x444255);
+        let left = (WIDTH - name.len() * 6) / 2;
+        let line_color = if self.focused { GOLD } else { 0x6c6870 };
+        let label_color = if self.focused { WHITE } else { 0x86838e };
+        for (start, length) in [(13, left - 22), (WIDTH - left + 8, left - 22)] {
+            self.rect(start, y + 5, length, 1, line_color);
+            self.rect(start, y + 6, length, 1, 0x5e5948);
+            self.rect(start, y + 8, length, 1, line_color);
+            self.rect(start, y + 9, length, 1, 0x15151e);
+            self.rect(start, y + 11, length, 1, 0x77715c);
+        }
+        self.tiny_text(left, y + 6, name, label_color);
+    }
+
+    fn digit(&mut self, x: usize, y: usize, digit: u8) {
+        let masks = [
+            0b0111111, 0b0000110, 0b1011011, 0b1001111, 0b1100110, 0b1101101, 0b1111101, 0b0000111,
+            0b1111111, 0b1101111,
+        ];
+        let mask = masks[(digit % 10) as usize];
+        for (bit, (dx, dy, w, h)) in [
+            (4, 0, 17, 3),
+            (21, 4, 3, 15),
+            (21, 23, 3, 15),
+            (4, 39, 17, 3),
+            (0, 23, 3, 15),
+            (0, 4, 3, 15),
+            (4, 19, 17, 3),
+        ]
+        .iter()
+        .enumerate()
+        {
+            self.rect(
+                x + dx,
+                y + dy,
+                *w,
+                *h,
+                if mask & (1 << bit) != 0 {
+                    GREEN
+                } else {
+                    0x10200c
+                },
+            );
+        }
+    }
+
+    fn grip(&mut self, x: usize, y: usize, w: usize, h: usize, down: bool) {
+        self.metal_face(x, y, w, h, true, down);
+        let offset = usize::from(down);
+        for dx in (4..w.saturating_sub(3)).step_by(3) {
+            self.rect(x + dx + offset, y + 4 + offset, 1, h - 8, 0x646c80);
+            self.rect(x + dx + 1 + offset, y + 4 + offset, 1, h - 8, 0xdce1e4);
+        }
+    }
+
+    pub fn render(&mut self, s: &Snapshot) {
+        self.pixels.fill(BG);
+        self.bevel(0, 0, WIDTH, HEIGHT, BG, false);
+        self.rect(3, 20, 1, HEIGHT - 23, 0x535166);
+        self.rect(WIDTH - 4, 20, 1, HEIGHT - 23, 0x141422);
+        self.header(2, "SPOTIAMP");
+        let help_down = self.button_down(530, 3);
+        self.metal_face(530, 3, 16, 14, true, help_down);
+        self.text(
+            534 + usize::from(help_down),
+            6 + usize::from(help_down),
+            "?",
+            0x303346,
+            1,
+        );
+
+        self.bevel(14, 28, 187, 61, BLACK, true);
+        self.rect(17, 31, 181, 1, 0x161d15);
+        let sec = s.position_ms / 1000;
+        let min = (sec / 60).min(99);
+        for (x, n) in [
+            (24, min / 10),
+            (54, min % 10),
+            (98, sec % 60 / 10),
+            (128, sec % 10),
+        ] {
+            self.digit(x, 37, n as u8);
+        }
+        self.rect(87, 49, 3, 4, GREEN);
+        self.rect(87, 67, 3, 4, GREEN);
+        if s.playing {
+            self.triangle(169, 39, 5, true, GREEN);
+        } else {
+            self.rect(168, 39, 3, 9, DIM);
+            self.rect(174, 39, 3, 9, DIM);
+        }
+        self.tiny_text(164, 72, "PCM", DIM);
+
+        self.button(
+            421,
+            29,
+            125,
+            if s.busy {
+                "ANNULER"
+            } else if s.connected {
+                "DECONNECTER"
+            } else {
+                "CONNEXION"
+            },
+            true,
+        );
+        self.rect(214, 36, 4, 4, if s.connected { GREEN } else { 0x56515a });
+        self.text(
+            225,
+            34,
+            if s.connected {
+                "SPOTIFY / EN LIGNE"
+            } else {
+                "SPOTIFY / HORS LIGNE"
+            },
+            if s.connected { GREEN } else { DIM },
+            24,
+        );
+        self.bevel(213, 57, 333, 32, BLACK, true);
+        let row = s.current.and_then(|i| s.queue.get(i));
+        self.text(
+            219,
+            62,
+            row.map(|r| r.title.as_str())
+                .unwrap_or("Votre musique. Tout simplement."),
+            GREEN,
+            40,
+        );
+        self.text(
+            219,
+            76,
+            row.map(|r| r.artist.as_str())
+                .unwrap_or("LECTEUR CLASSIQUE / EXPERIMENTAL"),
+            DIM,
+            40,
+        );
+
+        self.bevel(14, 97, 532, 9, 0x11121a, true);
+        self.rect(17, 100, 526, 2, 0x383647);
+        if s.duration_ms > 0 {
+            let progress =
+                ((s.position_ms.min(s.duration_ms) as u64 * 526) / s.duration_ms as u64) as usize;
+            self.rect(17, 100, progress, 2, 0x6c714a);
+            let knob = (15 + progress).saturating_sub(10).clamp(15, 523);
+            self.metal_face(knob, 96, 22, 11, true, self.dragging == 1);
+            for dx in [7, 10, 13] {
+                self.rect(knob + dx, 99, 1, 5, 0x596077);
+                self.rect(knob + dx + 1, 99, 1, 5, 0xdce1e4);
+            }
+        }
+        for (x, icon) in [
+            (15, TransportIcon::Previous),
+            (57, TransportIcon::Play),
+            (99, TransportIcon::Pause),
+            (141, TransportIcon::Stop),
+            (183, TransportIcon::Next),
+        ] {
+            self.transport_button(x, icon, s.connected);
+        }
+        self.tiny_text(244, 125, "VOLUME", WHITE);
+        self.bevel(337, 123, 207, 8, BLACK, true);
+        let volume = s.volume as usize * 201 / 65535;
+        self.rect(340, 126, volume, 2, 0x76a631);
+        let knob = (337 + volume).saturating_sub(5).clamp(337, 531);
+        self.grip(knob, 118, 13, 18, self.dragging == 2);
+
+        self.rect(5, 142, WIDTH - 10, 1, 0x11121d);
+        self.rect(5, 143, WIDTH - 10, 1, 0x656174);
+        self.header(145, "LISTE DE LECTURE");
+        self.bevel(
+            14,
+            171,
+            408,
+            23,
+            if self.input_active { 0x0b140b } else { BLACK },
+            true,
+        );
+        let text = if self.input.is_empty() {
+            "Coller un lien Spotify : titre, album...".to_owned()
+        } else {
+            self.input
+                .chars()
+                .rev()
+                .take(49)
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect()
+        };
+        if self.select_all && !self.input.is_empty() {
+            self.rect(19, 177, text.chars().count() * 8, 11, 0x222b67);
+        }
+        self.text(
+            20,
+            179,
+            &text,
+            if self.input.is_empty() { DIM } else { GREEN },
+            49,
+        );
+        self.button(430, 171, 48, "COL.", true);
+        self.button(484, 171, 62, "+ AJ.", s.connected && !s.busy);
+        self.rect(15, 203, 530, 14, 0x343247);
+        self.rect(15, 203, 530, 1, 0x555367);
+        self.rect(15, 216, 530, 1, 0x141420);
+        self.tiny_text(19, 208, "TITRE / ARTISTE", WHITE);
+        self.tiny_text(502, 208, "DUREE", WHITE);
+        self.bevel(14, 219, 532, 195, BLACK, true);
+        self.offset = self.offset.min(s.queue.len().saturating_sub(ROWS));
+        if self.selected.is_some_and(|i| i >= s.queue.len()) {
+            self.selected = s.queue.len().checked_sub(1);
+        }
+        if s.queue.is_empty() {
+            self.text(78, 266, "LE PLAISIR D'UN PETIT LECTEUR.", GREEN, 49);
+            self.text(57, 299, "1. Cliquez sur CONNEXION.", WHITE, 56);
+            self.text(57, 320, "2. Collez un lien Spotify (Ctrl+V).", WHITE, 56);
+            self.text(
+                57,
+                341,
+                "3. AJOUTER, puis double-clic pour lire.",
+                WHITE,
+                58,
+            );
+            self.text(57, 378, "Compte Premium requis. Aide : F1", DIM, 55);
+        } else {
+            for (display, (index, row)) in s
+                .queue
+                .iter()
+                .enumerate()
+                .skip(self.offset)
+                .take(ROWS)
+                .enumerate()
+            {
+                let y = 221 + display * 24;
+                let selected = self.selected == Some(index);
+                let current = s.current == Some(index);
+                if selected {
+                    self.rect(16, y, 520, 24, 0x141c54);
+                    self.rect(16, y, 520, 1, 0x303971);
+                }
+                if current {
+                    self.triangle(17, y + 8, 4, true, GREEN);
+                }
+                self.text(24, y + 8, &format!("{:03}", index + 1), DIM, 3);
+                self.text(
+                    59,
+                    y + 3,
+                    &row.title,
+                    if current || selected { WHITE } else { GREEN },
+                    52,
+                );
+                self.text(59, y + 14, &row.artist, DIM, 52);
+                self.text(493, y + 8, &format_time(row.duration_ms), GREEN, 6);
+            }
+            if s.queue.len() > ROWS {
+                self.rect(538, 221, 6, 190, 0x171724);
+                self.rect(538, 221, 1, 190, 0x080812);
+                let h = (190 * ROWS / s.queue.len()).max(6);
+                let top = self.offset * (190 - h) / (s.queue.len() - ROWS);
+                self.bevel(539, 221 + top, 4, h, 0xaaa18a, false);
+            }
+        }
+
+        self.button(14, 417, 98, "SUPPRIMER", self.selected.is_some());
+        self.button(118, 417, 74, "VIDER", !s.queue.is_empty());
+        self.bevel(197, 419, 83, 17, BLACK, true);
+        self.text(202, 424, &format!("{:03}", s.queue.len()), GREEN, 3);
+        self.tiny_text(232, 426, "TITRES", DIM);
+        self.rect(285, 420, 1, 16, 0x171722);
+        self.rect(286, 420, 1, 16, 0x57536b);
+        self.tiny_text(300, 426, "KB/S", WHITE);
+        for (x, w, quality) in [
+            (350, 60, AudioQuality::Kbps96),
+            (415, 60, AudioQuality::Kbps160),
+            (480, 66, AudioQuality::Kbps320),
+        ] {
+            let selected = quality == s.quality;
+            let pressed = self.button_down(x, 417);
+            self.metal_face(x, 417, w, 21, true, pressed || selected);
+            let offset = usize::from(pressed);
+            self.rect(
+                x + 6 + offset,
+                425 + offset,
+                3,
+                5,
+                if selected { 0x398b22 } else { 0x717986 },
+            );
+            self.rect(
+                x + 6 + offset,
+                425 + offset,
+                2,
+                2,
+                if selected { GREEN } else { 0x52586e },
+            );
+            let label = quality.kbps().to_string();
+            self.text(
+                x + (w - label.len() * 8) / 2 + 3 + offset,
+                424 + offset,
+                &label,
+                0x252c40,
+                3,
+            );
+        }
+
+        self.rect(13, 443, 534, 1, 0x171722);
+        self.rect(13, 444, 534, 1, 0x656174);
+        let notice = self
+            .transient
+            .as_ref()
+            .filter(|(_, at)| at.elapsed() < Duration::from_secs(8))
+            .map(|(t, _)| t.clone());
+        let status = notice.unwrap_or_else(|| s.status.clone());
+        let chars: Vec<char> = status.chars().collect();
+        self.text(
+            15,
+            450,
+            &chars.iter().take(66).collect::<String>(),
+            GOLD,
+            66,
+        );
+        self.text(
+            15,
+            460,
+            &chars.iter().skip(66).take(66).collect::<String>(),
+            GOLD,
+            66,
+        );
+        if self.help {
+            self.render_help();
+        }
+    }
+
+    fn render_help(&mut self) {
+        self.bevel(24, 24, 512, 416, BG, false);
+        self.rect(28, 28, 504, 29, 0x171724);
+        self.text(42, 43, "SPOTIAMP / MODE D'EMPLOI", GREEN, 58);
+        for (i, line) in [
+            "CONNEXION ouvre votre navigateur pour Spotify.",
+            "La musique est lue directement par ce lecteur.",
+            "Le client Spotify officiel peut rester ferme.",
+            "",
+            "Ajoutez un lien de titre, d'album ou de playlist.",
+            "Exemple : https://open.spotify.com/track/...",
+            "Double-clic : lire. Liste limitee a 500 titres.",
+            "Qualite KB/S : 96 / 160 / 320 (defaut, memorise).",
+            "Ctrl+V / Cmd+V : coller un lien",
+            "Entree : ajouter le lien ou lire la selection",
+            "Espace : lecture / pause (hors saisie)",
+            "Fleches : selection / molette : defilement",
+            "Suppr : retirer un titre ; Tab : champ de lien",
+            "Barres : position de lecture et volume",
+            "Qualite modifiee : au prochain chargement audio.",
+            "Identifiants gardes dans le coffre du systeme.",
+            "Sans coffre disponible : connexion non memorisee.",
+            "DECONNECTER oublie la session enregistree.",
+            "Le moteur peut choisir un debit de repli.",
+            "Prototype : recherche et egaliseur non inclus.",
+            "F1, Echap ou clic : fermer cette aide.",
+        ]
+        .iter()
+        .enumerate()
+        {
+            self.text(42, 69 + i * 17, line, WHITE, 59);
+        }
+    }
+
+    pub fn save_ppm(&self, path: &str) -> std::io::Result<()> {
+        let mut file = File::create(path)?;
+        write!(file, "P6\n{WIDTH} {HEIGHT}\n255\n")?;
+        let mut data = Vec::with_capacity(self.pixels.len() * 3);
+        for p in &self.pixels {
+            data.extend_from_slice(&[(p >> 16) as u8, (p >> 8) as u8, *p as u8]);
+        }
+        file.write_all(&data)
+    }
+}
+
+fn format_time(ms: u32) -> String {
+    format!("{}:{:02}", ms / 60_000, ms / 1000 % 60)
+}
