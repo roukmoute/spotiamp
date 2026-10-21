@@ -1,6 +1,6 @@
 [package]
 name = "spotiamp"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 rust-version = "1.89"
 description = "A small native, classic-style Spotify player — experimental"
@@ -10,13 +10,14 @@ default-run = "spotiamp"
 [features]
 default = ["spotify", "updates"]
 updates = ["dep:libc", "dep:reqwest", "dep:serde", "dep:serde_json", "dep:sha2", "dep:tempfile", "dep:semver", "dep:zip", "dep:flate2"]
-spotify = ["dep:protobuf", "dep:librespot-core", "dep:librespot-playback", "dep:librespot-metadata", "dep:librespot-oauth", "dep:librespot-protocol", "dep:tokio", "dep:keyring", "dep:serde_json", "dep:url", "dep:rodio"]
+spotify = ["dep:protobuf", "dep:rand", "dep:librespot-core", "dep:librespot-playback", "dep:librespot-metadata", "dep:librespot-oauth", "dep:librespot-protocol", "dep:tokio", "dep:keyring", "dep:serde_json", "dep:url", "dep:rodio"]
 
 [build-dependencies]
 winresource = { version = "=0.1.34", default-features = false }
 
 [dependencies]
 protobuf = { version = "3.7", optional = true }
+rand = { version = "0.9", default-features = false, features = ["thread_rng"], optional = true }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls-webpki-roots", "system-proxy"], optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 sha2 = { version = "0.10", optional = true }

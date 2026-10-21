@@ -235,51 +235,51 @@ impl View {
         for (y, version, first, second) in [
             (
                 109,
+                "0.1.2 / SHUFFLE ET REPEAT",
+                "Ordre aléatoire et répétition de la file.",
+                "Boutons classiques, voyants verts et relief.",
+            ),
+            (
+                142,
                 "0.1.1 / BOUTON LECTURE",
                 "En pause : reprise à la même position.",
                 "En lecture : retour au début du morceau.",
             ),
             (
-                142,
+                175,
                 "0.1.0 / INSTALLATEUR WINDOWS",
                 "Installation par utilisateur et raccourcis.",
                 "Désinstallation et mises à jour intégrées.",
             ),
             (
-                175,
+                208,
                 "ALPHA.8 / PLAYLISTS SPOTIFY",
                 "Bibliothèque native, playlists du compte.",
                 "Titres à la demande, lecture et ajout à la file.",
             ),
             (
-                208,
+                241,
                 "ALPHA.7 / FENÊTRE INTÉGRÉE",
                 "Bandeau déplaçable, boutons Réduire et Fermer.",
                 "Cadre système retiré, même interface légère.",
             ),
             (
-                241,
+                274,
                 "ALPHA.6 / MISES À JOUR",
                 "Détection, téléchargement et installation.",
                 "Vérification du paquet puis redémarrage.",
             ),
             (
-                274,
+                307,
                 "ALPHA.5 / À PROPOS",
                 "Version, crédits, raccourcis et historique.",
                 "Quatre onglets, accessibles aussi au clavier.",
             ),
             (
-                307,
+                340,
                 "ALPHA.4 / SKIN CLASSIQUE",
                 "Boutons métalliques et états enfoncés.",
                 "Clics courts fiables, focus et capture souris.",
-            ),
-            (
-                340,
-                "ALPHA.3 / QUALITÉ AUDIO",
-                "Choix 96 / 160 / 320 kb/s, 320 par défaut.",
-                "Préférence mémorisée, au prochain chargement.",
             ),
         ] {
             self.text(54, y, version, GOLD, 56);

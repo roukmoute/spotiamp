@@ -1,5 +1,16 @@
 # Changements
 
+## 0.1.2 — 22 octobre 2026
+
+- Boutons **Shuffle** et **Repeat** après Suivant, avec relief métallique,
+  effet d'enfoncement et voyant vert pour les modes actifs.
+- Lecture aléatoire sans doublon d'entrée dans un même tour et navigation
+  Précédent/Suivant dans cet ordre. La liste affichée conserve son ordre.
+- Répétition de la file à sa fin, ou d'un titre seul. Associée à Shuffle,
+  elle prépare un nouvel ordre à chaque tour sans enchaîner deux fois la
+  même entrée lorsque la file compte plusieurs titres.
+- Modes désactivés au lancement ; aucune modification des playlists Spotify.
+
 ## 0.1.1 — 22 octobre 2026
 
 - Bouton **Lecture** corrigé : après une pause, le morceau reprend à sa

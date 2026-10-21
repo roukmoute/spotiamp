@@ -17,8 +17,8 @@ en anglais. L'installation concerne votre compte, sans droits administrateur.
 Le lecteur apparaît dans le menu Démarrer ; le raccourci sur le Bureau est optionnel.
 L'assistant propose de lancer Spotiamp à la fin.
 
-La version **0.1.1** corrige le bouton **Lecture** : reprise à la position de
-pause, ou retour au début du morceau s'il est déjà en lecture.
+La version **0.1.2** ajoute les boutons **Shuffle** (lecture aléatoire) et
+**Repeat** (répétition de la file), intégrés au skin classique.
 L'installateur est proposé avec l'archive portable
 `Spotiamp-Windows-x64.zip`, disponible avec les paquets Linux, macOS et les
 [sources dans les releases](https://github.com/roukmoute/spotiamp/releases/latest).
@@ -68,6 +68,15 @@ ainsi que sa qualité audio. Après **Arrêt**, le bouton démarre le titre sél
 (sinon le titre courant, ou le premier titre de la file).
 Un double-clic sur une ligne ou **Entrée** lance explicitement ce titre depuis
 le début. **Pause (Ⅱ)** et **Espace** alternent entre pause et reprise.
+
+Les boutons **Shuffle** et **Repeat (↻)** se trouvent après **Suivant**.
+Un voyant vert indique qu'un mode est actif ; cliquer à nouveau le désactive.
+**Shuffle** parcourt les titres dans un ordre mélangé, sans rejouer une entrée
+pendant le même tour. **Précédent** permet de revenir dans cet ordre.
+**Repeat** relance la file lorsqu'elle se termine ; avec Shuffle, un nouvel
+ordre est préparé à chaque tour. Sans Repeat, la lecture s'arrête à la fin.
+Avec un seul titre et Repeat activé, ce titre joue en boucle.
+Les deux modes sont désactivés au lancement et n'altèrent pas vos playlists Spotify.
 
 Pour retrouver vos playlists sans copier de lien, ouvrir **BIBLIO. F3** après
 la connexion. La fenêtre affiche les playlists enregistrées ou suivies de votre

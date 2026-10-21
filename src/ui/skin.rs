@@ -204,6 +204,41 @@ impl View {
         self.transport_glyph(cx, cy, icon, if enabled { 0x293247 } else { 0x555c70 });
     }
 
+    fn mode_button(&mut self, button: Button, active: bool) {
+        let (x, y, w, h) = button.rect();
+        let pressed = self.button_down(x, y);
+        self.metal_face(x, y, w, h, true, pressed || active);
+        let d = usize::from(pressed);
+        if button == Button::Shuffle {
+            self.rect(x + 5 + d, y + 8 + d, 3, 6, 0x414854);
+            self.rect(
+                x + 5 + d,
+                y + 8 + d,
+                2,
+                5,
+                if active { 0x398b22 } else { 0x717986 },
+            );
+            self.rect(
+                x + 5 + d,
+                y + 8 + d,
+                2,
+                2,
+                if active { GREEN } else { 0x52586e },
+            );
+            self.tiny_text(x + 11 + d, y + 9 + d, "SHUFFLE", 0x252c40);
+        } else {
+            // Two return arrows denote looping the whole queue, without a "1".
+            let color = if active { GREEN } else { 0x293247 };
+            let (left, top) = (x + 5 + d, y + 6 + d);
+            self.rect(left + 1, top, 9, 2, color);
+            self.rect(left, top + 1, 2, 3, color);
+            self.rect(left + 1, top + 7, 9, 2, color);
+            self.rect(left + 9, top + 5, 2, 3, color);
+            self.triangle(left + 8, top - 1, 3, true, color);
+            self.triangle(left, top + 5, 3, false, color);
+        }
+    }
+
     fn header(&mut self, y: usize, name: &str) {
         self.bevel(3, y, WIDTH - 6, 18, BG, false);
         self.rect(6, y + 2, WIDTH - 12, 1, 0x171725);
@@ -366,7 +401,8 @@ impl View {
         ] {
             self.transport_button(x, icon, s.connected);
         }
-        self.tiny_text(244, 125, "VOLUME", WHITE);
+        self.mode_button(Button::Shuffle, s.shuffle);
+        self.mode_button(Button::Repeat, s.repeat);
         let about_down = self.button_down(308, 116);
         self.metal_face(308, 116, 22, 22, true, about_down);
         let d = usize::from(about_down);
@@ -393,6 +429,7 @@ impl View {
         self.rect(340, 126, volume, 2, 0x76a631);
         let knob = (337 + volume).saturating_sub(5).clamp(337, 531);
         self.grip(knob, 118, 13, 18, self.dragging == 2);
+        self.tiny_text(410, 136, "VOLUME", WHITE);
 
         self.rect(5, 142, WIDTH - 10, 1, 0x11121d);
         self.rect(5, 143, WIDTH - 10, 1, 0x656174);
@@ -558,19 +595,38 @@ impl View {
             GOLD,
             66,
         );
-        if self.hovered_button == Some(Button::About) && self.about.is_none() && !self.help {
-            self.bevel(284, 140, 264, 19, 0xefe7bc, false);
-            self.text(
-                292,
-                146,
-                if update_notice.is_some() {
-                    "Mise à jour : ouvrir avec F2"
-                } else {
-                    "À propos de Spotiamp (F2)"
-                },
-                SHADOW,
-                31,
-            );
+        if self.about.is_none() && !self.help {
+            let tooltip = match self.hovered_button {
+                Some(Button::About) => Some((
+                    284,
+                    if update_notice.is_some() {
+                        "Mise à jour : ouvrir avec F2"
+                    } else {
+                        "À propos de Spotiamp (F2)"
+                    },
+                )),
+                Some(Button::Shuffle) => Some((
+                    225,
+                    if s.shuffle {
+                        "Lecture aléatoire : activée"
+                    } else {
+                        "Lecture aléatoire : désactivée"
+                    },
+                )),
+                Some(Button::Repeat) => Some((
+                    225,
+                    if s.repeat {
+                        "Répéter la file : activé"
+                    } else {
+                        "Répéter la file : désactivé"
+                    },
+                )),
+                _ => None,
+            };
+            if let Some((left, text)) = tooltip {
+                self.bevel(left, 140, 264, 19, 0xefe7bc, false);
+                self.text(left + 8, 146, text, SHADOW, 31);
+            }
         }
         if self.help {
             self.render_help();

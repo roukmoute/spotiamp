@@ -76,6 +76,8 @@ enum Button {
     Pause,
     Stop,
     Next,
+    Shuffle,
+    Repeat,
     Paste,
     Add,
     Remove,
@@ -88,7 +90,7 @@ enum Button {
 impl Button {
     const TITLEBAR: [Self; 3] = [Self::Help, Self::Minimize, Self::Close];
 
-    const ALL: [Self; 15] = [
+    const ALL: [Self; 17] = [
         Self::About,
         Self::Library,
         Self::Connection,
@@ -97,6 +99,8 @@ impl Button {
         Self::Pause,
         Self::Stop,
         Self::Next,
+        Self::Shuffle,
+        Self::Repeat,
         Self::Paste,
         Self::Add,
         Self::Remove,
@@ -141,6 +145,8 @@ impl Button {
             Self::Pause => (99, 116, 38, 22),
             Self::Stop => (141, 116, 38, 22),
             Self::Next => (183, 116, 38, 22),
+            Self::Shuffle => (225, 116, 56, 22),
+            Self::Repeat => (283, 116, 22, 22),
             Self::Paste => (430, 171, 48, 22),
             Self::Add => (484, 171, 62, 22),
             Self::Remove => (14, 417, 98, 22),
@@ -532,6 +538,8 @@ impl View {
                 99..=136 => Some(Command::Toggle),
                 141..=178 => Some(Command::Stop),
                 183..=220 => Some(Command::Next),
+                225..=280 => Some(Command::ToggleShuffle),
+                283..=304 => Some(Command::ToggleRepeat),
                 337..=543 => {
                     self.dragging = 2;
                     return self.drag(x, y, s);
@@ -608,7 +616,11 @@ impl View {
         (
             self.about,
             self.about_focus,
-            self.hovered_button == Some(Button::About),
+            self.hovered_button.filter(|button| {
+                matches!(button, Button::About | Button::Shuffle | Button::Repeat)
+                    && self.about.is_none()
+                    && !self.help
+            }),
         )
             .hash(&mut hash);
         self.transient
@@ -637,6 +649,9 @@ mod scroll_tests;
 
 #[cfg(test)]
 mod transport_tests;
+
+#[cfg(test)]
+mod mode_tests;
 
 #[cfg(test)]
 mod tests {

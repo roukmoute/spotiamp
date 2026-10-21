@@ -34,6 +34,8 @@ use crate::{
 
 #[path = "engine/library.rs"]
 mod library;
+#[path = "engine/order.rs"]
+mod order;
 #[cfg(test)]
 #[path = "engine/transport_tests.rs"]
 mod transport_tests;
@@ -194,6 +196,7 @@ struct Worker {
     // a delayed Playing/Paused event reverse a newer button press's intent.
     wants_playback: bool,
     loading_audio: bool,
+    order: order::Order,
     pending_loads: usize,
     request_id: Option<u64>,
     // The preference can change during playback. Keep the last load's request
@@ -206,7 +209,7 @@ impl Worker {
     fn new(state: Arc<Mutex<Snapshot>>) -> Self {
         let load_quality = state.lock().map(|s| s.quality).unwrap_or_default();
         let wants_playback = state.lock().is_ok_and(|s| s.playing);
-        Self {
+        let mut worker = Self {
             state,
             library: library::State::default(),
             session: None,
@@ -224,11 +227,15 @@ impl Worker {
             stopped: true,
             wants_playback,
             loading_audio: false,
+            order: order::Order::default(),
             pending_loads: 0,
             request_id: None,
             load_quality,
             audio_error: Arc::new(Mutex::new(None)),
-        }
+        };
+        let current = worker.snapshot().current;
+        worker.reset_order(current);
+        worker
     }
 
     async fn run(mut self, mut commands: mpsc::Receiver<Command>) {
@@ -404,18 +411,14 @@ impl Worker {
                     });
                 }
             }
+            Command::ToggleShuffle => {
+                edit(&self.state, |s| s.shuffle = !s.shuffle);
+                self.reset_order(self.snapshot().current);
+            }
+            Command::ToggleRepeat => edit(&self.state, |s| s.repeat = !s.repeat),
             Command::Stop => self.stop(),
             Command::Next => self.next(),
-            Command::Previous => {
-                let snapshot = self.snapshot();
-                if snapshot.position_ms > 3_000 {
-                    if let Some(player) = &self.player {
-                        player.seek(0);
-                    }
-                } else {
-                    self.play(snapshot.current.unwrap_or(0).saturating_sub(1));
-                }
-            }
+            Command::Previous => self.previous(),
             Command::Seek(position) => {
                 if let Some(player) = &self.player {
                     let duration = self.snapshot().duration_ms;
@@ -444,12 +447,16 @@ impl Worker {
                     self.stop();
                     self.current_uri = None;
                 }
+                if snapshot.shuffle {
+                    self.order.remove(index);
+                }
                 edit(&self.state, |s| remove_row(s, index));
             }
             Command::Clear => {
                 self.cancel_import();
                 self.stop();
                 self.current_uri = None;
+                self.order.clear();
                 edit(&self.state, |s| {
                     s.queue.clear();
                     s.current = None;
@@ -557,6 +564,7 @@ impl Worker {
                     );
                     s.status = notice;
                 });
+                self.queue_appended();
             }
             Update::Metadata { generation, row } if generation == self.generation => {
                 edit(&self.state, |s| {
@@ -619,15 +627,22 @@ impl Worker {
     }
 
     fn play(&mut self, index: usize) {
+        if self.load(index) {
+            // Explicit selection starts a new cycle anchored at that row.
+            self.reset_order(Some(index));
+        }
+    }
+
+    fn load(&mut self, index: usize) -> bool {
         let snapshot = self.snapshot();
         let Some(row) = snapshot.queue.get(index) else {
-            return;
+            return false;
         };
         let Some(player) = &self.player else {
             edit(&self.state, |s| {
                 s.status = "Connectez Spotify pour lire la file".into()
             });
-            return;
+            return false;
         };
         if let Ok(uri) = SpotifyUri::from_uri(&row.uri) {
             // Each load is acknowledged by PlayRequestIdChanged. Until the
@@ -647,7 +662,9 @@ impl Worker {
                 s.playing = false;
                 s.status = "Chargement audio...".into();
             });
+            return true;
         }
+        false
     }
 
     fn press_play(&mut self, start_index: usize) {
@@ -667,12 +684,74 @@ impl Worker {
 
     fn next(&mut self) {
         let snapshot = self.snapshot();
-        let next = snapshot.current.map_or(0, |index| index + 1);
-        if next < snapshot.queue.len() {
-            self.play(next);
+        if self.player.is_none() {
+            edit(&self.state, |s| {
+                s.status = "Connectez Spotify pour lire la file".into()
+            });
+            return;
+        }
+        let next = if snapshot.shuffle {
+            self.order.next(snapshot.repeat, &mut rand::rng())
+        } else {
+            let next = snapshot.current.map_or(0, |index| index + 1);
+            if next < snapshot.queue.len() {
+                Some(next)
+            } else if snapshot.repeat && !snapshot.queue.is_empty() {
+                Some(0)
+            } else {
+                None
+            }
+        };
+        if let Some(index) = next {
+            self.load(index);
         } else {
             self.stop();
             edit(&self.state, |s| s.status = "Fin de la file".into());
+        }
+    }
+
+    fn previous(&mut self) {
+        let snapshot = self.snapshot();
+        let Some(player) = &self.player else {
+            edit(&self.state, |s| {
+                s.status = "Connectez Spotify pour lire la file".into()
+            });
+            return;
+        };
+        if snapshot.position_ms > 3_000 && !self.stopped {
+            player.seek(0);
+            return;
+        }
+        let previous = if snapshot.shuffle {
+            self.order.previous()
+        } else if snapshot.queue.is_empty() {
+            None
+        } else if snapshot.current == Some(0) && snapshot.repeat {
+            Some(snapshot.queue.len() - 1)
+        } else {
+            Some(snapshot.current.unwrap_or(0).saturating_sub(1))
+        };
+        if let Some(index) = previous {
+            self.load(index);
+        }
+    }
+
+    fn reset_order(&mut self, current: Option<usize>) {
+        if let Ok(snapshot) = self.state.lock() {
+            if snapshot.shuffle {
+                self.order
+                    .reset(snapshot.queue.len(), current, &mut rand::rng());
+            } else {
+                self.order.clear();
+            }
+        }
+    }
+
+    fn queue_appended(&mut self) {
+        if let Ok(snapshot) = self.state.lock()
+            && snapshot.shuffle
+        {
+            self.order.append(snapshot.queue.len(), &mut rand::rng());
         }
     }
 

@@ -263,3 +263,312 @@ fn play_cancels_deferred_library_play_without_discarding_its_preview() {
         }
     }
 }
+
+fn queue(len: usize) -> (Worker, Arc<RecordingPlayer>) {
+    let (worker, player) = worker(true);
+    edit(&worker.state, |s| {
+        // Duplicate URIs deliberately remain independent queue entries.
+        s.queue = (0..len)
+            .map(|index| row("4uLU6hMCjMI75M1A2tKUQC", &format!("Track {index}")))
+            .collect();
+        s.current = (len > 0).then_some(0);
+        s.position_ms = 0;
+    });
+    (worker, player)
+}
+
+fn finish_current(worker: &mut Worker) {
+    let id = worker.request_id.unwrap_or(0);
+    let uri = worker.current_uri.clone().unwrap();
+    worker.player_event(PlayerEvent::EndOfTrack {
+        play_request_id: id,
+        track_id: uri,
+    });
+    if worker.pending_loads > 0 {
+        worker.player_event(PlayerEvent::PlayRequestIdChanged {
+            play_request_id: id + 1,
+        });
+    }
+}
+
+#[test]
+fn modes_default_off_and_toggles_never_change_audio_or_requested_quality() {
+    let (mut worker, player) = worker(false);
+    let before = worker.snapshot();
+    assert!(!before.shuffle && !before.repeat);
+    for command in [
+        Command::ToggleShuffle,
+        Command::ToggleRepeat,
+        Command::ToggleShuffle,
+        Command::ToggleRepeat,
+    ] {
+        send(&mut worker, command);
+    }
+    assert!(player.take().is_empty());
+    assert_eq!(worker.snapshot(), before);
+    assert_eq!(worker.load_quality, AudioQuality::Kbps160);
+}
+
+#[test]
+fn natural_end_visits_each_row_then_stops_or_repeats_the_whole_queue() {
+    for shuffle in [false, true] {
+        for repeat in [false, true] {
+            let (mut worker, player) = queue(8);
+            if shuffle {
+                send(&mut worker, Command::ToggleShuffle);
+            }
+            if repeat {
+                send(&mut worker, Command::ToggleRepeat);
+            }
+            let mut visited = vec![0];
+            for _ in 1..8 {
+                finish_current(&mut worker);
+                visited.push(worker.snapshot().current.unwrap());
+                assert!(matches!(
+                    player.take().as_slice(),
+                    [Call::Load(_, true, 0, _)]
+                ));
+            }
+            let last = *visited.last().unwrap();
+            visited.sort_unstable();
+            assert_eq!(visited, (0..8).collect::<Vec<_>>());
+            finish_current(&mut worker);
+            if repeat {
+                let first = worker.snapshot().current.unwrap();
+                assert_ne!(first, last);
+                assert!(matches!(
+                    player.take().as_slice(),
+                    [Call::Load(_, true, 0, _)]
+                ));
+                let mut second_cycle = vec![first];
+                for _ in 1..8 {
+                    finish_current(&mut worker);
+                    second_cycle.push(worker.snapshot().current.unwrap());
+                }
+                second_cycle.sort_unstable();
+                assert_eq!(second_cycle, (0..8).collect::<Vec<_>>());
+            } else {
+                assert!(worker.stopped);
+                assert_eq!(player.take(), vec![Call::Stop]);
+                assert_eq!(worker.snapshot().status, "Fin de la file");
+            }
+        }
+    }
+}
+
+#[test]
+fn shuffled_previous_retraces_actual_order_including_repeat_boundary() {
+    let (mut worker, player) = queue(6);
+    send(&mut worker, Command::ToggleShuffle);
+    send(&mut worker, Command::ToggleRepeat);
+    let mut visited = vec![0];
+    for _ in 0..7 {
+        send(&mut worker, Command::Next);
+        visited.push(worker.snapshot().current.unwrap());
+    }
+    player.take();
+    for expected in visited.iter().rev().skip(1) {
+        send(&mut worker, Command::Previous);
+        assert_eq!(worker.snapshot().current, Some(*expected));
+        assert!(matches!(
+            player.take().as_slice(),
+            [Call::Load(_, true, 0, _)]
+        ));
+    }
+    send(&mut worker, Command::Next);
+    assert_eq!(worker.snapshot().current, Some(visited[1]));
+    edit(&worker.state, |s| s.position_ms = 3_001);
+    player.take();
+    send(&mut worker, Command::Previous);
+    assert_eq!(player.take(), vec![Call::Seek(0)]);
+    assert_eq!(worker.snapshot().current, Some(visited[1]));
+}
+
+#[test]
+fn single_empty_and_rapid_repeated_end_events_are_safe_in_all_modes() {
+    for shuffle in [false, true] {
+        for repeat in [false, true] {
+            let (mut worker, player) = queue(1);
+            if shuffle {
+                send(&mut worker, Command::ToggleShuffle);
+            }
+            if repeat {
+                send(&mut worker, Command::ToggleRepeat);
+            }
+            let old_id = worker.request_id.unwrap();
+            let ended = || PlayerEvent::EndOfTrack {
+                play_request_id: old_id,
+                track_id: parse_input("spotify:track:4uLU6hMCjMI75M1A2tKUQC").unwrap(),
+            };
+            worker.player_event(ended());
+            worker.player_event(ended());
+            let calls = player.take();
+            if repeat {
+                assert!(matches!(calls.as_slice(), [Call::Load(_, true, 0, _)]));
+                worker.player_event(PlayerEvent::PlayRequestIdChanged {
+                    play_request_id: old_id + 1,
+                });
+                worker.player_event(ended());
+                assert!(player.take().is_empty());
+            } else {
+                assert_eq!(calls, vec![Call::Stop]);
+            }
+            send(&mut worker, Command::Clear);
+            assert_eq!(worker.snapshot().shuffle, shuffle);
+            assert_eq!(worker.snapshot().repeat, repeat);
+            player.take();
+            send(&mut worker, Command::Next);
+            send(&mut worker, Command::Previous);
+            send(&mut worker, Command::Play(0));
+            assert!(
+                !player
+                    .take()
+                    .iter()
+                    .any(|call| matches!(call, Call::Load(..)))
+            );
+        }
+    }
+}
+
+#[test]
+fn explicit_selection_starts_a_fresh_shuffle_cycle_and_play_preserves_it() {
+    let (mut worker, player) = queue(7);
+    send(&mut worker, Command::ToggleShuffle);
+    send(&mut worker, Command::Next);
+    send(&mut worker, Command::PlayIndex(4));
+    let mut visited = vec![4];
+    // Loading Play leaves the selected stream and permutation intact.
+    player.take();
+    send(&mut worker, Command::Play(1));
+    assert!(player.take().is_empty());
+    for _ in 1..7 {
+        send(&mut worker, Command::Next);
+        visited.push(worker.snapshot().current.unwrap());
+    }
+    visited.sort_unstable();
+    assert_eq!(visited, (0..7).collect::<Vec<_>>());
+}
+
+#[test]
+fn import_append_and_removal_preserve_shuffle_history_and_remaining_entries() {
+    let (mut worker, player) = queue(6);
+    send(&mut worker, Command::ToggleShuffle);
+    send(&mut worker, Command::Next);
+    let second = worker.snapshot().current.unwrap();
+    let (updates, _) = mpsc::channel(1);
+    worker.update(
+        Update::Rows {
+            generation: worker.generation,
+            rows: vec![row("0000000000000000000001", "Added")],
+            notice: String::new(),
+        },
+        &updates,
+    );
+    send(&mut worker, Command::Previous);
+    assert_eq!(worker.snapshot().current, Some(0));
+    send(&mut worker, Command::Next);
+    assert_eq!(worker.snapshot().current, Some(second));
+    // Removing an earlier index adjusts the current identity and history.
+    send(&mut worker, Command::Remove(0));
+    assert_eq!(worker.snapshot().current, Some(second - 1));
+    let mut visited = vec![second - 1];
+    for _ in 1..6 {
+        send(&mut worker, Command::Next);
+        visited.push(worker.snapshot().current.unwrap());
+    }
+    visited.sort_unstable();
+    assert_eq!(visited, (0..6).collect::<Vec<_>>());
+    send(&mut worker, Command::Clear);
+    player.take();
+    worker.update(
+        Update::Rows {
+            generation: worker.generation,
+            rows: vec![row("0000000000000000000002", "After clear")],
+            notice: String::new(),
+        },
+        &updates,
+    );
+    send(&mut worker, Command::Next);
+    assert_eq!(worker.snapshot().current, Some(0));
+    assert!(matches!(
+        player.take().as_slice(),
+        [Call::Load(_, true, 0, _)]
+    ));
+}
+
+#[test]
+fn library_append_preserves_order_and_same_length_replacement_clears_old_history() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let _guard = runtime.enter();
+    for replace in [false, true] {
+        let (mut worker, player) = queue(2);
+        send(&mut worker, Command::ToggleShuffle);
+        send(&mut worker, Command::ToggleRepeat);
+        send(&mut worker, Command::Next);
+        assert_eq!(worker.snapshot().current, Some(1));
+        worker.session = Some(Session::new(SessionConfig::default(), None));
+        worker.library.open = true;
+        let id = PlaylistId::Spotify("spotify:playlist:4uLU6hMCjMI75M1A2tKUQC".into());
+        worker.library.shared.lock().unwrap().entries = Arc::new(vec![PlaylistEntry {
+            id: id.clone(),
+            name: "Library".into(),
+            track_count: Some(2),
+            duration_ms: None,
+            folder: String::new(),
+            available: true,
+        }]);
+        send(
+            &mut worker,
+            Command::Library(LibraryCommand::Queue {
+                id,
+                replace,
+                play: false,
+                start: 0,
+            }),
+        );
+        worker.library_update(library::Update::Loaded {
+            generation: 1,
+            result: Ok((
+                vec![
+                    row("0000000000000000000001", "New 0"),
+                    row("0000000000000000000002", "New 1"),
+                ],
+                false,
+            )),
+        });
+        assert!(worker.snapshot().shuffle && worker.snapshot().repeat);
+        player.take();
+        if replace {
+            assert_eq!(worker.snapshot().current, None);
+            send(&mut worker, Command::Next);
+            let first = worker.snapshot().current;
+            send(&mut worker, Command::Previous);
+            assert_eq!(worker.snapshot().current, first); // no previous playlist history
+            send(&mut worker, Command::Next);
+            assert_ne!(worker.snapshot().current, first);
+            assert_eq!(worker.snapshot().queue.len(), 2);
+        } else {
+            assert_eq!(worker.snapshot().current, Some(1));
+            send(&mut worker, Command::Previous);
+            assert_eq!(worker.snapshot().current, Some(0));
+            send(&mut worker, Command::Next);
+            assert_eq!(worker.snapshot().current, Some(1));
+            let mut additions = Vec::new();
+            for _ in 0..2 {
+                send(&mut worker, Command::Next);
+                additions.push(worker.snapshot().current.unwrap());
+            }
+            additions.sort_unstable();
+            assert_eq!(additions, vec![2, 3]);
+        }
+        assert!(
+            player
+                .take()
+                .iter()
+                .all(|call| matches!(call, Call::Load(_, true, 0, _)))
+        );
+    }
+}

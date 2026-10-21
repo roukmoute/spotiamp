@@ -365,6 +365,11 @@ impl Worker {
             s.queue.extend(rows.iter().take(count).cloned());
             s.status = format!("{count} titre(s) de la playlist ajoutes");
         });
+        if request.replace {
+            self.reset_order(None);
+        } else {
+            self.queue_appended();
+        }
         self.library.edit(|s| {
             s.status = if count < rows.len() {
                 format!("{count} titres ajoutes; file limitee a {MAX_QUEUE}")

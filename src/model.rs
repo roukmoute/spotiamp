@@ -25,6 +25,8 @@ pub enum Command {
     Play(usize),
     PlayIndex(usize),
     Toggle,
+    ToggleShuffle,
+    ToggleRepeat,
     Stop,
     Next,
     Previous,
@@ -103,6 +105,8 @@ pub struct Snapshot {
     pub duration_ms: u32,
     pub volume: u16,
     pub quality: AudioQuality,
+    pub shuffle: bool,
+    pub repeat: bool,
 }
 
 impl Default for Snapshot {
@@ -118,6 +122,8 @@ impl Default for Snapshot {
             duration_ms: 0,
             volume: 32768,
             quality: AudioQuality::default(),
+            shuffle: false,
+            repeat: false,
         }
     }
 }
