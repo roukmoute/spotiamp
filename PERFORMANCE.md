@@ -5,6 +5,42 @@ Rust 1.95.0, compilation `release`. **Aucun compte Spotify n'a été authentifi�
 pendant ces mesures Linux.** Un premier retour Windows est décrit séparément
 ci-dessous ; aucune série de mesures Windows en lecture n'est encore disponible.
 
+## Interface Windows : rendu logiciel et GDI
+
+**L'interface de Spotiamp ne requiert pas d'accélération graphique sous Windows.**
+Les boutons, textes et listes sont dessinés par le CPU dans un buffer de pixels
+réutilisé. Le backend Windows de minifb affiche ce bitmap avec
+[`StretchDIBits`](https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-stretchdibits),
+une fonction de **GDI**, le système graphique classique de Windows.
+Le chemin est visible dans le [backend embarqué](vendor/minifb/src/os/windows/mod.rs) ;
+le [lecteur](src/main.rs) ne redessine le buffer que lorsque l'état visible change.
+L'interface ne crée ni contexte OpenGL ni périphérique Direct3D.
+
+Ce choix évite d'initialiser un moteur de rendu 3D dans le lecteur. Il concerne
+le rendu de Spotiamp, pas l'ensemble du système : le
+[compositeur de bureau Windows](https://learn.microsoft.com/en-us/windows/win32/dwm/dwm-overview)
+peut utiliser le GPU pour afficher les fenêtres. Il ne s'agit donc pas d'une
+promesse de « zéro utilisation du GPU » dans le Gestionnaire des tâches.
+GDI est ici spécifique à Windows ; les versions macOS et Linux utilisent
+leurs propres backends d'affichage.
+
+### Comparaison avec Spotifast
+
+Au commit [`e86d3de`](https://github.com/crmne/spotifast/tree/e86d3de0cb72edba8f24b447218daa7f3af1f127),
+consulté le 22 octobre 2026, Spotifast configure **egui/eframe avec Glow**, son
+moteur de rendu **OpenGL** : voir les
+[dépendances activées](https://github.com/crmne/spotifast/blob/e86d3de0cb72edba8f24b447218daa7f3af1f127/Cargo.toml#L31-L36)
+et l'[initialisation du rendu](https://github.com/crmne/spotifast/blob/e86d3de0cb72edba8f24b447218daa7f3af1f127/src/entrypoint.rs#L643-L659).
+Spotiamp dessine son skin sur le CPU et présente les pixels avec GDI sous Windows.
+Les deux applications sont natives et n'embarquent pas de navigateur.
+OpenGL peut lui aussi fonctionner en rendu logiciel, par exemple avec
+[Mesa LLVMpipe](https://docs.mesa3d.org/drivers/llvmpipe.html) : son utilisation
+ne signifie pas qu'une carte graphique dédiée est obligatoire.
+
+Cette différence décrit leur architecture graphique. Elle ne suffit pas à
+attribuer à OpenGL un écart de consommation mémoire entre les deux applications :
+les fonctionnalités, buffers, caches et conditions de mesure comptent aussi.
+
 ## Résultats obtenus
 
 RSS est la mémoire résidente du processus. Mio = 1 048 576 octets. La mémoire

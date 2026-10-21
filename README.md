@@ -1,5 +1,19 @@
 # Spotiamp — un petit lecteur Spotify classique
 
+**L'esprit Winamp, avec une interface Windows en GDI : aucune accélération
+graphique requise pour dessiner le lecteur.**
+
+Sous Windows, Spotiamp dessine son interface en logiciel, sur le processeur,
+puis l'affiche avec **GDI**, le système graphique classique de Windows.
+Le rendu du lecteur ne crée aucun contexte OpenGL ou Direct3D et ne demande
+pas de carte graphique dédiée. Ce choix fait partie du principe du projet :
+une interface simple, un seul skin et peu de ressources mobilisées.
+
+La différence avec Spotifast se situe aussi dans ce choix d'affichage :
+[Spotifast utilise egui/eframe avec le moteur OpenGL Glow](https://github.com/crmne/spotifast/blob/e86d3de0cb72edba8f24b447218daa7f3af1f127/Cargo.toml#L31-L36),
+tandis que Spotiamp utilise le rendu logiciel et GDI sous Windows.
+Les [détails techniques et les mesures](PERFORMANCE.md) expliquent cette approche.
+
 Prototype natif en Rust, inspiré de l'interface Winamp. Windows est la cible
 prioritaire ; le même code vise macOS et Linux. Ce projet expérimente une
 interface très sobre et plusieurs pistes de moteur audio. Le moteur actuel
@@ -226,7 +240,9 @@ une petite police bitmap : les glyphes absents sont affichés avec `?`.
 
 ## Choix pour limiter la mémoire
 
-- Rendu logiciel bitmap, un seul thème, aucune WebView ni moteur de navigateur.
+- Rendu logiciel bitmap sur le CPU, affichage **Win32/GDI sous Windows**,
+  sans dépendance à l'accélération 3D pour l'interface du lecteur.
+- Un seul thème, aucune WebView ni moteur de navigateur.
 - Un processus pendant la lecture ; le réseau et l'audio restent hors du thread
   d'interface. Un processus temporaire remplace l'exécutable lors d'une mise à jour.
 - Recherche de mise à jour ponctuelle, sans thread ni client HTTP gardé au repos.
