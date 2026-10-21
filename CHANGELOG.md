@@ -1,5 +1,14 @@
 # Changements
 
+## 0.1.5 — 22 octobre 2026
+
+- L'éclair du bouton À propos clignote doucement entre doré et vert fluo
+  lorsqu'une mise à jour est disponible ou prête à installer.
+- L'infobulle distingue la mise à jour disponible de celle qui est téléchargée
+  et prête à installer ; le clic ou F2 ouvre directement l'onglet Mise à jour.
+- Animation suspendue derrière le panneau À propos et l'aide, et pendant le
+  téléchargement. La boucle et le buffer existants sont réutilisés.
+
 ## 0.1.4 — 22 octobre 2026
 
 - Icône Windows reprenant le **S doré du panneau À propos**, avec plusieurs

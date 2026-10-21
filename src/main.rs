@@ -652,6 +652,7 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
         if view.update != updater.status {
             view.update.clone_from(&updater.status);
         }
+        view.tick_update_indicator(start.elapsed());
         let next_fingerprint = view.fingerprint(&snapshot);
         if fingerprint != Some(next_fingerprint) {
             view.render(&snapshot);

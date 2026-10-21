@@ -394,7 +394,13 @@ impl View {
         let about_down = self.button_down(308, 116);
         self.metal_face(308, 116, 22, 22, true, about_down);
         let d = usize::from(about_down);
-        // Small original gold bolt; the About panel uses the same framebuffer.
+        // Alternate just the bolt's palette; its geometry and pressed offset,
+        // the metal face, and the permanent update dot remain unchanged.
+        let (bolt, bolt_shadow) = if self.update_indicator_lit() {
+            (GREEN, 0x285e24)
+        } else {
+            (0xe7c969, 0x77632f)
+        };
         for (row, bits) in [
             0x018u16, 0x030, 0x060, 0x0c0, 0x1fe, 0x03c, 0x078, 0x070, 0x060, 0x040,
         ]
@@ -403,8 +409,8 @@ impl View {
         {
             for col in 0..9 {
                 if bits & (1 << (8 - col)) != 0 {
-                    self.rect(315 + col + d, 122 + row + d, 1, 1, 0x77632f);
-                    self.rect(314 + col + d, 121 + row + d, 1, 1, 0xe7c969);
+                    self.rect(315 + col + d, 122 + row + d, 1, 1, bolt_shadow);
+                    self.rect(314 + col + d, 121 + row + d, 1, 1, bolt);
                 }
             }
         }
@@ -585,14 +591,7 @@ impl View {
         );
         if self.about.is_none() && !self.help {
             let tooltip = match self.hovered_button {
-                Some(Button::About) => Some((
-                    284,
-                    if update_notice.is_some() {
-                        "Mise à jour : ouvrir avec F2"
-                    } else {
-                        "À propos de Spotiamp (F2)"
-                    },
-                )),
+                Some(Button::About) => Some((284, self.about_tooltip())),
                 Some(Button::Shuffle) => Some((
                     225,
                     if s.shuffle {

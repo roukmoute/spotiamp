@@ -245,6 +245,7 @@ pub struct View {
     pub help: bool,
     pub about: Option<AboutTab>,
     pub update: UpdateStatus,
+    update_indicator_phase: bool,
     about_focus: usize,
     focused: bool,
     pressed_button: Option<Button>,
@@ -268,6 +269,7 @@ impl Default for View {
             help: false,
             about: None,
             update: UpdateStatus::default(),
+            update_indicator_phase: false,
             about_focus: 0,
             focused: true,
             pressed_button: None,
@@ -283,6 +285,36 @@ impl Default for View {
 }
 
 impl View {
+    /// Advance the update hint using elapsed time from the existing UI loop.
+    /// Only its visible half-cycle affects redraws; no clock or task is owned here.
+    pub fn tick_update_indicator(&mut self, elapsed: Duration) {
+        self.update_indicator_phase =
+            self.update_indicator_visible() && (elapsed.as_millis() / 750).is_multiple_of(2);
+    }
+
+    fn update_indicator_visible(&self) -> bool {
+        self.about.is_none()
+            && !self.help
+            && matches!(
+                self.update,
+                UpdateStatus::Available { .. } | UpdateStatus::Ready { .. }
+            )
+    }
+
+    fn update_indicator_lit(&self) -> bool {
+        self.update_indicator_visible() && self.update_indicator_phase
+    }
+
+    fn about_tooltip(&self) -> &'static str {
+        match self.update {
+            UpdateStatus::Available { .. } => "Mise à jour disponible (F2)",
+            UpdateStatus::Ready { .. } => "Mise à jour à installer (F2)",
+            UpdateStatus::Downloading { .. } => "Téléchargement en cours (F2)",
+            UpdateStatus::Failed(_) => "Échec de mise à jour (F2)",
+            _ => "À propos de Spotiamp (F2)",
+        }
+    }
+
     pub fn open_about(&mut self) {
         self.cancel_pointer();
         let tab = if matches!(
@@ -644,6 +676,9 @@ impl View {
         s.hash(&mut hash);
         self.input.hash(&mut hash);
         self.update.hash(&mut hash);
+        if self.update_indicator_visible() {
+            self.update_indicator_phase.hash(&mut hash);
+        }
         (
             self.input_active,
             self.select_all,

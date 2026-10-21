@@ -235,51 +235,51 @@ impl View {
         for (y, version, first, second) in [
             (
                 109,
+                "0.1.5 / ALERTE DE MISE À JOUR",
+                "L'éclair clignote en vert si une mise à jour attend.",
+                "L'infobulle indique si elle est prête à installer.",
+            ),
+            (
+                142,
                 "0.1.4 / ICÔNE WINDOWS",
                 "Le S doré identifie le lecteur et sa bibliothèque.",
                 "Barre des tâches et Alt+Tab, icône intégrée.",
             ),
             (
-                142,
+                175,
                 "0.1.3 / RECONNEXION AUTOMATIQUE",
                 "Session mémorisée réutilisée au lancement.",
                 "Déconnecter efface la session enregistrée.",
             ),
             (
-                175,
+                208,
                 "0.1.2 / SHUFFLE ET REPEAT",
                 "Ordre aléatoire et répétition de la file.",
                 "Boutons classiques, voyants verts et relief.",
             ),
             (
-                208,
+                241,
                 "0.1.1 / BOUTON LECTURE",
                 "En pause : reprise à la même position.",
                 "En lecture : retour au début du morceau.",
             ),
             (
-                241,
+                274,
                 "0.1.0 / INSTALLATEUR WINDOWS",
                 "Installation par utilisateur et raccourcis.",
                 "Désinstallation et mises à jour intégrées.",
             ),
             (
-                274,
+                307,
                 "ALPHA.8 / PLAYLISTS SPOTIFY",
                 "Bibliothèque native, playlists du compte.",
                 "Titres à la demande, lecture et ajout à la file.",
             ),
             (
-                307,
+                340,
                 "ALPHA.7 / FENÊTRE INTÉGRÉE",
                 "Bandeau déplaçable, boutons Réduire et Fermer.",
                 "Cadre système retiré, même interface légère.",
-            ),
-            (
-                340,
-                "ALPHA.6 / MISES À JOUR",
-                "Détection, téléchargement et installation.",
-                "Vérification du paquet puis redémarrage.",
             ),
         ] {
             self.text(54, y, version, GOLD, 56);

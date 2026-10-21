@@ -31,8 +31,8 @@ en anglais. L'installation concerne votre compte, sans droits administrateur.
 Le lecteur apparaît dans le menu Démarrer ; le raccourci sur le Bureau est optionnel.
 L'assistant propose de lancer Spotiamp à la fin.
 
-La version **0.1.4** reprend le **S doré du panneau À propos** pour l'icône
-Windows et l'affiche aussi dans la barre des tâches et Alt+Tab.
+La version **0.1.5** signale les mises à jour par l'**éclair clignotant vert fluo**
+du bouton À propos et une infobulle indiquant l'action disponible.
 L'installateur est proposé avec l'archive portable
 `Spotiamp-Windows-x64.zip`, disponible avec les paquets Linux, macOS et les
 [sources dans les releases](https://github.com/roukmoute/spotiamp/releases/latest).
@@ -157,7 +157,14 @@ stables sont proposées ; les releases du projet sont publiées sans le statut
 La recherche ne propose qu'un paquet
 compatible avec le système et l'architecture du lecteur. Une notification
 persistante et un repère sur le bouton **À propos** signalent une version
-disponible ; **F2** ouvre alors directement l'onglet **Mise à jour**.
+disponible. Son éclair alterne doucement entre doré et vert fluo ; l'infobulle
+indique **Mise à jour disponible (F2)**, puis **Mise à jour à installer (F2)**
+quand le téléchargement est terminé. Cliquer sur l'éclair ou appuyer sur **F2**
+ouvre directement l'onglet **Mise à jour**.
+Le clignotement s'arrête pendant le téléchargement et lorsque le panneau
+À propos ou l'aide masque le bouton. Il reprend si une mise à jour attend
+encore une action. L'animation utilise la boucle et le buffer graphique
+existants, sans thread ni moteur graphique supplémentaire.
 
 Dans cet onglet, **Vérifier** relance la recherche. **Télécharger** récupère le
 paquet sur disque et vérifie son empreinte SHA-256 ; la lecture peut continuer.
