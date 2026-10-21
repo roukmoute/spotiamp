@@ -133,7 +133,9 @@ function Start-Native([string]$File, [string[]]$Arguments = @(), [string]$Workin
 }
 function Wait-Success([Diagnostics.Process]$Process, [int]$Seconds = 90) {
     Assert-That ($Process.WaitForExit($Seconds * 1000)) "Process $($Process.Id) did not exit within $Seconds seconds"
-    Assert-That ($Process.ExitCode -eq 0) "Process $($Process.Id) failed with exit code $($Process.ExitCode)"
+    $exitCode = $Process.ExitCode
+    $description = if ($null -eq $exitCode) { '<unavailable>' } else { [string]$exitCode }
+    Assert-That ($null -ne $exitCode -and $exitCode -eq 0) "Process $($Process.Id) failed with exit code $description"
 }
 function Wait-Window([Diagnostics.Process]$Process) {
     return Wait-Until "visible UI for PID $($Process.Id)" {
@@ -145,6 +147,10 @@ function Wait-Window([Diagnostics.Process]$Process) {
     }
 }
 function Close-Reader([Diagnostics.Process]$Process) {
+    # Objects obtained by PID do not initially own a native handle. Retain one
+    # before WM_CLOSE so Windows can still provide the actual exit code after
+    # this independently launched process disappears from the process table.
+    [void]$Process.Handle
     $Process.Refresh()
     if (-not $Process.HasExited) {
         $handle = Wait-Window $Process
@@ -505,6 +511,7 @@ try {
             $selected = $false
             try {
                 if ($candidate.Id -ne $oldReader.Id -and (Same-Path $candidate.MainModule.FileName $installedExe)) {
+                    [void]$candidate.Handle
                     $selected = $true
                     return $candidate
                 }
@@ -525,8 +532,9 @@ try {
     Assert-That ([IO.File]::ReadAllText($personalFile) -eq "personal-$testToken") 'Native update changed personal install-directory data'
     Assert-That ([IO.File]::ReadAllText($userDataSentinel) -eq "user-data-$testToken") 'Native update changed user data outside the installation'
     Assert-That ((Get-Hash $qualityPath) -eq $qualityHash) 'Native update changed the audio preference'
-    Close-Reader $newReader
     Add-Check 'Published alpha.8 helper replaced the running old installation with different current executable bytes, restarted its visible UI, cleaned staging and synchronized registered version'
+    Close-Reader $newReader
+    Add-Check 'Restarted reader closed normally with a verified zero exit code'
 
     foreach ($directory in @('licenses', 'mpl-source', 'scripts')) {
         $owned = Join-Path $installDirectory $directory
@@ -559,6 +567,7 @@ try {
     $report.success = $true
 } catch {
     $report.error = ($_ | Out-String)
+    $report.script_stack_trace = $_.ScriptStackTrace
     if ($stage -and (Test-Path -LiteralPath $stage)) {
         $report.remaining_stage_entries = @(Get-ChildItem -LiteralPath $stage -Force -Recurse | ForEach-Object {
             [IO.Path]::GetRelativePath($stage, $_.FullName)
