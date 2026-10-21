@@ -1,0 +1,243 @@
+{
+  "schema_version": 1,
+  "platform": "Linux-6.12.113+deb13-amd64-x86_64-with-glibc2.41",
+  "recorded_at_utc": "2026-10-21T15:25:19.614014+00:00",
+  "pid": 3018963,
+  "executable": "<workspace>/work/baselines/spool-ui-only",
+  "executable_sha256": "dfb215c04ff069910a04cf8d9a7fb9107bfbaad4f01c5bc6d39ceb0b95e61876",
+  "scenario": "idle",
+  "scenario_verified": false,
+  "measurement_scope": "single process; children excluded",
+  "metric_note": "Linux private_resident_bytes is resident private memory, not Windows Private Bytes (committed memory).",
+  "startup_to_visible_ms": null,
+  "startup_note": "Window visibility is not measured on Linux.",
+  "requested_seconds": 10.0,
+  "interval_seconds": 0.5,
+  "warmup_seconds": 3.0,
+  "samples": [
+    {
+      "elapsed_seconds": 3.0033,
+      "rss_bytes": 6180864,
+      "peak_rss_bytes": 6180864,
+      "virtual_bytes": 7512064,
+      "pss_bytes": 3303424,
+      "private_resident_bytes": 3239936,
+      "cpu_seconds": 0.0,
+      "threads": 1
+    },
+    {
+      "elapsed_seconds": 3.504,
+      "rss_bytes": 6180864,
+      "peak_rss_bytes": 6180864,
+      "virtual_bytes": 7512064,
+      "pss_bytes": 3303424,
+      "private_resident_bytes": 3239936,
+      "cpu_seconds": 0.0,
+      "threads": 1
+    },
+    {
+      "elapsed_seconds": 4.0047,
+      "rss_bytes": 6180864,
+      "peak_rss_bytes": 6180864,
+      "virtual_bytes": 7512064,
+      "pss_bytes": 3303424,
+      "private_resident_bytes": 3239936,
+      "cpu_seconds": 0.0,
+      "threads": 1
+    },
+    {
+      "elapsed_seconds": 4.5055,
+      "rss_bytes": 6180864,
+      "peak_rss_bytes": 6180864,
+      "virtual_bytes": 7512064,
+      "pss_bytes": 3303424,
+      "private_resident_bytes": 3239936,
+      "cpu_seconds": 0.0,
+      "threads": 1
+    },
+    {
+      "elapsed_seconds": 5.0061,
+      "rss_bytes": 6180864,
+      "peak_rss_bytes": 6180864,
+      "virtual_bytes": 7512064,
+      "pss_bytes": 3303424,
+      "private_resident_bytes": 3239936,
+      "cpu_seconds": 0.0,
+      "threads": 1
+    },
+    {
+      "elapsed_seconds": 5.5068,
+      "rss_bytes": 6180864,
+      "peak_rss_bytes": 6180864,
+      "virtual_bytes": 7512064,
+      "pss_bytes": 3303424,
+      "private_resident_bytes": 3239936,
+      "cpu_seconds": 0.0,
+      "threads": 1
+    },
+    {
+      "elapsed_seconds": 6.0074,
+      "rss_bytes": 6180864,
+      "peak_rss_bytes": 6180864,
+      "virtual_bytes": 7512064,
+      "pss_bytes": 3303424,
+      "private_resident_bytes": 3239936,
+      "cpu_seconds": 0.0,
+      "threads": 1
+    },
+    {
+      "elapsed_seconds": 6.5081,
+      "rss_bytes": 6180864,
+      "peak_rss_bytes": 6180864,
+      "virtual_bytes": 7512064,
+      "pss_bytes": 3303424,
+      "private_resident_bytes": 3239936,
+      "cpu_seconds": 0.0,
+      "threads": 1
+    },
+    {
+      "elapsed_seconds": 7.0089,
+      "rss_bytes": 6180864,
+      "peak_rss_bytes": 6180864,
+      "virtual_bytes": 7512064,
+      "pss_bytes": 3303424,
+      "private_resident_bytes": 3239936,
+      "cpu_seconds": 0.0,
+      "threads": 1
+    },
+    {
+      "elapsed_seconds": 7.5096,
+      "rss_bytes": 6180864,
+      "peak_rss_bytes": 6180864,
+      "virtual_bytes": 7512064,
+      "pss_bytes": 3303424,
+      "private_resident_bytes": 3239936,
+      "cpu_seconds": 0.01,
+      "threads": 1
+    },
+    {
+      "elapsed_seconds": 8.0103,
+      "rss_bytes": 6180864,
+      "peak_rss_bytes": 6180864,
+      "virtual_bytes": 7512064,
+      "pss_bytes": 3303424,
+      "private_resident_bytes": 3239936,
+      "cpu_seconds": 0.01,
+      "threads": 1
+    },
+    {
+      "elapsed_seconds": 8.511,
+      "rss_bytes": 6180864,
+      "peak_rss_bytes": 6180864,
+      "virtual_bytes": 7512064,
+      "pss_bytes": 3303424,
+      "private_resident_bytes": 3239936,
+      "cpu_seconds": 0.01,
+      "threads": 1
+    },
+    {
+      "elapsed_seconds": 9.0117,
+      "rss_bytes": 6180864,
+      "peak_rss_bytes": 6180864,
+      "virtual_bytes": 7512064,
+      "pss_bytes": 3303424,
+      "private_resident_bytes": 3239936,
+      "cpu_seconds": 0.01,
+      "threads": 1
+    },
+    {
+      "elapsed_seconds": 9.5123,
+      "rss_bytes": 6180864,
+      "peak_rss_bytes": 6180864,
+      "virtual_bytes": 7512064,
+      "pss_bytes": 3303424,
+      "private_resident_bytes": 3239936,
+      "cpu_seconds": 0.01,
+      "threads": 1
+    },
+    {
+      "elapsed_seconds": 10.0134,
+      "rss_bytes": 6180864,
+      "peak_rss_bytes": 6180864,
+      "virtual_bytes": 7512064,
+      "pss_bytes": 3303424,
+      "private_resident_bytes": 3239936,
+      "cpu_seconds": 0.01,
+      "threads": 1
+    },
+    {
+      "elapsed_seconds": 10.5142,
+      "rss_bytes": 6180864,
+      "peak_rss_bytes": 6180864,
+      "virtual_bytes": 7512064,
+      "pss_bytes": 3303424,
+      "private_resident_bytes": 3239936,
+      "cpu_seconds": 0.01,
+      "threads": 1
+    },
+    {
+      "elapsed_seconds": 11.0147,
+      "rss_bytes": 6180864,
+      "peak_rss_bytes": 6180864,
+      "virtual_bytes": 7512064,
+      "pss_bytes": 3303424,
+      "private_resident_bytes": 3239936,
+      "cpu_seconds": 0.01,
+      "threads": 1
+    },
+    {
+      "elapsed_seconds": 11.5153,
+      "rss_bytes": 6180864,
+      "peak_rss_bytes": 6180864,
+      "virtual_bytes": 7512064,
+      "pss_bytes": 3303424,
+      "private_resident_bytes": 3239936,
+      "cpu_seconds": 0.01,
+      "threads": 1
+    },
+    {
+      "elapsed_seconds": 12.0165,
+      "rss_bytes": 6180864,
+      "peak_rss_bytes": 6180864,
+      "virtual_bytes": 7512064,
+      "pss_bytes": 3303424,
+      "private_resident_bytes": 3239936,
+      "cpu_seconds": 0.02,
+      "threads": 1
+    },
+    {
+      "elapsed_seconds": 12.517,
+      "rss_bytes": 6180864,
+      "peak_rss_bytes": 6180864,
+      "virtual_bytes": 7512064,
+      "pss_bytes": 3303424,
+      "private_resident_bytes": 3239936,
+      "cpu_seconds": 0.02,
+      "threads": 1
+    }
+  ],
+  "completion": "duration_elapsed",
+  "elapsed_seconds": 13.0028,
+  "sample_count": 20,
+  "summary": {
+    "rss_bytes": {
+      "min_bytes": 6180864,
+      "median_bytes": 6180864.0,
+      "p95_bytes": 6180864,
+      "max_bytes": 6180864
+    },
+    "pss_bytes": {
+      "min_bytes": 3303424,
+      "median_bytes": 3303424.0,
+      "p95_bytes": 3303424,
+      "max_bytes": 3303424
+    },
+    "private_resident_bytes": {
+      "min_bytes": 3239936,
+      "median_bytes": 3239936.0,
+      "p95_bytes": 3239936,
+      "max_bytes": 3239936
+    }
+  },
+  "path_note": "Workspace prefix anonymized for publication; samples and executable SHA-256 unchanged."
+}

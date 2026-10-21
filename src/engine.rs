@@ -1,0 +1,1113 @@
+//! Bounded native player. No web view, artwork, discovery, PCM preloading or
+//! persistent audio cache. Spotify protocol work stays off the UI thread.
+use std::{
+    collections::VecDeque,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
+};
+
+use librespot_core::{Session, SpotifyUri, authentication::Credentials, config::SessionConfig};
+use librespot_metadata::{Album, Metadata, Playlist, Track};
+use librespot_playback::{
+    audio_backend::{Sink, SinkError, SinkResult},
+    config::{PlayerConfig, VolumeCtrl},
+    convert::Converter,
+    decoder::AudioPacket,
+    mixer::{Mixer, MixerConfig, softmixer::SoftMixer},
+    player::{Player, PlayerEvent, PlayerEventChannel},
+};
+use librespot_protocol::authentication::AuthenticationType;
+use tokio::{
+    sync::mpsc,
+    task::{JoinHandle, JoinSet},
+};
+
+use crate::credentials;
+pub use crate::model::{Command, Snapshot, TrackRow};
+
+pub const MAX_QUEUE: usize = 500;
+const NETWORK_TIMEOUT: Duration = Duration::from_secs(20);
+
+pub struct Engine {
+    pub tx: mpsc::Sender<Command>,
+    pub state: Arc<Mutex<Snapshot>>,
+}
+
+impl Engine {
+    pub fn spawn() -> Self {
+        let state = Arc::new(Mutex::new(Snapshot {
+            volume: 45_875,
+            status: "Connectez Spotify Premium pour commencer".into(),
+            ..Snapshot::default()
+        }));
+        let (tx, rx) = mpsc::channel(32);
+        let shared = state.clone();
+        let result = std::thread::Builder::new()
+            .name("spotiamp-engine".into())
+            .spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .max_blocking_threads(2)
+                    .build();
+                match runtime {
+                    Ok(runtime) => {
+                        runtime.block_on(Worker::new(shared).run(rx));
+                        // A browser callback may still be winding down. Never hold up
+                        // closing the application on a third-party OAuth listener.
+                        runtime.shutdown_timeout(Duration::from_millis(200));
+                    }
+                    Err(_) => edit(&shared, |s| {
+                        s.status = "Impossible de demarrer le moteur audio".into()
+                    }),
+                }
+            });
+        if result.is_err() {
+            edit(&state, |s| {
+                s.status = "Impossible de creer le thread audio".into()
+            });
+        }
+        Self { tx, state }
+    }
+}
+
+fn edit(state: &Arc<Mutex<Snapshot>>, f: impl FnOnce(&mut Snapshot)) {
+    if let Ok(mut snapshot) = state.lock() {
+        f(&mut snapshot);
+    }
+}
+
+enum Update {
+    CredentialSaved {
+        generation: u64,
+        result: Result<bool, &'static str>,
+    },
+    CredentialCleared {
+        generation: u64,
+        result: Result<(), &'static str>,
+    },
+    Connected {
+        generation: u64,
+        result: Result<(Session, bool), String>,
+    },
+    Rows {
+        generation: u64,
+        rows: Vec<TrackRow>,
+        notice: String,
+    },
+    Metadata {
+        generation: u64,
+        row: TrackRow,
+    },
+    Finished {
+        generation: u64,
+        result: Result<(), String>,
+    },
+}
+
+struct Worker {
+    state: Arc<Mutex<Snapshot>>,
+    session: Option<Session>,
+    player: Option<Arc<Player>>,
+    mixer: Option<SoftMixer>,
+    events: Option<PlayerEventChannel>,
+    connect_task: Option<JoinHandle<()>>,
+    login_attempt: Option<Arc<credentials::LoginAttempt>>,
+    import_task: Option<JoinHandle<()>>,
+    generation: u64,
+    auth_generation: u64,
+    auth_epoch: Arc<AtomicU64>,
+    clearing_credentials: bool,
+    current_uri: Option<SpotifyUri>,
+    stopped: bool,
+    pending_loads: usize,
+    request_id: Option<u64>,
+    audio_error: Arc<Mutex<Option<String>>>,
+}
+
+impl Worker {
+    fn new(state: Arc<Mutex<Snapshot>>) -> Self {
+        Self {
+            state,
+            session: None,
+            player: None,
+            mixer: None,
+            events: None,
+            connect_task: None,
+            login_attempt: None,
+            import_task: None,
+            generation: 0,
+            auth_generation: 0,
+            auth_epoch: Arc::new(AtomicU64::new(0)),
+            clearing_credentials: false,
+            current_uri: None,
+            stopped: true,
+            pending_loads: 0,
+            request_id: None,
+            audio_error: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    async fn run(mut self, mut commands: mpsc::Receiver<Command>) {
+        let (updates, mut update_rx) = mpsc::channel(16);
+        let mut health = tokio::time::interval(Duration::from_secs(2));
+        health.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tokio::select! {
+                command = commands.recv() => {
+                    match command {
+                        None | Some(Command::Shutdown) => break,
+                        Some(command) => self.command(command, &updates),
+                    }
+                }
+                Some(update) = update_rx.recv() => self.update(update, &updates),
+                event = receive_event(&mut self.events) => {
+                    if let Some(event) = event { self.player_event(event); }
+                    else { self.events = None; }
+                }
+                _ = health.tick() => {
+                    let audio_error = self.audio_error.lock().ok().and_then(|mut error| error.take());
+                    if let Some(message) = audio_error {
+                        self.stop();
+                        edit(&self.state, |s| s.status = message);
+                    }
+                    let lost = self.session.as_ref().is_some_and(Session::is_invalid);
+                    let failed = self.player.as_ref().is_some_and(|p| p.is_invalid());
+                    if lost || failed {
+                        self.disconnect();
+                        edit(&self.state, |s| s.status = if lost {
+                            "Connexion perdue. Cliquez sur Connecter pour reprendre."
+                        } else { "Sortie audio indisponible. Verifiez le peripherique puis reconnectez-vous." }.into());
+                    }
+                }
+            }
+        }
+        self.disconnect();
+    }
+
+    fn snapshot(&self) -> Snapshot {
+        self.state.lock().map(|s| s.clone()).unwrap_or_default()
+    }
+
+    fn command(&mut self, command: Command, updates: &mpsc::Sender<Update>) {
+        match command {
+            Command::Connect => {
+                if self.clearing_credentials {
+                    edit(&self.state, |s| {
+                        s.status = "Effacement du trousseau en cours...".into()
+                    });
+                    return;
+                }
+                if self.session.is_some() || self.connect_task.is_some() {
+                    return;
+                }
+                edit(&self.state, |s| {
+                    s.busy = true;
+                    s.status =
+                        "Connexion Spotify : terminez l'autorisation dans votre navigateur".into();
+                });
+                self.auth_generation = self.auth_generation.wrapping_add(1);
+                self.auth_epoch
+                    .store(self.auth_generation, Ordering::Release);
+                let generation = self.auth_generation;
+                let attempt = Arc::new(credentials::LoginAttempt::default());
+                self.login_attempt = Some(attempt.clone());
+                let updates = updates.clone();
+                self.connect_task = Some(tokio::spawn(async move {
+                    let result = connect(attempt).await;
+                    if let Err(error) = updates.send(Update::Connected { generation, result }).await
+                    {
+                        if let Update::Connected {
+                            result: Ok((session, _)),
+                            ..
+                        } = error.0
+                        {
+                            session.shutdown();
+                        }
+                    }
+                }));
+            }
+            Command::Logout => {
+                if self.clearing_credentials {
+                    return;
+                }
+                self.disconnect();
+                self.clearing_credentials = true;
+                edit(&self.state, |s| {
+                    s.busy = true;
+                    s.status = "Deconnecte; effacement du trousseau en cours...".into();
+                });
+                let generation = self.auth_generation;
+                let updates = updates.clone();
+                tokio::spawn(async move {
+                    let result = tokio::task::spawn_blocking(credentials::clear)
+                        .await
+                        .unwrap_or(Err("Le service du trousseau s'est arrete"));
+                    let _ = updates
+                        .send(Update::CredentialCleared { generation, result })
+                        .await;
+                });
+            }
+            Command::Add(input) => {
+                let uri = match parse_input(&input) {
+                    Ok(uri) => uri,
+                    Err(message) => {
+                        edit(&self.state, |s| s.status = message.into());
+                        return;
+                    }
+                };
+                let Some(session) = self.session.clone() else {
+                    edit(&self.state, |s| {
+                        s.status = "Connectez Spotify avant d'ajouter un lien".into()
+                    });
+                    return;
+                };
+                if self.import_task.is_some() {
+                    edit(&self.state, |s| {
+                        s.status = "Import en cours; Vider permet de l'annuler".into()
+                    });
+                    return;
+                }
+                let capacity = MAX_QUEUE.saturating_sub(self.snapshot().queue.len());
+                if capacity == 0 {
+                    edit(&self.state, |s| {
+                        s.status = "File pleine : 500 titres maximum".into()
+                    });
+                    return;
+                }
+                let generation = self.generation;
+                let updates = updates.clone();
+                edit(&self.state, |s| {
+                    s.busy = true;
+                    s.status = "Chargement des titres Spotify...".into();
+                });
+                self.import_task = Some(tokio::spawn(async move {
+                    let result = import(session, uri, capacity, generation, &updates).await;
+                    let _ = updates.send(Update::Finished { generation, result }).await;
+                }));
+            }
+            Command::PlayIndex(index) => self.play(index),
+            Command::Toggle => {
+                let snapshot = self.snapshot();
+                if let Some(player) = &self.player {
+                    if snapshot.playing {
+                        player.pause();
+                    } else if self.stopped {
+                        self.play(snapshot.current.unwrap_or(0));
+                    } else {
+                        player.play();
+                    }
+                } else {
+                    edit(&self.state, |s| {
+                        s.status = "Connectez Spotify pour lire la file".into()
+                    });
+                }
+            }
+            Command::Stop => self.stop(),
+            Command::Next => self.next(),
+            Command::Previous => {
+                let snapshot = self.snapshot();
+                if snapshot.position_ms > 3_000 {
+                    if let Some(player) = &self.player {
+                        player.seek(0);
+                    }
+                } else {
+                    self.play(snapshot.current.unwrap_or(0).saturating_sub(1));
+                }
+            }
+            Command::Seek(position) => {
+                if let Some(player) = &self.player {
+                    let duration = self.snapshot().duration_ms;
+                    player.seek(position.min(duration));
+                }
+            }
+            Command::Volume(volume) => {
+                if let Some(mixer) = &self.mixer {
+                    mixer.set_volume(volume);
+                }
+                edit(&self.state, |s| s.volume = volume);
+            }
+            Command::Remove(index) => {
+                let snapshot = self.snapshot();
+                if index >= snapshot.queue.len() {
+                    return;
+                }
+                let was_current = snapshot.current == Some(index);
+                if was_current {
+                    self.stop();
+                    self.current_uri = None;
+                }
+                edit(&self.state, |s| remove_row(s, index));
+            }
+            Command::Clear => {
+                self.cancel_import();
+                self.stop();
+                self.current_uri = None;
+                edit(&self.state, |s| {
+                    s.queue.clear();
+                    s.current = None;
+                    s.duration_ms = 0;
+                    s.status = "File vide".into();
+                });
+            }
+            Command::Shutdown => {}
+        }
+    }
+
+    fn update(&mut self, update: Update, updates: &mpsc::Sender<Update>) {
+        match update {
+            Update::Connected { generation, result } => {
+                // A result can already be queued when Logout cancels the task.
+                if generation != self.auth_generation || self.connect_task.is_none() {
+                    if let Ok((session, _)) = result {
+                        session.shutdown();
+                    }
+                    return;
+                }
+                self.connect_task = None;
+                self.login_attempt = None;
+                match result {
+                    Ok((session, remembered)) => {
+                        if !remembered {
+                            let reusable = Credentials {
+                                username: Some(session.username()),
+                                auth_type:
+                                    AuthenticationType::AUTHENTICATION_STORED_SPOTIFY_CREDENTIALS,
+                                auth_data: session.auth_data(),
+                            };
+                            let epoch = self.auth_epoch.clone();
+                            let updates = updates.clone();
+                            tokio::spawn(async move {
+                                let result = tokio::task::spawn_blocking(move || {
+                                    credentials::save_if_current(&reusable, &epoch, generation)
+                                })
+                                .await
+                                .unwrap_or(Err("Le service du trousseau s'est arrete"));
+                                let _ = updates
+                                    .send(Update::CredentialSaved { generation, result })
+                                    .await;
+                            });
+                        }
+                        let config = MixerConfig {
+                            volume_ctrl: VolumeCtrl::Linear,
+                            ..MixerConfig::default()
+                        };
+                        let mixer = match SoftMixer::open(config) {
+                            Ok(mixer) => mixer,
+                            Err(_) => {
+                                session.shutdown();
+                                edit(&self.state, |s| {
+                                    s.busy = false;
+                                    s.status = "Impossible d'initialiser le volume audio".into();
+                                });
+                                return;
+                            }
+                        };
+                        mixer.set_volume(self.snapshot().volume);
+                        let config = PlayerConfig {
+                            gapless: false,
+                            ditherer: None,
+                            position_update_interval: Some(Duration::from_millis(500)),
+                            ..PlayerConfig::default()
+                        };
+                        let audio_error = self.audio_error.clone();
+                        let player = Player::new(
+                            config,
+                            session.clone(),
+                            mixer.get_soft_volume(),
+                            move || Box::new(NativeSink::new(audio_error)),
+                        );
+                        self.events = Some(player.get_player_event_channel());
+                        self.player = Some(player);
+                        self.session = Some(session);
+                        self.mixer = Some(mixer);
+                        edit(&self.state, |s| {
+                            s.connected = true;
+                            s.busy = false;
+                            s.status = if remembered {
+                                "Connecte. Collez un lien de titre, album ou playlist."
+                            } else {
+                                "Connecte; sauvegarde securisee de la session en cours..."
+                            }
+                            .into();
+                        });
+                    }
+                    Err(message) => edit(&self.state, |s| {
+                        s.busy = false;
+                        s.status = message;
+                    }),
+                }
+            }
+            Update::Rows {
+                generation,
+                rows,
+                notice,
+            } if generation == self.generation => {
+                edit(&self.state, |s| {
+                    s.queue.extend(
+                        rows.into_iter()
+                            .take(MAX_QUEUE.saturating_sub(s.queue.len())),
+                    );
+                    s.status = notice;
+                });
+            }
+            Update::Metadata { generation, row } if generation == self.generation => {
+                edit(&self.state, |s| {
+                    for existing in &mut s.queue {
+                        if existing.uri == row.uri {
+                            *existing = row.clone();
+                        }
+                    }
+                    if let Some(index) = s.current {
+                        if let Some(current) = s.queue.get(index) {
+                            s.duration_ms = current.duration_ms;
+                        }
+                    }
+                });
+            }
+            Update::Finished { generation, result } if generation == self.generation => {
+                self.import_task = None;
+                edit(&self.state, |s| {
+                    s.busy = false;
+                    if let Err(message) = result {
+                        s.status = message;
+                    }
+                });
+            }
+            Update::CredentialSaved { generation, result }
+                if generation == self.auth_generation && self.session.is_some() =>
+            {
+                edit(&self.state, |s| match result {
+                    Ok(true) if s.status.starts_with("Connecte; sauvegarde") => {
+                        s.status = "Connecte. Collez un lien de titre, album ou playlist.".into()
+                    }
+                    Err(message) => s.status = message.into(),
+                    _ => {}
+                });
+            }
+            Update::CredentialCleared { generation, result }
+                if generation == self.auth_generation =>
+            {
+                self.clearing_credentials = false;
+                edit(&self.state, |s| {
+                    s.busy = false;
+                    s.status = match result {
+                        Ok(()) => "Deconnecte; identifiants effaces du trousseau",
+                        Err(message) => message,
+                    }
+                    .into();
+                });
+            }
+            _ => {}
+        }
+    }
+
+    fn play(&mut self, index: usize) {
+        let snapshot = self.snapshot();
+        let Some(row) = snapshot.queue.get(index) else {
+            return;
+        };
+        let Some(player) = &self.player else {
+            edit(&self.state, |s| {
+                s.status = "Connectez Spotify pour lire la file".into()
+            });
+            return;
+        };
+        if let Ok(uri) = SpotifyUri::from_uri(&row.uri) {
+            // Each load is acknowledged by PlayRequestIdChanged. Until the
+            // newest load is acknowledged, ignore older events, even when both
+            // queue rows contain the same Spotify URI.
+            self.pending_loads += 1;
+            player.load(uri.clone(), true, 0);
+            self.current_uri = Some(uri);
+            self.stopped = false;
+            edit(&self.state, |s| {
+                s.current = Some(index);
+                s.position_ms = 0;
+                s.duration_ms = row.duration_ms;
+                s.playing = false;
+                s.status = "Chargement audio...".into();
+            });
+        }
+    }
+
+    fn next(&mut self) {
+        let snapshot = self.snapshot();
+        let next = snapshot.current.map_or(0, |index| index + 1);
+        if next < snapshot.queue.len() {
+            self.play(next);
+        } else {
+            self.stop();
+            edit(&self.state, |s| s.status = "Fin de la file".into());
+        }
+    }
+
+    fn stop(&mut self) {
+        self.stopped = true;
+        if let Some(player) = &self.player {
+            player.stop();
+        }
+        edit(&self.state, |s| {
+            s.playing = false;
+            s.position_ms = 0;
+            s.status = "Arrete".into();
+        });
+    }
+
+    fn player_event(&mut self, event: PlayerEvent) {
+        use PlayerEvent::*;
+        if let PlayRequestIdChanged { play_request_id } = event {
+            // Seeking while Loading re-emits the SAME request ID upstream.
+            // It must not acknowledge a different Load that is still queued.
+            if self.request_id != Some(play_request_id) {
+                self.pending_loads = self.pending_loads.saturating_sub(1);
+            }
+            self.request_id = Some(play_request_id);
+            return;
+        }
+        let event_request = match &event {
+            PositionChanged {
+                play_request_id, ..
+            } => Some(*play_request_id),
+            _ => event.get_play_request_id(),
+        };
+        let active = |uri: &SpotifyUri| {
+            self.current_uri.as_ref() == Some(uri)
+                && !self.stopped
+                && self.pending_loads == 0
+                && (event_request.is_none() || event_request == self.request_id)
+        };
+        match event {
+            Playing {
+                track_id,
+                position_ms,
+                ..
+            } if active(&track_id) => {
+                edit(&self.state, |s| {
+                    s.playing = true;
+                    s.position_ms = position_ms;
+                    s.status = "Lecture - Spotify 160 kb/s".into();
+                });
+            }
+            Paused {
+                track_id,
+                position_ms,
+                ..
+            } if active(&track_id) => {
+                edit(&self.state, |s| {
+                    s.playing = false;
+                    s.position_ms = position_ms;
+                    s.status = "Pause".into();
+                });
+            }
+            Loading {
+                track_id,
+                position_ms,
+                ..
+            } if active(&track_id) => {
+                edit(&self.state, |s| {
+                    s.playing = false;
+                    s.position_ms = position_ms;
+                    s.status = "Chargement audio...".into();
+                });
+            }
+            PositionChanged {
+                track_id,
+                position_ms,
+                ..
+            }
+            | PositionCorrection {
+                track_id,
+                position_ms,
+                ..
+            }
+            | Seeked {
+                track_id,
+                position_ms,
+                ..
+            } if active(&track_id) => {
+                edit(&self.state, |s| s.position_ms = position_ms);
+            }
+            TrackChanged { audio_item } if active(&audio_item.track_id) => {
+                edit(&self.state, |s| {
+                    s.duration_ms = audio_item.duration_ms;
+                    if let Some(row) = s.current.and_then(|i| s.queue.get_mut(i)) {
+                        row.title = audio_item.name;
+                        row.duration_ms = audio_item.duration_ms;
+                        if let librespot_metadata::audio::item::UniqueFields::Track {
+                            artists,
+                            ..
+                        } = audio_item.unique_fields
+                        {
+                            row.artist = artists
+                                .iter()
+                                .map(|a| a.name.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                        }
+                    }
+                });
+            }
+            EndOfTrack { track_id, .. } if active(&track_id) => self.next(),
+            Unavailable { track_id, .. } if active(&track_id) => {
+                self.stopped = true;
+                edit(&self.state, |s| {
+                    s.playing = false;
+                    s.status =
+                        "Titre indisponible, acces refuse ou erreur audio. Essayez Suivant.".into();
+                });
+            }
+            _ => {}
+        }
+    }
+
+    fn cancel_import(&mut self) {
+        self.generation = self.generation.wrapping_add(1);
+        if let Some(task) = self.import_task.take() {
+            task.abort();
+        }
+        edit(&self.state, |s| s.busy = self.connect_task.is_some());
+    }
+
+    fn disconnect(&mut self) {
+        self.auth_generation = self.auth_generation.wrapping_add(1);
+        self.auth_epoch
+            .store(self.auth_generation, Ordering::Release);
+        if let Some(task) = self.connect_task.take() {
+            task.abort();
+            if let Some(attempt) = self.login_attempt.take() {
+                attempt.cancel();
+            }
+        }
+        self.cancel_import();
+        self.stop();
+        self.current_uri = None;
+        if let Some(session) = self.session.take() {
+            session.shutdown();
+        }
+        self.events = None;
+        if let Some(player) = self.player.take() {
+            // Upstream Drop joins pending loader threads. Keep this runtime
+            // available to finish network cancellation while they wind down.
+            tokio::task::spawn_blocking(move || drop(player));
+        }
+        self.mixer = None;
+        self.pending_loads = 0;
+        self.request_id = None;
+        edit(&self.state, |s| {
+            s.connected = false;
+            s.busy = false;
+        });
+    }
+}
+
+async fn receive_event(events: &mut Option<PlayerEventChannel>) -> Option<PlayerEvent> {
+    match events {
+        Some(events) => events.recv().await,
+        None => std::future::pending().await,
+    }
+}
+
+async fn connect(attempt: Arc<credentials::LoginAttempt>) -> Result<(Session, bool), String> {
+    let config = SessionConfig {
+        autoplay: Some(false),
+        ..SessionConfig::default()
+    };
+    let saved = tokio::task::spawn_blocking(credentials::load)
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .flatten();
+    if let Some(credentials) = saved {
+        let session = Session::new(config.clone(), None);
+        if matches!(
+            tokio::time::timeout(NETWORK_TIMEOUT, session.connect(credentials, false)).await,
+            Ok(Ok(()))
+        ) {
+            return Ok((session, true));
+        }
+        session.shutdown();
+    }
+    let credentials = credentials::browser_login(config.client_id.clone(), attempt).await?;
+    let session = Session::new(config, None);
+    match tokio::time::timeout(NETWORK_TIMEOUT, session.connect(credentials, false)).await {
+        Ok(Ok(())) => {}
+        _ => {
+            session.shutdown();
+            return Err(
+                "Connexion Spotify impossible. Verifiez le reseau et votre abonnement Premium."
+                    .into(),
+            );
+        }
+    }
+    // Persist only after the worker accepts this result. A cancelled login must
+    // never write credentials after Logout has cleared the OS store.
+    Ok((session, false))
+}
+
+/// A small fallible Rodio sink. Upstream's rodio constructor unwraps device
+/// errors; here a missing output device leaves the GUI alive with a useful error.
+/// The device opens on Play, and its resources are released on Stop/Pause.
+pub(crate) struct NativeSink {
+    output: Option<(rodio::Sink, rodio::OutputStream)>,
+    error: Arc<Mutex<Option<String>>>,
+}
+
+impl NativeSink {
+    pub(crate) fn new(error: Arc<Mutex<Option<String>>>) -> Self {
+        Self {
+            output: None,
+            error,
+        }
+    }
+}
+
+impl Sink for NativeSink {
+    fn start(&mut self) -> SinkResult<()> {
+        if self.output.is_none() {
+            let mut stream =
+                rodio::OutputStreamBuilder::open_default_stream().map_err(|error| {
+                    let message = format!("Sortie audio indisponible : {error}");
+                    if let Ok(mut shared) = self.error.lock() {
+                        *shared = Some(message.clone());
+                    }
+                    SinkError::ConnectionRefused(message)
+                })?;
+            stream.log_on_drop(false);
+            let sink = rodio::Sink::connect_new(stream.mixer());
+            self.output = Some((sink, stream));
+        }
+        if let Some((sink, _)) = &self.output {
+            sink.play();
+        }
+        Ok(())
+    }
+
+    fn stop(&mut self) -> SinkResult<()> {
+        // Upstream treats a stop error as fatal. Always finish successfully,
+        // including after a device is unplugged; never wait forever on a sink.
+        if let Some((sink, _stream)) = self.output.take() {
+            // Drain the small queue before pausing so resuming does not skip
+            // already decoded samples. Bound the wait for a removed device.
+            let started = std::time::Instant::now();
+            while !sink.empty() && started.elapsed() < Duration::from_millis(300) {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            sink.stop();
+        }
+        Ok(())
+    }
+
+    fn write(&mut self, packet: AudioPacket, converter: &mut Converter) -> SinkResult<()> {
+        let Some((sink, _)) = &self.output else {
+            return Err(SinkError::NotConnected("Sortie audio fermee".into()));
+        };
+        let samples = packet
+            .samples()
+            .map_err(|error| SinkError::OnWrite(error.to_string()))?;
+        let samples = converter.f64_to_f32(samples);
+        sink.append(rodio::buffer::SamplesBuffer::new(2, 44_100, samples));
+        // Bounded short PCM queue, not a decoded-song cache. Give the driver up
+        // to one second to make progress; do not deadlock on device removal.
+        let started = std::time::Instant::now();
+        while sink.len() > 8 {
+            if started.elapsed() > Duration::from_secs(1) {
+                let message = "La sortie audio ne repond plus; verifiez votre peripherique";
+                if let Ok(mut shared) = self.error.lock() {
+                    *shared = Some(message.into());
+                }
+                return Err(SinkError::OnWrite(message.into()));
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        Ok(())
+    }
+}
+
+fn remove_row(snapshot: &mut Snapshot, index: usize) {
+    if index >= snapshot.queue.len() {
+        return;
+    }
+    snapshot.queue.remove(index);
+    snapshot.current = match snapshot.current {
+        Some(current) if current == index => {
+            snapshot.duration_ms = 0;
+            snapshot.position_ms = 0;
+            snapshot.playing = false;
+            None
+        }
+        Some(current) if current > index => Some(current - 1),
+        other => other,
+    };
+}
+
+/// Accept only explicit Spotify music resources. No arbitrary URL fetches,
+/// local-file access, embedded credentials, shortened links or extra URI parts.
+fn parse_input(input: &str) -> Result<SpotifyUri, &'static str> {
+    let input = input.trim();
+    if input.len() > 2048 {
+        return Err("Lien trop long");
+    }
+    let canonical = if input.starts_with("spotify:") {
+        let parts: Vec<_> = input.split(':').collect();
+        if parts.len() != 3 {
+            return Err("URI attendue : spotify:track|album|playlist:identifiant");
+        }
+        input.to_owned()
+    } else {
+        let url = url::Url::parse(input)
+            .map_err(|_| "Collez un lien Spotify de titre, album ou playlist")?;
+        if url.scheme() != "https"
+            || url.host_str() != Some("open.spotify.com")
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.port().is_some()
+        {
+            return Err("Lien attendu : https://open.spotify.com/track|album|playlist/identifiant");
+        }
+        let mut parts: Vec<_> = url.path().trim_matches('/').split('/').collect();
+        if parts.first().is_some_and(|part| part.starts_with("intl-")) {
+            parts.remove(0);
+        }
+        if parts.len() != 2 {
+            return Err("Ce lien Spotify n'est pas un titre, album ou playlist");
+        }
+        format!("spotify:{}:{}", parts[0], parts[1])
+    };
+    let parts: Vec<_> = canonical.split(':').collect();
+    if !matches!(parts[1], "track" | "album" | "playlist")
+        || parts[2].len() != 22
+        || !parts[2].bytes().all(|byte| byte.is_ascii_alphanumeric())
+    {
+        return Err("Seuls les liens Spotify de titre, album et playlist sont pris en charge");
+    }
+    SpotifyUri::from_uri(&canonical).map_err(|_| "Identifiant Spotify invalide")
+}
+
+async fn import(
+    session: Session,
+    uri: SpotifyUri,
+    capacity: usize,
+    generation: u64,
+    updates: &mpsc::Sender<Update>,
+) -> Result<(), String> {
+    let resolved = tokio::time::timeout(NETWORK_TIMEOUT, async {
+        match &uri {
+            SpotifyUri::Track { .. } => Ok((vec![uri.clone()], false)),
+            SpotifyUri::Album { .. } => {
+                let album = Album::get(&session, &uri).await?;
+                let truncated = album.tracks().count() > capacity;
+                Ok((album.tracks().take(capacity).cloned().collect(), truncated))
+            }
+            SpotifyUri::Playlist { .. } => {
+                let playlist = Playlist::get(&session, &uri).await?;
+                let truncated =
+                    playlist.contents.is_truncated || playlist.length as usize > capacity;
+                let tracks = playlist
+                    .tracks()
+                    .filter(|id| matches!(id, SpotifyUri::Track { .. }))
+                    .take(capacity)
+                    .cloned()
+                    .collect();
+                Ok((tracks, truncated))
+            }
+            _ => unreachable!("input validated before network request"),
+        }
+    })
+    .await
+    .map_err(|_| "Spotify ne repond pas; reessayez".to_owned())?
+    .map_err(|_: librespot_core::Error| {
+        "Impossible de lire ce lien Spotify; verifiez son acces".to_owned()
+    })?;
+    let (ids, truncated): (Vec<SpotifyUri>, bool) = resolved;
+    if ids.is_empty() {
+        return Err("Aucun titre musical accessible dans ce lien".into());
+    }
+    let rows: Vec<_> = ids
+        .iter()
+        .filter_map(|id| {
+            id.to_uri().ok().map(|uri| TrackRow {
+                title: "Chargement du titre...".into(),
+                uri,
+                ..TrackRow::default()
+            })
+        })
+        .collect();
+    let count = rows.len();
+    let notice = if truncated {
+        format!("{count} titres ajoutes; liste limitee a {MAX_QUEUE} ou tronquee par Spotify")
+    } else {
+        format!("{count} titre(s) ajoute(s). Double-cliquez pour lire.")
+    };
+    updates
+        .send(Update::Rows {
+            generation,
+            rows,
+            notice,
+        })
+        .await
+        .map_err(|_| "Application fermee")?;
+
+    // Two metadata requests at a time keep imports usable without retaining
+    // hundreds of full Track/Album protobufs, covers or artist biographies.
+    let mut pending: VecDeque<_> = ids.into();
+    let mut requests = JoinSet::new();
+    loop {
+        while requests.len() < 2 {
+            let Some(uri) = pending.pop_front() else {
+                break;
+            };
+            let session = session.clone();
+            requests.spawn(async move {
+                let result =
+                    tokio::time::timeout(Duration::from_secs(8), Track::get(&session, &uri)).await;
+                let uri = uri.to_uri().unwrap_or_default();
+                match result {
+                    Ok(Ok(track)) => TrackRow {
+                        uri,
+                        title: track.name,
+                        artist: track
+                            .artists
+                            .iter()
+                            .map(|a| a.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        duration_ms: track.duration.max(0) as u32,
+                    },
+                    _ => TrackRow {
+                        title: "Titre Spotify (metadonnees indisponibles)".into(),
+                        uri,
+                        ..TrackRow::default()
+                    },
+                }
+            });
+        }
+        match requests.join_next().await {
+            Some(Ok(row)) => {
+                updates
+                    .send(Update::Metadata { generation, row })
+                    .await
+                    .map_err(|_| "Application fermee")?;
+            }
+            Some(Err(_)) => {}
+            None => break,
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    const ID: &str = "4uLU6hMCjMI75M1A2tKUQC";
+
+    #[test]
+    fn spotify_links_normalize_without_tracking_query() {
+        for input in [
+            format!(" spotify:track:{ID} "),
+            format!("https://open.spotify.com/track/{ID}?si=ignored"),
+            format!("https://open.spotify.com/intl-fr/track/{ID}/"),
+        ] {
+            assert_eq!(
+                parse_input(&input).unwrap().to_uri().unwrap(),
+                format!("spotify:track:{ID}")
+            );
+        }
+        assert!(matches!(
+            parse_input(&format!("spotify:album:{ID}")),
+            Ok(SpotifyUri::Album { .. })
+        ));
+        assert!(matches!(
+            parse_input(&format!("spotify:playlist:{ID}")),
+            Ok(SpotifyUri::Playlist { .. })
+        ));
+    }
+
+    #[test]
+    fn malformed_or_untrusted_links_are_rejected_before_network_access() {
+        for input in [
+            format!("https://open.spotify.com.evil.example/track/{ID}"),
+            format!("https://open.spotify.com@evil.example/track/{ID}"),
+            format!("https://user@open.spotify.com/track/{ID}"),
+            format!("http://open.spotify.com/track/{ID}"),
+            format!("spotify:track:{ID}:extra"),
+            format!("spotify:artist:{ID}"),
+            "spotify:track:abc".into(),
+            format!("https://open.spotify.com/track/{ID}/extra"),
+            "file:///etc/passwd".into(),
+            "spotify:track:zzzzzzzzzzzzzzzzzzzzzz".into(),
+        ] {
+            assert!(parse_input(&input).is_err(), "accepted {input}");
+        }
+    }
+
+    #[test]
+    fn removing_before_current_preserves_playback_selection() {
+        let mut state = Snapshot {
+            queue: vec![TrackRow::default(); 4],
+            current: Some(2),
+            playing: true,
+            position_ms: 12_000,
+            ..Snapshot::default()
+        };
+        remove_row(&mut state, 0);
+        assert_eq!(state.current, Some(1));
+        assert!(state.playing);
+        assert_eq!(state.position_ms, 12_000);
+        remove_row(&mut state, 1);
+        assert_eq!(state.current, None);
+        assert!(!state.playing);
+        assert_eq!(state.position_ms, 0);
+        remove_row(&mut state, 100);
+        assert_eq!(state.queue.len(), 2);
+    }
+
+    #[test]
+    fn stale_events_cannot_change_a_new_load_of_the_same_track() {
+        let state = Arc::new(Mutex::new(Snapshot {
+            queue: vec![TrackRow::default()],
+            current: Some(0),
+            playing: true,
+            position_ms: 123,
+            ..Snapshot::default()
+        }));
+        let mut worker = Worker::new(state.clone());
+        let uri = parse_input(&format!("spotify:track:{ID}")).unwrap();
+        worker.current_uri = Some(uri.clone());
+        worker.stopped = false;
+        worker.pending_loads = 1;
+        worker.request_id = Some(1);
+        worker.player_event(PlayerEvent::EndOfTrack {
+            play_request_id: 1,
+            track_id: uri.clone(),
+        });
+        assert!(state.lock().unwrap().playing);
+        worker.player_event(PlayerEvent::PlayRequestIdChanged { play_request_id: 2 });
+        worker.player_event(PlayerEvent::PositionChanged {
+            play_request_id: 1,
+            track_id: uri.clone(),
+            position_ms: 9_000,
+        });
+        assert_eq!(state.lock().unwrap().position_ms, 123);
+        worker.player_event(PlayerEvent::PositionChanged {
+            play_request_id: 2,
+            track_id: uri,
+            position_ms: 2_000,
+        });
+        assert_eq!(state.lock().unwrap().position_ms, 2_000);
+    }
+
+    #[test]
+    fn duplicate_ack_from_seek_during_loading_does_not_acknowledge_next_load() {
+        let mut worker = Worker::new(Arc::new(Mutex::new(Snapshot::default())));
+        worker.pending_loads = 2;
+        worker.player_event(PlayerEvent::PlayRequestIdChanged { play_request_id: 0 });
+        assert_eq!(worker.pending_loads, 1);
+        worker.player_event(PlayerEvent::PlayRequestIdChanged { play_request_id: 0 });
+        assert_eq!(worker.pending_loads, 1);
+        worker.player_event(PlayerEvent::PlayRequestIdChanged { play_request_id: 2 });
+        assert_eq!(worker.pending_loads, 0);
+    }
+}

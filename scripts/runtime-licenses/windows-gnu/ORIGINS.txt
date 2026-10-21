@@ -1,0 +1,14 @@
+Notices for the local Windows GNU build's CRT and compiler runtime.
+Copied verbatim from Debian trixie packages downloaded through apt:
+
+mingw-w64-common 12.0.0-5, /usr/share/doc/mingw-w64-common/copyright
+Source package: https://tracker.debian.org/pkg/mingw-w64
+
+gcc-mingw-w64-x86-64-posix-runtime 14.2.0-19+27+b1,
+/usr/share/doc/gcc-mingw-w64-x86-64-posix-runtime/copyright
+Source package: https://tracker.debian.org/pkg/gcc-mingw-w64
+
+These files retain the complete package notices, including notices for portions
+that may not be linked into Spotiamp. GCC's runtime-library exception applies to
+covered runtime code as stated in the supplied notices. The binaries import only
+Windows system DLLs; the release requires no separate MinGW runtime DLL.

@@ -1,0 +1,14 @@
+Synthetic NativeSink output probe: measurement caveat
+
+This probe exercises the exact Spool NativeSink with synthetic PCM and an ALSA type-null output. It does NOT exercise Spotify authentication, streaming, decoding, UI, a physical sound device, or actual audio timing. The measured RSS is specific to this small probe process, not to Spool playing Spotify.
+
+The measured CPU cost is NOT representative of a physical audio device. ALSA null is unclocked: pcm_null.c opens /dev/null as its poll descriptor, sets POLLOUT, reports the full buffer available while running, and advances application/hardware pointers immediately when accepting samples. CPAL's ALSA thread loops poll -> callback -> write; the null descriptor is immediately writable. Rodio fills callback buffers with samples or zeros, so it can spin at nearly one CPU core even between the probe's paced synthetic writes.
+
+Observed evidence in synthetic-audio-output.json: CPU increases from0.99 to8.38 seconds between elapsed3.0035 and12.5178 seconds (7.39 CPU seconds/9.5143 wall seconds). During stopped output at7.0094 through8.5114 seconds, CPU is flat at4.86 seconds and thread count falls from2 to1; reopening output restores the CPU increase. This is consistent with the unclocked null sink loop.
+
+Valid conclusions: output opens; synthetic PCM conversion/submission works; stop/release/reopen cycles complete; process memory remains bounded for this test. The separate missing-device probe checks graceful error handling. Neither probe establishes low CPU use or memory use for real Spotify playback, clock accuracy, audible quality, or hardware pause/seek latency.
+
+Primary-source references checked:
+https://github.com/alsa-project/alsa-lib/blob/v1.2.14/src/pcm/pcm_null.c (snd_pcm_null_avail_update, snd_pcm_null_xfer_areas, snd_pcm_null_open)
+Local cpal0.16.0 src/host/alsa/mod.rs:648-687,723-813 (output loop/poll)
+Local rodio0.21.1 src/stream.rs:510-518 (callback fills samples or zero)

@@ -1,0 +1,140 @@
+{
+  "clipboard-win-5.4.1": {
+    "LICENSE": "https://raw.githubusercontent.com/DoumanAsh/clipboard-win/3b27cf2bfd1adcfa6e0264eb51c1025ddaf0f342/LICENSE"
+  },
+  "dasp_sample-0.11.0": {
+    "LICENSE-APACHE": "https://raw.githubusercontent.com/RustAudio/dasp/97c3bb9b2363c0b46ac1633858bf1054fd02a980/LICENSE-APACHE",
+    "LICENSE-MIT": "https://raw.githubusercontent.com/RustAudio/dasp/97c3bb9b2363c0b46ac1633858bf1054fd02a980/LICENSE-MIT"
+  },
+  "dispatch2-0.3.1": {
+    "LICENSE.md": "https://raw.githubusercontent.com/madsmtm/objc2/8852b424193ca41602281b3d7540d7c8ed51e49a/LICENSE.md",
+    "MIT-standard-license.txt": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/MIT.txt"
+  },
+  "governor-0.10.4": {
+    "LICENSE": "https://raw.githubusercontent.com/boinkor-net/governor/9f3a79dd47dd32acd589c562b8d4fefe99b93372/LICENSE"
+  },
+  "jni-sys-macros-0.4.1": {
+    "LICENSE-APACHE": "https://raw.githubusercontent.com/jni-rs/jni-sys/64d77b7a5f119d7b55b4e2c169a4668067ff59e6/LICENSE-APACHE",
+    "LICENSE-MIT": "https://raw.githubusercontent.com/jni-rs/jni-sys/64d77b7a5f119d7b55b4e2c169a4668067ff59e6/LICENSE-MIT"
+  },
+  "librespot-audio-0.8.0": {
+    "LICENSE": "https://raw.githubusercontent.com/librespot-org/librespot/d36f9f1907e8cc9d68a93f8ebc6b627b1bf7267d/LICENSE"
+  },
+  "librespot-core-0.8.0": {
+    "LICENSE": "https://raw.githubusercontent.com/librespot-org/librespot/d36f9f1907e8cc9d68a93f8ebc6b627b1bf7267d/LICENSE"
+  },
+  "librespot-oauth-0.8.0": {
+    "LICENSE": "https://raw.githubusercontent.com/librespot-org/librespot/d36f9f1907e8cc9d68a93f8ebc6b627b1bf7267d/LICENSE"
+  },
+  "librespot-playback-0.8.0": {
+    "LICENSE": "https://raw.githubusercontent.com/librespot-org/librespot/d36f9f1907e8cc9d68a93f8ebc6b627b1bf7267d/LICENSE"
+  },
+  "librespot-protocol-0.8.0": {
+    "LICENSE": "https://raw.githubusercontent.com/librespot-org/librespot/d36f9f1907e8cc9d68a93f8ebc6b627b1bf7267d/LICENSE"
+  },
+  "ndk-0.9.0": {
+    "LICENSE-APACHE": "https://raw.githubusercontent.com/rust-mobile/ndk/49bbbba16c58ff63cb8a0ad0eca5a9fb7ecaec25/LICENSE-APACHE",
+    "LICENSE-MIT": "https://raw.githubusercontent.com/rust-mobile/ndk/49bbbba16c58ff63cb8a0ad0eca5a9fb7ecaec25/LICENSE-MIT"
+  },
+  "ndk-context-0.1.1": {
+    "LICENSE-APACHE": "https://raw.githubusercontent.com/rust-mobile/ndk/10f2ba388fca20f7349996ebae26ccda7a6fda5c/LICENSE-APACHE",
+    "LICENSE-MIT": "https://raw.githubusercontent.com/rust-mobile/ndk/10f2ba388fca20f7349996ebae26ccda7a6fda5c/LICENSE-MIT"
+  },
+  "ndk-sys-0.6.0+11769913": {
+    "LICENSE-APACHE": "https://raw.githubusercontent.com/rust-mobile/ndk/49bbbba16c58ff63cb8a0ad0eca5a9fb7ecaec25/LICENSE-APACHE",
+    "LICENSE-MIT": "https://raw.githubusercontent.com/rust-mobile/ndk/49bbbba16c58ff63cb8a0ad0eca5a9fb7ecaec25/LICENSE-MIT"
+  },
+  "objc2-0.6.5": {
+    "LICENSE.md": "https://raw.githubusercontent.com/madsmtm/objc2/d7d2fa23ceaa5e6096c923b081040e5d81b3b9df/LICENSE.md",
+    "MIT-standard-license.txt": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/MIT.txt"
+  },
+  "objc2-app-kit-0.3.2": {
+    "LICENSE.md": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+    "MIT-standard-license.txt": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/MIT.txt"
+  },
+  "objc2-audio-toolbox-0.3.2": {
+    "LICENSE.md": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+    "MIT-standard-license.txt": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/MIT.txt"
+  },
+  "objc2-core-audio-0.3.2": {
+    "LICENSE.md": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+    "MIT-standard-license.txt": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/MIT.txt"
+  },
+  "objc2-core-audio-types-0.3.2": {
+    "LICENSE.md": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+    "MIT-standard-license.txt": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/MIT.txt"
+  },
+  "objc2-core-foundation-0.3.2": {
+    "LICENSE.md": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+    "MIT-standard-license.txt": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/MIT.txt"
+  },
+  "objc2-core-graphics-0.3.2": {
+    "LICENSE.md": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+    "MIT-standard-license.txt": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/MIT.txt"
+  },
+  "objc2-encode-4.1.0": {
+    "LICENSE.md": "https://raw.githubusercontent.com/madsmtm/objc2/8d214f5477365ffcbcbb7de058c86ed9a518efb7/LICENSE.md",
+    "MIT-standard-license.txt": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/MIT.txt"
+  },
+  "objc2-io-kit-0.3.2": {
+    "LICENSE.md": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+    "MIT-standard-license.txt": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/MIT.txt"
+  },
+  "objc2-io-surface-0.3.2": {
+    "LICENSE.md": "https://raw.githubusercontent.com/madsmtm/objc2/7b1abfd750a2cacaea71d6a56ecfb83cb7de560b/LICENSE.md",
+    "MIT-standard-license.txt": "https://raw.githubusercontent.com/spdx/license-list-data/v3.27.0/text/MIT.txt"
+  },
+  "symphonia-0.5.5": {
+    "LICENSE": "https://raw.githubusercontent.com/pdeljanov/Symphonia/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
+  },
+  "symphonia-bundle-flac-0.5.5": {
+    "LICENSE": "https://raw.githubusercontent.com/pdeljanov/Symphonia/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
+  },
+  "symphonia-bundle-mp3-0.5.5": {
+    "LICENSE": "https://raw.githubusercontent.com/pdeljanov/Symphonia/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
+  },
+  "symphonia-codec-vorbis-0.5.5": {
+    "LICENSE": "https://raw.githubusercontent.com/pdeljanov/Symphonia/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
+  },
+  "symphonia-core-0.5.5": {
+    "LICENSE": "https://raw.githubusercontent.com/pdeljanov/Symphonia/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
+  },
+  "symphonia-format-ogg-0.5.5": {
+    "LICENSE": "https://raw.githubusercontent.com/pdeljanov/Symphonia/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
+  },
+  "symphonia-metadata-0.5.5": {
+    "LICENSE": "https://raw.githubusercontent.com/pdeljanov/Symphonia/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
+  },
+  "symphonia-utils-xiph-0.5.5": {
+    "LICENSE": "https://raw.githubusercontent.com/pdeljanov/Symphonia/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE"
+  },
+  "wasip2-1.0.1+wasi-0.2.4": {
+    "LICENSE-APACHE": "https://raw.githubusercontent.com/bytecodealliance/wasi-rs/3da562c06214feafc14d37bf290671636caa6718/LICENSE-APACHE",
+    "LICENSE-Apache-2.0_WITH_LLVM-exception": "https://raw.githubusercontent.com/bytecodealliance/wasi-rs/3da562c06214feafc14d37bf290671636caa6718/LICENSE-Apache-2.0_WITH_LLVM-exception",
+    "LICENSE-MIT": "https://raw.githubusercontent.com/bytecodealliance/wasi-rs/3da562c06214feafc14d37bf290671636caa6718/LICENSE-MIT"
+  },
+  "priority-queue-2.7.0": {
+    "LICENSE-MPL-2.0": "https://raw.githubusercontent.com/pdeljanov/Symphonia/6d533f26150953a882a6a111ebd13f0abf7129d5/LICENSE",
+    "UPSTREAM-NOTICE-lib.rs": "https://raw.githubusercontent.com/garro95/priority-queue/0c76fb8fe75e4457f16f8e6c8e86508d1a89ba1d/src/lib.rs"
+  },
+  "linux-keyutils-0.2.5": {
+    "LICENSE-APACHE": "https://www.apache.org/licenses/LICENSE-2.0.txt",
+    "UPSTREAM-README.md": "https://raw.githubusercontent.com/landhb/linux-keyutils/7b508d396669fd046136e9928283b2eca4bd7bf6/README.md"
+  },
+  "winapi-x86_64-pc-windows-gnu-0.4.0": {
+    "LICENSE-MIT": "https://raw.githubusercontent.com/retep998/winapi-rs/0.3.9/LICENSE-MIT",
+    "LICENSE-APACHE": "https://raw.githubusercontent.com/retep998/winapi-rs/0.3.9/LICENSE-APACHE",
+    "UPSTREAM-NOTICE.txt": "https://crates.io/api/v1/crates/winapi-x86_64-pc-windows-gnu/0.4.0/download"
+  },
+  "winapi-i686-pc-windows-gnu-0.4.0": {
+    "LICENSE-MIT": "https://raw.githubusercontent.com/retep998/winapi-rs/0.3.9/LICENSE-MIT",
+    "LICENSE-APACHE": "https://raw.githubusercontent.com/retep998/winapi-rs/0.3.9/LICENSE-APACHE",
+    "UPSTREAM-NOTICE.txt": "https://crates.io/api/v1/crates/winapi-i686-pc-windows-gnu/0.4.0/download"
+  },
+  "r-efi-5.3.0": {
+    "AUTHORS": "https://crates.io/api/v1/crates/r-efi/5.3.0/download"
+  },
+  "r-efi-6.0.0": {
+    "AUTHORS": "https://crates.io/api/v1/crates/r-efi/6.0.0/download"
+  }
+}

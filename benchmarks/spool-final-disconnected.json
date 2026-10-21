@@ -1,0 +1,223 @@
+{
+  "schema_version": 1,
+  "platform": "Linux-6.12.113+deb13-amd64-x86_64-with-glibc2.41",
+  "recorded_at_utc": "2026-10-21T15:36:06.831663+00:00",
+  "pid": 3330054,
+  "executable": "<workspace>/outputs/spool/target/release/spool",
+  "executable_sha256": "c9ee32563ef67a11ce5a5ed20d09948867d38323b8df10c8c4b7e404961e3b86",
+  "scenario": "idle",
+  "scenario_verified": false,
+  "measurement_scope": "single process; children excluded",
+  "metric_note": "Linux private_resident_bytes is resident private memory, not Windows Private Bytes (committed memory).",
+  "startup_to_visible_ms": null,
+  "startup_note": "Window visibility is not measured on Linux.",
+  "requested_seconds": 9.0,
+  "interval_seconds": 0.5,
+  "warmup_seconds": 3.0,
+  "samples": [
+    {
+      "elapsed_seconds": 3.0084,
+      "rss_bytes": 9273344,
+      "peak_rss_bytes": 9273344,
+      "virtual_bytes": 89030656,
+      "pss_bytes": 5516288,
+      "private_resident_bytes": 5431296,
+      "cpu_seconds": 0.01,
+      "threads": 2
+    },
+    {
+      "elapsed_seconds": 3.5093,
+      "rss_bytes": 9273344,
+      "peak_rss_bytes": 9273344,
+      "virtual_bytes": 89030656,
+      "pss_bytes": 5516288,
+      "private_resident_bytes": 5431296,
+      "cpu_seconds": 0.01,
+      "threads": 2
+    },
+    {
+      "elapsed_seconds": 4.0099,
+      "rss_bytes": 9273344,
+      "peak_rss_bytes": 9273344,
+      "virtual_bytes": 89030656,
+      "pss_bytes": 5517312,
+      "private_resident_bytes": 5431296,
+      "cpu_seconds": 0.01,
+      "threads": 2
+    },
+    {
+      "elapsed_seconds": 4.5108,
+      "rss_bytes": 9273344,
+      "peak_rss_bytes": 9273344,
+      "virtual_bytes": 89030656,
+      "pss_bytes": 5517312,
+      "private_resident_bytes": 5431296,
+      "cpu_seconds": 0.01,
+      "threads": 2
+    },
+    {
+      "elapsed_seconds": 5.012,
+      "rss_bytes": 9273344,
+      "peak_rss_bytes": 9273344,
+      "virtual_bytes": 89030656,
+      "pss_bytes": 5517312,
+      "private_resident_bytes": 5431296,
+      "cpu_seconds": 0.01,
+      "threads": 2
+    },
+    {
+      "elapsed_seconds": 5.5128,
+      "rss_bytes": 9273344,
+      "peak_rss_bytes": 9273344,
+      "virtual_bytes": 89030656,
+      "pss_bytes": 5517312,
+      "private_resident_bytes": 5431296,
+      "cpu_seconds": 0.01,
+      "threads": 2
+    },
+    {
+      "elapsed_seconds": 6.0139,
+      "rss_bytes": 9273344,
+      "peak_rss_bytes": 9273344,
+      "virtual_bytes": 89030656,
+      "pss_bytes": 5517312,
+      "private_resident_bytes": 5431296,
+      "cpu_seconds": 0.01,
+      "threads": 2
+    },
+    {
+      "elapsed_seconds": 6.5146,
+      "rss_bytes": 9273344,
+      "peak_rss_bytes": 9273344,
+      "virtual_bytes": 89030656,
+      "pss_bytes": 5517312,
+      "private_resident_bytes": 5431296,
+      "cpu_seconds": 0.02,
+      "threads": 2
+    },
+    {
+      "elapsed_seconds": 7.0155,
+      "rss_bytes": 9273344,
+      "peak_rss_bytes": 9273344,
+      "virtual_bytes": 89030656,
+      "pss_bytes": 5517312,
+      "private_resident_bytes": 5431296,
+      "cpu_seconds": 0.02,
+      "threads": 2
+    },
+    {
+      "elapsed_seconds": 7.5162,
+      "rss_bytes": 9273344,
+      "peak_rss_bytes": 9273344,
+      "virtual_bytes": 89030656,
+      "pss_bytes": 5517312,
+      "private_resident_bytes": 5431296,
+      "cpu_seconds": 0.02,
+      "threads": 2
+    },
+    {
+      "elapsed_seconds": 8.0173,
+      "rss_bytes": 9273344,
+      "peak_rss_bytes": 9273344,
+      "virtual_bytes": 89030656,
+      "pss_bytes": 5517312,
+      "private_resident_bytes": 5431296,
+      "cpu_seconds": 0.02,
+      "threads": 2
+    },
+    {
+      "elapsed_seconds": 8.5181,
+      "rss_bytes": 9273344,
+      "peak_rss_bytes": 9273344,
+      "virtual_bytes": 89030656,
+      "pss_bytes": 5517312,
+      "private_resident_bytes": 5431296,
+      "cpu_seconds": 0.02,
+      "threads": 2
+    },
+    {
+      "elapsed_seconds": 9.0186,
+      "rss_bytes": 9273344,
+      "peak_rss_bytes": 9273344,
+      "virtual_bytes": 89030656,
+      "pss_bytes": 5517312,
+      "private_resident_bytes": 5431296,
+      "cpu_seconds": 0.02,
+      "threads": 2
+    },
+    {
+      "elapsed_seconds": 9.5192,
+      "rss_bytes": 9273344,
+      "peak_rss_bytes": 9273344,
+      "virtual_bytes": 89030656,
+      "pss_bytes": 5517312,
+      "private_resident_bytes": 5431296,
+      "cpu_seconds": 0.02,
+      "threads": 2
+    },
+    {
+      "elapsed_seconds": 10.0204,
+      "rss_bytes": 9273344,
+      "peak_rss_bytes": 9273344,
+      "virtual_bytes": 89030656,
+      "pss_bytes": 5517312,
+      "private_resident_bytes": 5431296,
+      "cpu_seconds": 0.02,
+      "threads": 2
+    },
+    {
+      "elapsed_seconds": 10.5211,
+      "rss_bytes": 9273344,
+      "peak_rss_bytes": 9273344,
+      "virtual_bytes": 89030656,
+      "pss_bytes": 5517312,
+      "private_resident_bytes": 5431296,
+      "cpu_seconds": 0.02,
+      "threads": 2
+    },
+    {
+      "elapsed_seconds": 11.0218,
+      "rss_bytes": 9273344,
+      "peak_rss_bytes": 9273344,
+      "virtual_bytes": 89030656,
+      "pss_bytes": 5517312,
+      "private_resident_bytes": 5431296,
+      "cpu_seconds": 0.02,
+      "threads": 2
+    },
+    {
+      "elapsed_seconds": 11.5227,
+      "rss_bytes": 9273344,
+      "peak_rss_bytes": 9273344,
+      "virtual_bytes": 89030656,
+      "pss_bytes": 5516288,
+      "private_resident_bytes": 5431296,
+      "cpu_seconds": 0.02,
+      "threads": 2
+    }
+  ],
+  "completion": "duration_elapsed",
+  "elapsed_seconds": 12.0077,
+  "sample_count": 18,
+  "summary": {
+    "rss_bytes": {
+      "min_bytes": 9273344,
+      "median_bytes": 9273344.0,
+      "p95_bytes": 9273344,
+      "max_bytes": 9273344
+    },
+    "pss_bytes": {
+      "min_bytes": 5516288,
+      "median_bytes": 5517312.0,
+      "p95_bytes": 5517312,
+      "max_bytes": 5517312
+    },
+    "private_resident_bytes": {
+      "min_bytes": 5431296,
+      "median_bytes": 5431296.0,
+      "p95_bytes": 5431296,
+      "max_bytes": 5431296
+    }
+  },
+  "path_note": "Workspace prefix anonymized for publication; samples and executable SHA-256 unchanged."
+}

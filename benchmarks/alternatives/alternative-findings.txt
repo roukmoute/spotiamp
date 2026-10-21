@@ -1,0 +1,70 @@
+Alternative engine experiments — Linux x86_64 — 2026-10-21
+
+IMPORTANT: neither experiment authenticated to Spotify or played Spotify audio.
+These are different initialization states and cannot establish playback memory
+or direct Windows comparisons. Shared-library builds. MiB = KiB / 1024.
+
+librespot-c (ejurgensen), commit f73f7d75940fc6b1e59121d40fdf32a7446d7a5e
+- Built unchanged with GCC -O2, version 0.9 (commit dated 2026-10-15).
+- probe-librespot-c.c invokes librespotc_init(), idles, then deinitializes.
+- Main measurement 1..6 seconds: RSS 9008 KiB (8.80 MiB), PSS 2843 KiB,
+  private resident clean+dirty 2620 KiB, two threads, CPU ticks below 0.01 s.
+- Independent initial 12-second run: RSS 8960 KiB, PSS 2878 KiB. See raw log.
+- Probe file: 410408 bytes; static library archive 827338 bytes. Runtime
+  dependencies are shared libevent, libgcrypt, libcurl, json-c, protobuf-c.
+- It does NOT include decoder, audio output, OAuth UI, library/catalog UI,
+  or Spotify Connect. It provides compressed audio in 32 KiB chunks.
+- Token + stored credential login supported; deprecated password API marked.
+- Windows port work: public pthread type, socketpair(AF_UNIX), fcntl, POSIX
+  file descriptors/endian macros, autotools. No native Windows build tested.
+- MIT license.
+
+cspot, commit 1b07a9c00ba6d5e878e5b33dcbf89bff493cde26;
+  bell submodule e83737367a08b5a5a1f652a7ecb97a0d926929dd
+- CLI built release -O3; ALSA null device, waiting for Zeroconf authentication.
+- 1..6 seconds: RSS 6896 KiB (6.73 MiB), PSS 3198 KiB, private resident
+  clean+dirty 3168 KiB, seven threads. CPU 0.19 s / 6 s (~3.2% one core).
+- Executable 1517280 bytes, shared mbedTLS, ALSA, avahi, libstdc++ etc.
+- No audio decoded, no network Spotify session. It starts a local receiver
+  waiting for the official Spotify application; our process was stopped.
+- Build requires CMake, protobuf compiler, Python protobuf, mbedTLS, ALSA,
+  optional PortAudio/avahi. No system packages were installed: .deb files
+  were extracted into work/alternatives/sysroot.
+- First minimal-codec attempt failed because MP3/AAC headers are referenced
+  unconditionally. Build restored those codecs and Opus. MQTT and regex
+  remain disabled. Added one missing #include <cstring> in Bell URLParser.cpp
+  for modern GCC; see cspot-bell-build-fix.patch.
+- README documents Windows Win32 tested and x64 untested, plus macOS/Linux.
+- Current open 2026 issues report CDN resolution failure and ask whether
+  library still works; no answer / playback validation established here.
+- Source uses older api.spotify.com/v1/storage-resolve endpoint.
+- CLI offers old username/password or stored blob/Zeroconf, no browser OAuth.
+- Bell default TLS certificate verification is off until a bundle is set;
+  CLI does not initialize a bundle. Do not ship as-is for credential use.
+- GPL v3 or later (LICENSE.md); affects integration/distribution choice.
+
+Official Spotify Soloist
+- Linux-only headless client, local CLI/WebSocket. Per-user API key required,
+  binaries cannot be redistributed directly, builds expire after 90 days.
+- No run: no user-provided API key and no authenticated session; measuring
+  its --help process would not answer a playback-memory question.
+- Does not meet Windows-first requirement.
+
+RECOMMENDATION
+Keep backend replaceable. Compare actual Windows playback using the same
+account, bitrate, track, duration, UI, and memory metrics before choosing.
+librespot-c is the most plausible separate C candidate, but needs playback
+and Windows port proof. cspot small idle footprint does not overcome its
+unverified server compatibility, TLS configuration and idle CPU cost.
+
+Re-run probes:
+  /usr/bin/python3 measure-process.py librespot-c ./probe-librespot-c
+  /usr/bin/python3 measure-process.py cspot ./cspot-build/cspotcli
+
+Primary sources:
+https://github.com/ejurgensen/librespot-c
+https://github.com/ejurgensen/librespot-c/blob/f73f7d75940fc6b1e59121d40fdf32a7446d7a5e/librespot-c.h
+https://github.com/feelfreelinux/cspot
+https://github.com/feelfreelinux/cspot/issues/180
+https://github.com/feelfreelinux/cspot/issues/181
+https://developer.spotify.com/documentation/soloist

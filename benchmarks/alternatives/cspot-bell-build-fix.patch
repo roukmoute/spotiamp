@@ -1,0 +1,10 @@
+diff --git a/main/io/URLParser.cpp b/main/io/URLParser.cpp
+index 4a50ab1..f52f7dd 100644
+--- a/main/io/URLParser.cpp
++++ b/main/io/URLParser.cpp
+@@ -1,4 +1,5 @@
+ #include "URLParser.h"
++#include <cstring>
+ 
+ namespace bell {
+ 
