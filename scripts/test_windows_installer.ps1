@@ -121,11 +121,11 @@ function Assert-NoMachineRegistration {
         } finally { $hive.Dispose() }
     }
 }
-function Start-Native([string]$File, [string[]]$Arguments = @()) {
+function Start-Native([string]$File, [string[]]$Arguments = @(), [string]$WorkingDirectory) {
     $info = [Diagnostics.ProcessStartInfo]::new()
     $info.FileName = $File
     $info.UseShellExecute = $false
-    $info.WorkingDirectory = [IO.Path]::GetDirectoryName($File)
+    $info.WorkingDirectory = if ($WorkingDirectory) { $WorkingDirectory } else { [IO.Path]::GetDirectoryName($File) }
     foreach ($argument in $Arguments) { $info.ArgumentList.Add($argument) }
     $process = [Diagnostics.Process]::Start($info)
     $running.Add($process)
@@ -483,7 +483,10 @@ try {
     # Rust canonicalizes current_exe to the extended-length Windows spelling.
     # Its private handoff protocol requires the stage in the same spelling.
     $canonicalStage = if ($stage.StartsWith('\\')) { '\\?\UNC\' + $stage.Substring(2) } else { '\\?\' + $stage }
-    $helper = Start-Native $helperPath @('--apply-update', $canonicalStage, $nonce)
+    # The real app starts its helper with the app's working directory. Starting
+    # this copied helper in stage would make the restarted reader inherit stage
+    # as its cwd, keeping that directory locked against removal on Windows.
+    $helper = Start-Native $helperPath @('--apply-update', $canonicalStage, $nonce) -WorkingDirectory $installDirectory
     [void](Wait-Until 'real alpha.8 helper READY' {
         $helper.Refresh()
         Assert-That (-not $helper.HasExited) 'Native update helper exited before READY'
@@ -557,6 +560,9 @@ try {
 } catch {
     $report.error = ($_ | Out-String)
     if ($stage -and (Test-Path -LiteralPath $stage)) {
+        $report.remaining_stage_entries = @(Get-ChildItem -LiteralPath $stage -Force -Recurse | ForEach-Object {
+            [IO.Path]::GetRelativePath($stage, $_.FullName)
+        })
         foreach ($name in @('helper-error.txt', 'update-error.txt', 'ready', 'go', 'new-started', 'new-commit', 'old-started', 'old-commit')) {
             $diagnostic = Join-Path $stage $name
             if (Test-Path -LiteralPath $diagnostic -PathType Leaf) {
