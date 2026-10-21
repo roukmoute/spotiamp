@@ -91,6 +91,24 @@ impl Window {
         }
     }
 
+    pub fn set_titlebar_drag_region(&mut self, region: Option<(usize, usize, usize, usize)>) {
+        match self {
+            #[cfg(feature = "x11")]
+            Window::X11(w) => w.set_titlebar_drag_region(region),
+            #[cfg(feature = "wayland")]
+            Window::Wayland(w) => w.set_titlebar_drag_region(region),
+        }
+    }
+
+    pub fn minimize(&mut self) {
+        match self {
+            #[cfg(feature = "x11")]
+            Window::X11(w) => w.minimize(),
+            #[cfg(feature = "wayland")]
+            Window::Wayland(w) => w.minimize(),
+        }
+    }
+
     pub fn update_with_buffer_stride(
         &mut self,
         buffer: &[u32],

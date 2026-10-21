@@ -268,15 +268,7 @@ impl View {
         self.rect(3, 20, 1, HEIGHT - 23, 0x535166);
         self.rect(WIDTH - 4, 20, 1, HEIGHT - 23, 0x141422);
         self.header(2, "SPOTIAMP");
-        let help_down = self.button_down(530, 3);
-        self.metal_face(530, 3, 16, 14, true, help_down);
-        self.text(
-            534 + usize::from(help_down),
-            6 + usize::from(help_down),
-            "?",
-            0x303346,
-            1,
-        );
+        self.titlebar_buttons();
 
         self.bevel(14, 28, 187, 61, BLACK, true);
         self.rect(17, 31, 181, 1, 0x161d15);
@@ -580,6 +572,27 @@ impl View {
             self.render_help();
         }
         self.render_about();
+    }
+
+    fn titlebar_buttons(&mut self) {
+        for button in Button::TITLEBAR {
+            let (x, y, width, height) = button.rect();
+            let down = self.button_down(x, y);
+            self.metal_face(x, y, width, height, true, down);
+            let offset = usize::from(down);
+            let color = if self.focused { 0x303346 } else { 0x62677a };
+            match button {
+                Button::Help => self.text(x + 4 + offset, y + 3 + offset, "?", color, 1),
+                Button::Minimize => self.rect(x + 5 + offset, y + 9 + offset, 8, 2, color),
+                Button::Close => {
+                    for i in 0..7 {
+                        self.rect(x + 6 + i + offset, y + 3 + i + offset, 1, 1, color);
+                        self.rect(x + 12 - i + offset, y + 3 + i + offset, 1, 1, color);
+                    }
+                }
+                _ => unreachable!(),
+            }
+        }
     }
 
     fn render_help(&mut self) {

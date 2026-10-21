@@ -169,6 +169,15 @@ extern "C" {
         buf_stride: u32,
     );
     fn mfb_set_position(window: *mut c_void, x: i32, y: i32);
+    fn mfb_set_titlebar_drag_region(
+        window: *mut c_void,
+        enabled: bool,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    );
+    fn mfb_minimize(window: *mut c_void);
     fn mfb_get_position(window: *const c_void, x: *mut i32, y: *mut i32);
     fn mfb_set_key_callback(
         window: *mut c_void,
@@ -403,6 +412,25 @@ impl Window {
             let t = CString::new(title).unwrap();
             mfb_set_title(self.window_handle, t.as_ptr());
         }
+    }
+
+    pub fn set_titlebar_drag_region(&mut self, region: Option<(usize, usize, usize, usize)>) {
+        let (x, y, width, height) = region.unwrap_or((0, 0, 0, 0));
+        unsafe {
+            mfb_set_titlebar_drag_region(
+                self.window_handle,
+                region.is_some(),
+                x as f64,
+                y as f64,
+                width as f64,
+                height as f64,
+            );
+        }
+    }
+
+    pub fn minimize(&mut self) {
+        let handle = self.window_handle;
+        unsafe { mfb_minimize(handle) };
     }
 
     #[inline]

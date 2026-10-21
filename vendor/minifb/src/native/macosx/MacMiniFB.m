@@ -172,7 +172,7 @@ void* mfb_open(const char* name, int width, int height, uint32_t flags, int scal
         s_init = true;
     }
 
-    NSWindowStyleMask styles = NSWindowStyleMaskClosable;
+    NSWindowStyleMask styles = NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable;
 
     if (flags & WINDOW_BORDERLESS) {
         styles |= NSWindowStyleMaskBorderless;
@@ -267,6 +267,9 @@ void* mfb_open(const char* name, int width, int height, uint32_t flags, int scal
     window->mouse_button_callback = 0;
     window->mouse_cancel_callback = 0;
     window->shared_data = 0;
+    window->titlebar_drag_region = NSZeroRect;
+    window->titlebar_drag_enabled = false;
+    window->titlebar_dragging = false;
     window->active_menu_id = -1;
     window->prev_cursor = 0;
 
@@ -279,6 +282,7 @@ void* mfb_open(const char* name, int width, int height, uint32_t flags, int scal
     [window setReleasedWhenClosed:NO];
     [window performSelectorOnMainThread:@selector(makeKeyAndOrderFront:) withObject:nil waitUntilDone:YES];
     [window setAcceptsMouseMovedEvents:YES];
+    [window setMovableByWindowBackground:NO];
 
     [window center];
 
@@ -483,10 +487,11 @@ static int generic_update(OSXWindow* win) {
 
     if (win->shared_data) {
         NSPoint p = [win mouseLocationOutsideOfEventStream];
-        NSRect originalFrame = [win frame];
-        NSRect contentRect = [NSWindow contentRectForFrameRect: originalFrame styleMask: NSWindowStyleMaskTitled];
+        NSView* frameView = (NSView*)win->frame_view;
+        p = [frameView convertPoint:p fromView:nil];
         win->shared_data->mouse_x = p.x;
-        win->shared_data->mouse_y = contentRect.size.height - p.y;
+        // Match event callbacks; a borderless window has no native title height.
+        win->shared_data->mouse_y = [frameView isFlipped] ? p.y : NSHeight([frameView bounds]) - p.y;
     }
 
     return state;
@@ -547,6 +552,17 @@ void mfb_set_position(void* window, int x, int y) {
     const NSRect dummyRect = NSMakeRect(x, transformY(y + contentRect.size.height), 0, 0);
     const NSRect frameRect = [win frameRectForContentRect:dummyRect];
     [win setFrameOrigin:frameRect.origin];
+}
+
+void mfb_set_titlebar_drag_region(void* window, bool enabled, double x, double y, double width, double height) {
+    OSXWindow* win = (OSXWindow*)window;
+    win->titlebar_drag_region = NSMakeRect(x, y, width, height);
+    win->titlebar_drag_enabled = enabled && width > 0 && height > 0;
+}
+
+void mfb_minimize(void* window) {
+    OSXWindow* win = (OSXWindow*)window;
+    [win miniaturize:nil];
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

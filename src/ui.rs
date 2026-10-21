@@ -10,6 +10,8 @@ use std::{
 
 pub const WIDTH: usize = 560;
 pub const HEIGHT: usize = 470;
+// Logical skin pixels; native backends scale this region for their window system.
+pub const TITLEBAR_DRAG_REGION: (usize, usize, usize, usize) = (6, 2, 486, 16);
 const BG: u32 = 0x29283d;
 const LIGHT: u32 = 0x88889f;
 const SHADOW: u32 = 0x11111b;
@@ -29,6 +31,8 @@ pub enum Action {
     CheckUpdates,
     DownloadUpdate,
     InstallUpdate,
+    Minimize,
+    Close,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -53,6 +57,8 @@ impl AboutTab {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Button {
     Help,
+    Minimize,
+    Close,
     About,
     AboutTab(AboutTab),
     AboutCloseTop,
@@ -78,8 +84,9 @@ enum Button {
 }
 
 impl Button {
-    const ALL: [Self; 15] = [
-        Self::Help,
+    const TITLEBAR: [Self; 3] = [Self::Help, Self::Minimize, Self::Close];
+
+    const ALL: [Self; 14] = [
         Self::About,
         Self::Connection,
         Self::Previous,
@@ -121,7 +128,9 @@ impl Button {
             Self::AboutProject => (40, 405, 186, 22),
             Self::UpdateCheck => (64, 315, 208, 24),
             Self::UpdateDownload | Self::UpdateInstall => (286, 315, 208, 24),
-            Self::Help => (530, 3, 16, 14),
+            Self::Help => (496, 3, 16, 14),
+            Self::Minimize => (514, 3, 18, 14),
+            Self::Close => (534, 3, 20, 14),
             Self::Connection => (421, 29, 125, 22),
             Self::Previous => (15, 116, 38, 22),
             Self::Play => (57, 116, 38, 22),
@@ -144,23 +153,28 @@ impl Button {
         } else {
             &Self::ALL
         };
-        buttons.iter().copied().find(|button| {
-            // Distinct capture identities prevent a Download press from becoming
-            // an Install release if the asynchronous update state changes.
-            let visible = match button {
-                Self::UpdateCheck => about == Some(AboutTab::Updates),
-                Self::UpdateDownload => {
-                    about == Some(AboutTab::Updates)
-                        && !matches!(update, UpdateStatus::Ready { .. })
-                }
-                Self::UpdateInstall => {
-                    about == Some(AboutTab::Updates) && matches!(update, UpdateStatus::Ready { .. })
-                }
-                _ => true,
-            };
-            let (left, top, width, height) = button.rect();
-            visible && (left..left + width).contains(&x) && (top..top + height).contains(&y)
-        })
+        Self::TITLEBAR
+            .iter()
+            .chain(buttons)
+            .copied()
+            .find(|button| {
+                // Distinct capture identities prevent a Download press from becoming
+                // an Install release if the asynchronous update state changes.
+                let visible = match button {
+                    Self::UpdateCheck => about == Some(AboutTab::Updates),
+                    Self::UpdateDownload => {
+                        about == Some(AboutTab::Updates)
+                            && !matches!(update, UpdateStatus::Ready { .. })
+                    }
+                    Self::UpdateInstall => {
+                        about == Some(AboutTab::Updates)
+                            && matches!(update, UpdateStatus::Ready { .. })
+                    }
+                    _ => true,
+                };
+                let (left, top, width, height) = button.rect();
+                visible && (left..left + width).contains(&x) && (top..top + height).contains(&y)
+            })
     }
 
     fn enabled(self, view: &View, s: &Snapshot) -> bool {
@@ -326,11 +340,12 @@ impl View {
         if !self.focused {
             return None;
         }
-        if self.help {
+        let button = Button::at(x, y, self.about, &self.update);
+        if self.help && !button.is_some_and(|button| Button::TITLEBAR.contains(&button)) {
             self.help = false;
             return None;
         }
-        if let Some(button) = Button::at(x, y, self.about, &self.update) {
+        if let Some(button) = button {
             self.input_active = false;
             self.select_all = false;
             if button.enabled(self, s) {
@@ -443,6 +458,21 @@ impl View {
         }
     }
     pub fn click(&mut self, x: usize, y: usize, s: &Snapshot) -> Option<Action> {
+        // Window controls stay usable while the in-skin dialogs are open.
+        match Button::at(x, y, self.about, &self.update) {
+            Some(Button::Minimize) => return Some(Action::Minimize),
+            Some(Button::Close) => return Some(Action::Close),
+            Some(Button::Help) => {
+                if self.about.is_some() {
+                    self.about = Some(AboutTab::Shortcuts);
+                    self.about_focus = AboutTab::Shortcuts as usize;
+                } else {
+                    self.help = !self.help;
+                }
+                return None;
+            }
+            _ => {}
+        }
         if self.about.is_some() {
             self.about_focus = match Button::at(x, y, self.about, &self.update) {
                 Some(Button::AboutTab(tab)) => tab as usize,
@@ -465,10 +495,6 @@ impl View {
         }
         self.input_active = (170..195).contains(&y) && (14..422).contains(&x);
         self.select_all = false;
-        if (1..19).contains(&y) && x >= 530 {
-            self.help = true;
-            return None;
-        }
         if (417..438).contains(&y) {
             let quality = match x {
                 350..=409 => Some(AudioQuality::Kbps96),
@@ -594,6 +620,9 @@ mod about_tests;
 
 #[cfg(test)]
 mod update_tests;
+
+#[cfg(test)]
+mod chrome_tests;
 
 #[cfg(test)]
 mod scroll_tests;

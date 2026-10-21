@@ -235,36 +235,42 @@ impl View {
         for (y, version, first, second) in [
             (
                 109,
+                "ALPHA.7 / FENÊTRE INTÉGRÉE",
+                "Bandeau déplaçable, boutons Réduire et Fermer.",
+                "Cadre système retiré, même interface légère.",
+            ),
+            (
+                146,
                 "ALPHA.6 / MISES À JOUR",
                 "Détection, téléchargement et installation.",
                 "Vérification du paquet puis redémarrage.",
             ),
             (
-                151,
+                183,
                 "ALPHA.5 / À PROPOS",
                 "Version, crédits, raccourcis et historique.",
                 "Quatre onglets, accessibles aussi au clavier.",
             ),
             (
-                193,
+                220,
                 "ALPHA.4 / SKIN CLASSIQUE",
                 "Boutons métalliques et états enfoncés.",
                 "Clics courts fiables, focus et capture souris.",
             ),
             (
-                235,
+                257,
                 "ALPHA.3 / QUALITÉ AUDIO",
                 "Choix 96 / 160 / 320 kb/s, 320 par défaut.",
                 "Préférence mémorisée, au prochain chargement.",
             ),
             (
-                277,
+                294,
                 "ALPHA.2 / MOLETTE",
                 "Défilement précis et mouvements accumulés.",
                 "Correction des événements Windows et X11.",
             ),
             (
-                319,
+                331,
                 "ALPHA.1 / PREMIÈRE PRÉVERSION",
                 "Connexion Spotify, import de liens, file.",
                 "Lecture native et commandes audio locales.",

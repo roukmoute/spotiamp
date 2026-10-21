@@ -79,5 +79,60 @@ Native behavior references:
 - https://www.x.org/Development/Documentation/GrabProcessing/
 - https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/EventOverview/HandlingMouseEvents/HandlingMouseEvents.html
 
+## Skin title bar and native window controls
+
+Two small public methods support a framebuffer-drawn title bar:
+`set_titlebar_drag_region(Some((x, y, width, height)))` defines the draggable
+rectangle in logical buffer pixels, before minifb scaling; `None` disables it.
+`minimize()` asks the native window manager to minimize the window. Applications
+keep their buttons outside the drag rectangle. No renderer, event thread or
+additional dependency is introduced.
+
+Windows retains the caption/system-menu/minimize style bits required for native
+window commands, but `WM_NCCALCSIZE` gives the framebuffer the entire window:
+there is no visible system title bar or border. The heap state pointer is
+installed and `SWP_FRAMECHANGED` applied before the window is shown, preventing
+an initial native-frame flash. A fixed borderless window has no resize or
+maximize styles, and caption double-click does not maximize it. The window
+remains an ordinary unowned top-level window eligible for the taskbar.
+
+`WM_NCHITTEST` decodes signed screen coordinates, converts them to client
+coordinates with `ScreenToClient`, then divides by minifb's scale. Only the
+specified rectangle returns `HTCAPTION`; skin buttons remain `HTCLIENT`.
+Windows therefore owns the drag operation. `ShowWindow(SW_MINIMIZE)` implements
+minimization. System key messages reach `DefWindowProc`, including Alt+F4 and
+Alt+Space; their Space/F4 key callbacks and the system-space character are
+suppressed so opening the system menu cannot toggle playback or type a space.
+After cancelling application capture, `WM_CANCELMODE` also reaches the default
+procedure so Windows can end its internal menu/move processing.
+
+X11 delegates movement to the window manager through `_NET_WM_MOVERESIZE`,
+releasing pointer/keyboard grabs before requesting the move. Title-bar presses
+and releases are kept out of application button callbacks; a locally received
+short release cancels an unfinished move. `XIconifyWindow` requests minimization.
+macOS uses `performWindowDragWithEvent:` and `miniaturize:` with the appropriate
+window style. Its pointer polling now converts coordinates through the content
+view, matching button callbacks without assuming a native titled frame. A drag
+that does not deliver MouseUp is reset on the next Down. Wayland's unused drag
+API is explicitly a no-op; minimization uses `xdg_toplevel.set_minimized`.
+
+Spotiamp's Windows tests use real HWNDs to check the complete client rectangle,
+styles, signed-coordinate hit testing at scales 1 and 2, excluded controls,
+drag disabling, fixed-size double-click, minimize/restore, the actual system
+menu and Alt+F4. They also check that system shortcuts do not become application
+input while ordinary keys still do. These tests run as part of the application's
+normal Windows test suite. Native macOS behavior requires a macOS runner;
+compiling its Objective-C bridge alone does not establish interaction behavior.
+
+Native behavior references:
+- https://learn.microsoft.com/en-us/windows/win32/dwm/customframe
+- https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-nchittest
+- https://learn.microsoft.com/en-us/windows/win32/winmsg/window-styles
+- https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-syskeydown
+- https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-cancelmode
+- https://specifications.freedesktop.org/wm/latest/ar01s04.html
+- https://developer.apple.com/documentation/appkit/nswindow/performdrag(with:)
+- https://developer.apple.com/documentation/appkit/nswindow/miniaturize(_:)
+
 Upstream source: https://crates.io/crates/minifb/0.29.0
 Original licenses are preserved in this directory.

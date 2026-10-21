@@ -14,10 +14,14 @@ Les résultats et leurs limites sont dans `PERFORMANCE.md`.
 **[Télécharger la préversion Windows et ses sources](https://github.com/roukmoute/spotiamp/releases).**
 Choisir l'archive `Spotiamp-Windows-x64.zip`, puis la décompresser.
 
-La préversion **0.1.0-alpha.6** ajoute les **mises à jour intégrées** : détection
-d'une nouvelle version, téléchargement, puis installation et redémarrage à votre
-demande. L'onglet **Mise à jour** rejoint le panneau **À propos** ; son affichage
-réutilise le buffer graphique du lecteur, sans image externe ni animation permanente.
+La préversion **0.1.0-alpha.7** retire le **cadre et la barre de titre du système**
+sous Windows, macOS et Linux. Les boutons **Réduire** et **Fermer** font partie
+du bandeau classique de Spotiamp, qui permet aussi de déplacer la fenêtre.
+Ce changement conserve le rendu bitmap existant, sans dépendance ni service ajouté.
+
+Les **mises à jour intégrées** restent accessibles dans l'onglet **Mise à jour**
+du panneau **À propos** : détection d'une nouvelle version, téléchargement,
+puis installation et redémarrage à votre demande.
 Les touches métalliques, boutons enfoncés pendant l'appui, cadres encastrés et
 poignées rainurées sont conservés, comme la qualité **320 kb/s par défaut** et
 la molette d'un titre par cran.
@@ -45,6 +49,12 @@ précédemment nommé Spool ; le paquet Spotiamp est reconstruit après renommag
 Les boutons s'activent au relâchement de la souris dans le bouton pressé.
 Relâcher à l'extérieur annule le clic ; une perte de focus annule aussi l'appui.
 Les barres de volume et de position réagissent dès l'appui et pendant le glissement.
+
+Pour déplacer la fenêtre, maintenir le bouton gauche de la souris sur une zone
+libre du bandeau supérieur et la faire glisser. **Réduire** et **Fermer**, à
+droite du bandeau, remplacent les boutons du cadre système. **Alt+F4** continue
+de fermer le lecteur sous Windows. La fenêtre garde une taille fixe, à
+l'échelle **1×** ou **2×** avec `--scale 2` ; la maximisation est désactivée.
 
 Le bouton **À propos**, près du volume, ou **F2** ouvre un panneau à cinq
 onglets : **Spotiamp**, **Crédits**, **Raccourcis**, **Historique** et **Mise à jour**.

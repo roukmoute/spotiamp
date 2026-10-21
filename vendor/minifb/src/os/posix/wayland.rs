@@ -869,6 +869,16 @@ impl Window {
         self.display.set_title(title);
     }
 
+    pub fn set_titlebar_drag_region(&mut self, _region: Option<(usize, usize, usize, usize)>) {
+        // The application uses the X11 backend (including XWayland). A Wayland
+        // move needs a live seat/button serial; do not emulate it with window positions.
+    }
+
+    pub fn minimize(&mut self) {
+        self.display.toplevel.set_minimized();
+        let _ = self.display.conn.flush();
+    }
+
     #[inline]
     pub fn set_background_color(&mut self, bg_color: u32) {
         self.bg_color = bg_color;

@@ -49,6 +49,10 @@ void build_submenu(NSMenu* menu, MenuDesc* desc);
     @public SharedData* shared_data;
     @public bool should_close;
     @public bool is_active;
+    // Top-left logical coordinates, before the explicit minifb scale.
+    @public NSRect titlebar_drag_region;
+    @public bool titlebar_drag_enabled;
+    @public bool titlebar_dragging;
     @public int active_menu_id;
     @public int prev_cursor;
     @public MenuData* menu_data;

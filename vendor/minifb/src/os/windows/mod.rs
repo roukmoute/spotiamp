@@ -220,10 +220,44 @@ unsafe extern "system" fn wnd_proc(
     let wnd: &mut WindowState = &mut *(user_data as *mut WindowState);
 
     match msg {
-        winuser::WM_SYSCOMMAND => {
-            if wparam == winuser::SC_KEYMENU {
-                return 0;
+        // Keep the system menu and minimize/close styles, while allocating
+        // the whole window to the framebuffer (no native caption or border).
+        winuser::WM_NCCALCSIZE if wnd.frameless => return 0,
+
+        winuser::WM_NCHITTEST => {
+            let mut point = windef::POINT {
+                x: lparam as u16 as i16 as i32,
+                y: (lparam >> 16) as u16 as i16 as i32,
+            };
+            if winuser::ScreenToClient(window, &mut point) != 0 {
+                let inside =
+                    point.x >= 0 && point.y >= 0 && point.x < wnd.width && point.y < wnd.height;
+                if inside {
+                    if let Some((x, y, width, height)) = wnd.titlebar_drag_region {
+                        // ScreenToClient uses the same DPI coordinate space as
+                        // the client size. Only minifb's buffer scale remains.
+                        let px = point.x as usize / wnd.scale_factor as usize;
+                        let py = point.y as usize / wnd.scale_factor as usize;
+                        if px >= x
+                            && py >= y
+                            && px < x.saturating_add(width)
+                            && py < y.saturating_add(height)
+                        {
+                            return winuser::HTCAPTION as isize;
+                        }
+                    }
+                    if wnd.frameless {
+                        return winuser::HTCLIENT as isize;
+                    }
+                } else if wnd.frameless {
+                    return winuser::HTNOWHERE as isize;
+                }
             }
+        }
+
+        winuser::WM_NCLBUTTONDBLCLK if wnd.frameless && wparam == winuser::HTCAPTION as usize => {
+            // The application is fixed-size, including a double-click on its skin.
+            return 0;
         }
 
         winuser::WM_MOUSEWHEEL => {
@@ -246,8 +280,11 @@ unsafe extern "system" fn wnd_proc(
         }
 
         winuser::WM_SYSKEYDOWN => {
-            update_key_state(wnd, (lparam as u32) >> 16, true);
-            return 0;
+            if !is_system_shortcut(wparam, lparam) {
+                update_key_state(wnd, (lparam as u32) >> 16, true);
+            }
+            // DefWindowProc owns Alt+F4 and the system-menu keyboard commands.
+            return winuser::DefWindowProcW(window, msg, wparam, lparam);
         }
 
         winuser::WM_CHAR => {
@@ -255,7 +292,9 @@ unsafe extern "system" fn wnd_proc(
         }
 
         winuser::WM_SYSCHAR => {
-            char_down(wnd, wparam as u32);
+            if wparam != winuser::VK_SPACE as usize {
+                char_down(wnd, wparam as u32);
+            }
         }
 
         winuser::WM_LBUTTONDOWN
@@ -316,7 +355,8 @@ unsafe extern "system" fn wnd_proc(
             if winuser::GetCapture() == window {
                 winuser::ReleaseCapture();
             }
-            return 0;
+            // Native cancellation also ends a system menu or move loop.
+            return winuser::DefWindowProcW(window, msg, wparam, lparam);
         }
 
         winuser::WM_MOUSEMOVE => {
@@ -341,8 +381,10 @@ unsafe extern "system" fn wnd_proc(
         }
 
         winuser::WM_SYSKEYUP => {
-            update_key_state(wnd, (lparam as u32) >> 16, false);
-            return 0;
+            if !is_system_shortcut(wparam, lparam) {
+                update_key_state(wnd, (lparam as u32) >> 16, false);
+            }
+            return winuser::DefWindowProcW(window, msg, wparam, lparam);
         }
 
         winuser::WM_COMMAND => {
@@ -514,6 +556,10 @@ unsafe extern "system" fn wnd_proc(
     winuser::DefWindowProcW(window, msg, wparam, lparam)
 }
 
+fn is_system_shortcut(key: WPARAM, flags: LPARAM) -> bool {
+    flags & (1 << 29) != 0 && (key == winuser::VK_SPACE as usize || key == winuser::VK_F4 as usize)
+}
+
 #[inline]
 fn to_wstring(str: &str) -> Vec<u16> {
     OsStr::new(str)
@@ -584,6 +630,8 @@ pub struct WindowState {
     clear_brush: windef::HBRUSH,
     is_open: bool,
     scale_factor: i32,
+    frameless: bool,
+    titlebar_drag_region: Option<(usize, usize, usize, usize)>,
     width: i32,
     height: i32,
     menus: Vec<Menu>,
@@ -643,7 +691,9 @@ impl Window {
             }
 
             if opts.borderless {
-                flags &= !winuser::WS_THICKFRAME;
+                // WS_CAPTION is needed for the native system menu. The visual
+                // frame is removed by WM_NCCALCSIZE after state installation.
+                flags = winuser::WS_CAPTION | winuser::WS_SYSMENU | winuser::WS_MINIMIZEBOX;
             }
 
             //TODO: UpdateLayeredWindow, etc.
@@ -694,7 +744,9 @@ impl Window {
                 bottom: new_height as ntdef::LONG,
             };
 
-            winuser::AdjustWindowRect(&mut rect, flags, 0);
+            if !opts.borderless || opts.none {
+                winuser::AdjustWindowRect(&mut rect, flags, 0);
+            }
             rect.right -= rect.left;
             rect.bottom -= rect.top;
 
@@ -721,7 +773,6 @@ impl Window {
             );
             None
         } else {
-            unsafe { winuser::ShowWindow(handle, winuser::SW_NORMAL) };
             Some((handle, hinstance))
         }
     }
@@ -736,7 +787,7 @@ impl Window {
         };
 
         unsafe {
-            let window = Window {
+            let mut window = Window {
                 state: Box::new(WindowState {
                     mouse: MouseData::default(),
                     dc: winuser::GetDC(window_handle),
@@ -746,6 +797,8 @@ impl Window {
                     update_rate: UpdateRate::new(),
                     is_open: true,
                     scale_factor,
+                    frameless: opts.borderless && !opts.none,
+                    titlebar_drag_region: None,
                     width: (width * scale_factor as usize) as i32,
                     height: (height * scale_factor as usize) as i32,
                     menus: Vec::new(),
@@ -769,6 +822,28 @@ impl Window {
                     },
                 }),
             };
+
+            // Register the stable heap pointer before showing or recalculating
+            // the frame, since either API can synchronously call WndProc.
+            set_window_long(
+                window_handle,
+                window.state.as_mut() as *mut WindowState as _,
+            );
+            if opts.borderless && !opts.none {
+                winuser::SetWindowPos(
+                    window_handle,
+                    std::ptr::null_mut(),
+                    0,
+                    0,
+                    (width * scale_factor as usize) as i32,
+                    (height * scale_factor as usize) as i32,
+                    winuser::SWP_NOMOVE
+                        | winuser::SWP_NOZORDER
+                        | winuser::SWP_NOACTIVATE
+                        | winuser::SWP_FRAMECHANGED,
+                );
+            }
+            winuser::ShowWindow(window_handle, winuser::SW_NORMAL);
 
             if opts.topmost {
                 window.topmost(true)
@@ -852,6 +927,19 @@ impl Window {
                 0,
                 winuser::SWP_SHOWWINDOW | winuser::SWP_NOSIZE,
             );
+        }
+    }
+
+    #[inline]
+    pub fn set_titlebar_drag_region(&mut self, region: Option<(usize, usize, usize, usize)>) {
+        self.titlebar_drag_region = region;
+    }
+
+    #[inline]
+    pub fn minimize(&mut self) {
+        let window = self.hwnd;
+        unsafe {
+            winuser::ShowWindow(window, winuser::SW_MINIMIZE);
         }
     }
 

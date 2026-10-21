@@ -279,6 +279,8 @@ pub struct Window {
     buttons: [u8; 5],
     prev_cursor: CursorStyle,
     active: bool,
+    titlebar_drag_region: Option<(usize, usize, usize, usize)>,
+    titlebar_dragging: bool,
 
     should_close: bool, // received delete window message from X server
 
@@ -498,6 +500,8 @@ impl Window {
                 prev_cursor: CursorStyle::Arrow,
                 should_close: false,
                 active: false,
+                titlebar_drag_region: None,
+                titlebar_dragging: false,
                 key_handler: KeyHandler::new(),
                 update_rate: UpdateRate::new(),
                 menu_counter: MenuHandle(0),
@@ -578,6 +582,69 @@ impl Window {
                 }
             },
         };
+    }
+
+    pub fn set_titlebar_drag_region(&mut self, region: Option<(usize, usize, usize, usize)>) {
+        self.titlebar_drag_region = region;
+    }
+
+    pub fn minimize(&mut self) {
+        unsafe {
+            (self.d.lib.XIconifyWindow)(self.d.display, self.handle, self.d.screen);
+            (self.d.lib.XFlush)(self.d.display);
+        }
+    }
+
+    fn in_titlebar_drag_region(&self, x: i32, y: i32) -> bool {
+        let (Ok(x), Ok(y)) = (usize::try_from(x), usize::try_from(y)) else {
+            return false;
+        };
+        let (x, y) = (x / self.scale as usize, y / self.scale as usize);
+        self.titlebar_drag_region
+            .is_some_and(|(left, top, width, height)| {
+                x >= left && y >= top && x - left < width && y - top < height
+            })
+    }
+
+    unsafe fn send_moveresize(&mut self, button: xlib::XButtonEvent, direction: c_long) {
+        let mut event: xlib::XEvent = std::mem::zeroed();
+        event.client_message = xlib::XClientMessageEvent {
+            type_: xlib::ClientMessage,
+            serial: 0,
+            send_event: xlib::True,
+            display: self.d.display,
+            window: self.handle,
+            message_type: self.d.intern_atom(b"_NET_WM_MOVERESIZE\0", false),
+            format: 32,
+            data: xlib::ClientMessageData::new(),
+        };
+        event
+            .client_message
+            .data
+            .set_long(0, button.x_root as c_long);
+        event
+            .client_message
+            .data
+            .set_long(1, button.y_root as c_long);
+        event.client_message.data.set_long(2, direction);
+        event
+            .client_message
+            .data
+            .set_long(3, xlib::Button1 as c_long);
+        event.client_message.data.set_long(4, 1); // Normal application, not a pager.
+        if direction != 11 {
+            // EWMH requires releasing the implicit press grab before the WM takes it.
+            (self.d.lib.XUngrabPointer)(self.d.display, button.time);
+            (self.d.lib.XUngrabKeyboard)(self.d.display, button.time);
+        }
+        (self.d.lib.XSendEvent)(
+            self.d.display,
+            (self.d.lib.XDefaultRootWindow)(self.d.display),
+            xlib::False,
+            xlib::SubstructureRedirectMask | xlib::SubstructureNotifyMask,
+            &mut event,
+        );
+        (self.d.lib.XFlush)(self.d.display);
     }
 
     pub fn update_with_buffer_stride(
@@ -1072,10 +1139,28 @@ impl Window {
             }
 
             xlib::ButtonPress => {
+                self.titlebar_dragging = false;
+                if ev.button.button == xlib::Button1
+                    && self.in_titlebar_drag_region(ev.button.x, ev.button.y)
+                {
+                    self.buttons.fill(0);
+                    if let Some(callback) = self.key_handler.key_callback.as_mut() {
+                        callback.mouse_input_cancelled();
+                    }
+                    self.titlebar_dragging = true;
+                    self.send_moveresize(ev.button, 8); // _NET_WM_MOVERESIZE_MOVE
+                    return ProcessEventResult::Ok;
+                }
                 self.process_button(ev, true /* is_down */);
             }
 
             xlib::ButtonRelease => {
+                if ev.button.button == xlib::Button1 && self.titlebar_dragging {
+                    self.titlebar_dragging = false;
+                    // A very short click can be released before the WM grabs it.
+                    self.send_moveresize(ev.button, 11); // _NET_WM_MOVERESIZE_CANCEL
+                    return ProcessEventResult::Ok;
+                }
                 self.process_button(ev, false /* is_down */);
             }
 

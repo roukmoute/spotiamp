@@ -1,5 +1,15 @@
 # Changements
 
+## 0.1.0-alpha.7 — 21 octobre 2026
+
+- Cadre et barre de titre du système retirés sous Windows, macOS et Linux.
+  Les boutons **Réduire** et **Fermer** sont intégrés au bandeau classique.
+- Déplacement de la fenêtre en faisant glisser une zone libre du bandeau
+  supérieur avec le bouton gauche de la souris.
+- Taille fixe conservée aux échelles 1× et 2× (`--scale 2`), avec maximisation
+  désactivée. Les raccourcis natifs, dont **Alt+F4** sous Windows, sont conservés.
+- Rendu dans le buffer graphique existant, sans nouvelle dépendance ni service.
+
 ## 0.1.0-alpha.6 — 21 octobre 2026
 
 - Mises à jour intégrées depuis les releases GitHub, préversions comprises :

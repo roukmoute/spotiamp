@@ -36,6 +36,31 @@ fn click(x: f32, y: f32) -> [MouseInput; 2] {
 }
 
 #[test]
+fn window_controls_are_allowed_through_about_without_playback_shortcuts() {
+    for (x, close) in [(522.0, false), (543.0, true)] {
+        let mut view = ui::View::default();
+        view.open_about();
+        let mut actions = Vec::new();
+        process_frame_input(
+            &mut view,
+            &state(),
+            FrameInput {
+                mouse: &click(x, 9.0),
+                keys: &[(Key::Delete, false, false)],
+                active: true,
+                ..FrameInput::default()
+            },
+            &mut actions,
+        );
+        assert!(
+            matches!(actions.as_slice(), [ui::Action::Close]) && close
+                || matches!(actions.as_slice(), [ui::Action::Minimize]) && !close
+        );
+        assert!(view.about.is_some());
+    }
+}
+
+#[test]
 fn modal_consumes_background_shortcuts_text_repeats_wheel_and_drag() {
     let state = state();
     let mut view = ui::View::default();

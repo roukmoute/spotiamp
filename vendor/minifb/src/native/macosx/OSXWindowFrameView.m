@@ -1,6 +1,7 @@
 #import "OSXWindowFrameView.h"
 #import "OSXWindow.h"
 #import <MetalKit/MetalKit.h>
+#include <string.h>
 
 id<MTLDevice> g_metal_device;
 id<MTLCommandQueue> g_command_queue;
@@ -356,12 +357,38 @@ uint32_t upper_power_of_two(uint32_t v) {
 }
 
 - (void)mouseDown:(NSEvent*)event {
+    OSXWindow* window = (OSXWindow*)[self window];
+    window->titlebar_dragging = false;
+    if (window->titlebar_drag_enabled) {
+        NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
+        CGFloat y = [self isFlipped] ? p.y : NSHeight([self bounds]) - p.y;
+        CGFloat scale = window->scale > 0 ? window->scale : 1;
+        NSPoint logical = NSMakePoint(p.x / scale, y / scale);
+        NSRect region = window->titlebar_drag_region;
+        if (logical.x >= NSMinX(region) && logical.x < NSMaxX(region) &&
+            logical.y >= NSMinY(region) && logical.y < NSMaxY(region)) {
+            if (window->shared_data) {
+                memset(window->shared_data->mouse_state, 0, sizeof(window->shared_data->mouse_state));
+            }
+            if (window->mouse_cancel_callback) {
+                window->mouse_cancel_callback(window->rust_data);
+            }
+            window->titlebar_dragging = true;
+            [window performWindowDragWithEvent:event];
+            return;
+        }
+    }
     [self reportMouseButton:0 down:YES event:event];
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 - (void)mouseUp:(NSEvent*)event {
+    OSXWindow* window = (OSXWindow*)[self window];
+    if (window->titlebar_dragging) {
+        window->titlebar_dragging = false;
+        return;
+    }
     [self reportMouseButton:0 down:NO event:event];
 }
 

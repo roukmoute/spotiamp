@@ -197,6 +197,8 @@ fn process_frame_input(
                     | ui::Action::CheckUpdates
                     | ui::Action::DownloadUpdate
                     | ui::Action::InstallUpdate
+                    | ui::Action::Minimize
+                    | ui::Action::Close
             )
         });
         return;
@@ -366,9 +368,12 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
         WindowOptions {
             scale,
             resize: false,
+            borderless: true,
+            title: false,
             ..WindowOptions::default()
         },
     )?;
+    window.set_titlebar_drag_region(Some(ui::TITLEBAR_DRAG_REGION));
     // Poll input at 30 Hz, but repaint only when visible state changes.
     window.set_target_fps(30);
     let input = Rc::new(RefCell::new(Vec::new()));
@@ -390,7 +395,7 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
     let mut fingerprint = None;
     let mut snapshot = model::Snapshot::default();
     let start = Instant::now();
-    while window.is_open() {
+    'player: while window.is_open() {
         if quit_after.is_some_and(|s| start.elapsed() >= Duration::from_secs(s)) {
             break;
         }
@@ -444,6 +449,12 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
         }
         for action in actions.drain(..) {
             let command = match action {
+                ui::Action::Close => break 'player,
+                ui::Action::Minimize => {
+                    window.minimize();
+                    view.cancel_pointer();
+                    None
+                }
                 ui::Action::Send(c) => Some(c),
                 ui::Action::Submit => {
                     let text = view.input.trim().to_owned();
@@ -532,6 +543,12 @@ mod pointer_tests;
 
 #[cfg(test)]
 mod about_input_tests;
+
+#[cfg(all(test, target_os = "windows"))]
+mod window_native_windows_tests;
+
+#[cfg(all(test, target_os = "linux"))]
+mod window_native_x11_tests;
 
 #[cfg(test)]
 mod tests {

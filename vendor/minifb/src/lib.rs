@@ -559,6 +559,50 @@ impl Window {
         self.0.set_position(x, y)
     }
 
+    /// Sets the draggable title-bar rectangle `(x, y, width, height)` in buffer
+    /// pixels, before [`Scale`] is applied. `None` disables custom dragging.
+    /// Keep interactive controls outside this rectangle. Supported on Windows,
+    /// macOS and X11; other backends ignore the request.
+    #[inline]
+    pub fn set_titlebar_drag_region(&mut self, region: Option<(usize, usize, usize, usize)>) {
+        #[cfg(any(
+            target_os = "windows",
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "dragonfly",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        ))]
+        self.0.set_titlebar_drag_region(region);
+        #[cfg(not(any(
+            target_os = "windows",
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "dragonfly",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        )))]
+        let _ = region;
+    }
+
+    /// Minimizes the window using its native window manager. Supported on
+    /// Windows, macOS, X11 and Wayland; other backends ignore the request.
+    #[inline]
+    pub fn minimize(&mut self) {
+        #[cfg(any(
+            target_os = "windows",
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "dragonfly",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        ))]
+        self.0.minimize();
+    }
+
     /// Gets the position of the window. This is useful if you want
     /// to store the position of the window across sessions
     ///
