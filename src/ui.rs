@@ -1,4 +1,4 @@
-use crate::model::{Command, Snapshot};
+use crate::model::{AudioQuality, Command, Snapshot};
 use font8x8::UnicodeFonts;
 use std::{
     fs::File,
@@ -133,6 +133,17 @@ impl View {
         if (1..19).contains(&y) && x >= 530 {
             self.help = true;
             return None;
+        }
+        if (417..438).contains(&y) {
+            let quality = match x {
+                350..=409 => Some(AudioQuality::Kbps96),
+                415..=474 => Some(AudioQuality::Kbps160),
+                480..=545 => Some(AudioQuality::Kbps320),
+                _ => None,
+            };
+            if let Some(quality) = quality {
+                return Some(Action::Send(Command::SetQuality(quality)));
+            }
         }
         if (30..51).contains(&y) && (421..546).contains(&x) {
             return Some(Action::Send(if s.connected || s.busy {
@@ -477,13 +488,25 @@ impl View {
         }
         self.button(14, 417, 98, "SUPPRIMER", self.selected.is_some());
         self.button(118, 417, 74, "VIDER", !s.queue.is_empty());
-        self.text(
-            208,
-            424,
-            &format!("{:03} TITRES / DOUBLE-CLIC : LIRE", s.queue.len()),
-            GREEN,
-            43,
-        );
+        self.text(198, 424, &format!("{:03} TITRES", s.queue.len()), GREEN, 10);
+        self.rect(283, 421, 1, 13, 0x53536e);
+        self.text(291, 424, "KB/S", WHITE, 4);
+        for (x, w, quality) in [
+            (350, 60, AudioQuality::Kbps96),
+            (415, 60, AudioQuality::Kbps160),
+            (480, 66, AudioQuality::Kbps320),
+        ] {
+            let selected = quality == s.quality;
+            self.bevel(x, 417, w, 21, if selected { BLACK } else { BG }, selected);
+            let label = quality.kbps().to_string();
+            self.text(
+                x + (w - label.len() * 8) / 2,
+                424,
+                &label,
+                if selected { GREEN } else { WHITE },
+                3,
+            );
+        }
         self.rect(13, 444, 534, 1, 0x53536e);
         let notice = self
             .transient
@@ -520,19 +543,19 @@ impl View {
             "",
             "Ajoutez un lien de titre, d'album ou de playlist.",
             "Exemple : https://open.spotify.com/track/...",
-            "La liste est limitee a 500 titres en memoire.",
-            "",
+            "Double-clic : lire. Liste limitee a 500 titres.",
+            "Qualite KB/S : 96 / 160 / 320 (defaut, memorise).",
             "Ctrl+V / Cmd+V : coller un lien",
             "Entree : ajouter le lien ou lire la selection",
             "Espace : lecture / pause (hors saisie)",
             "Fleches : selection / molette : defilement",
             "Suppr : retirer un titre ; Tab : champ de lien",
             "Barres : position de lecture et volume",
-            "",
+            "Qualite modifiee : au prochain chargement audio.",
             "Identifiants gardes dans le coffre du systeme.",
             "Sans coffre disponible : connexion non memorisee.",
             "DECONNECTER oublie la session enregistree.",
-            "",
+            "Le moteur peut choisir un debit de repli.",
             "Prototype : recherche et egaliseur non inclus.",
             "F1, Echap ou clic : fermer cette aide.",
         ]
@@ -563,6 +586,28 @@ mod scroll_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn quality_controls_are_available_before_connecting_and_do_not_change_selection() {
+        let mut view = View {
+            selected: Some(3),
+            ..View::default()
+        };
+        let state = Snapshot::default();
+        assert_eq!(state.quality, AudioQuality::Kbps320);
+        for (x, expected) in [
+            (380, AudioQuality::Kbps96),
+            (445, AudioQuality::Kbps160),
+            (510, AudioQuality::Kbps320),
+        ] {
+            assert!(matches!(
+                view.click(x, 425, &state),
+                Some(Action::Send(Command::SetQuality(quality))) if quality == expected
+            ));
+            assert_eq!(view.selected, Some(3));
+        }
+        view.help = true;
+        assert!(view.click(510, 425, &state).is_none());
+    }
     #[test]
     fn queue_selection_stays_valid_when_scrolling_and_removing() {
         let mut view = View::default();

@@ -3,7 +3,7 @@
 use librespot_core::{Session, config::SessionConfig};
 use librespot_playback::{
     audio_backend::{Sink, SinkResult},
-    config::PlayerConfig,
+    config::{Bitrate, PlayerConfig},
     convert::Converter,
     decoder::AudioPacket,
     mixer::NoOpVolume,
@@ -29,6 +29,7 @@ fn main() {
         let session = Session::new(SessionConfig::default(), None);
         let player = Player::new(
             PlayerConfig {
+                bitrate: Bitrate::Bitrate320,
                 gapless: false,
                 ditherer: None,
                 position_update_interval: Some(Duration::from_millis(500)),

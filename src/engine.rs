@@ -13,7 +13,7 @@ use librespot_core::{Session, SpotifyUri, authentication::Credentials, config::S
 use librespot_metadata::{Album, Metadata, Playlist, Track};
 use librespot_playback::{
     audio_backend::{Sink, SinkError, SinkResult},
-    config::{PlayerConfig, VolumeCtrl},
+    config::{Bitrate, PlayerConfig, VolumeCtrl},
     convert::Converter,
     decoder::AudioPacket,
     mixer::{Mixer, MixerConfig, softmixer::SoftMixer},
@@ -25,8 +25,8 @@ use tokio::{
     task::{JoinHandle, JoinSet},
 };
 
-use crate::credentials;
 pub use crate::model::{Command, Snapshot, TrackRow};
+use crate::{credentials, model::AudioQuality, settings};
 
 pub const MAX_QUEUE: usize = 500;
 const NETWORK_TIMEOUT: Duration = Duration::from_secs(20);
@@ -40,6 +40,7 @@ impl Engine {
     pub fn spawn() -> Self {
         let state = Arc::new(Mutex::new(Snapshot {
             volume: 45_875,
+            quality: settings::load(),
             status: "Connectez Spotify Premium pour commencer".into(),
             ..Snapshot::default()
         }));
@@ -76,6 +77,24 @@ impl Engine {
 fn edit(state: &Arc<Mutex<Snapshot>>, f: impl FnOnce(&mut Snapshot)) {
     if let Ok(mut snapshot) = state.lock() {
         f(&mut snapshot);
+    }
+}
+
+fn requested_bitrate(quality: AudioQuality) -> Bitrate {
+    match quality {
+        AudioQuality::Kbps96 => Bitrate::Bitrate96,
+        AudioQuality::Kbps160 => Bitrate::Bitrate160,
+        AudioQuality::Kbps320 => Bitrate::Bitrate320,
+    }
+}
+
+fn player_config(quality: AudioQuality) -> PlayerConfig {
+    PlayerConfig {
+        bitrate: requested_bitrate(quality),
+        gapless: false,
+        ditherer: None,
+        position_update_interval: Some(Duration::from_millis(500)),
+        ..PlayerConfig::default()
     }
 }
 
@@ -124,11 +143,15 @@ struct Worker {
     stopped: bool,
     pending_loads: usize,
     request_id: Option<u64>,
+    // The preference can change during playback. Keep the last load's request
+    // separate; a subsequent Playing event must not claim the new preference.
+    load_quality: AudioQuality,
     audio_error: Arc<Mutex<Option<String>>>,
 }
 
 impl Worker {
     fn new(state: Arc<Mutex<Snapshot>>) -> Self {
+        let load_quality = state.lock().map(|s| s.quality).unwrap_or_default();
         Self {
             state,
             session: None,
@@ -146,6 +169,7 @@ impl Worker {
             stopped: true,
             pending_loads: 0,
             request_id: None,
+            load_quality,
             audio_error: Arc::new(Mutex::new(None)),
         }
     }
@@ -329,6 +353,12 @@ impl Worker {
                 }
                 edit(&self.state, |s| s.volume = volume);
             }
+            Command::SetQuality(quality) => {
+                self.set_quality(quality);
+                if let Err(message) = settings::save(quality) {
+                    edit(&self.state, |s| s.status = message.into());
+                }
+            }
             Command::Remove(index) => {
                 let snapshot = self.snapshot();
                 if index >= snapshot.queue.len() {
@@ -406,12 +436,7 @@ impl Worker {
                             }
                         };
                         mixer.set_volume(self.snapshot().volume);
-                        let config = PlayerConfig {
-                            gapless: false,
-                            ditherer: None,
-                            position_update_interval: Some(Duration::from_millis(500)),
-                            ..PlayerConfig::default()
-                        };
+                        let config = player_config(self.snapshot().quality);
                         let audio_error = self.audio_error.clone();
                         let player = Player::new(
                             config,
@@ -504,6 +529,15 @@ impl Worker {
         }
     }
 
+    fn set_quality(&mut self, quality: AudioQuality) {
+        // This deliberately sends no command to the player: even a paused or
+        // still-loading track retains its original requested stream quality.
+        edit(&self.state, |s| {
+            s.quality = quality;
+            s.status = format!("Prochain chargement : {} kb/s demandes", quality.kbps());
+        });
+    }
+
     fn play(&mut self, index: usize) {
         let snapshot = self.snapshot();
         let Some(row) = snapshot.queue.get(index) else {
@@ -520,7 +554,8 @@ impl Worker {
             // newest load is acknowledged, ignore older events, even when both
             // queue rows contain the same Spotify URI.
             self.pending_loads += 1;
-            player.load(uri.clone(), true, 0);
+            self.load_quality = snapshot.quality;
+            player.load_with_bitrate(uri.clone(), true, 0, requested_bitrate(self.load_quality));
             self.current_uri = Some(uri);
             self.stopped = false;
             edit(&self.state, |s| {
@@ -588,7 +623,10 @@ impl Worker {
                 edit(&self.state, |s| {
                     s.playing = true;
                     s.position_ms = position_ms;
-                    s.status = "Lecture - Spotify 160 kb/s".into();
+                    s.status = format!(
+                        "Lecture - qualite demandee {} kb/s",
+                        self.load_quality.kbps()
+                    );
                 });
             }
             Paused {
@@ -1002,6 +1040,106 @@ async fn import(
 mod tests {
     use super::*;
     const ID: &str = "4uLU6hMCjMI75M1A2tKUQC";
+
+    #[test]
+    fn quality_preferences_map_to_requested_stream_bitrates() {
+        for (quality, bitrate) in [
+            (AudioQuality::Kbps96, Bitrate::Bitrate96),
+            (AudioQuality::Kbps160, Bitrate::Bitrate160),
+            (AudioQuality::Kbps320, Bitrate::Bitrate320),
+        ] {
+            assert_eq!(player_config(quality).bitrate, bitrate);
+            assert!(!player_config(quality).gapless);
+        }
+        assert_eq!(
+            player_config(AudioQuality::default()).bitrate,
+            Bitrate::Bitrate320
+        );
+    }
+
+    #[test]
+    fn changing_quality_preserves_current_playback_and_its_requested_quality() {
+        let state = Arc::new(Mutex::new(Snapshot {
+            queue: vec![TrackRow::default()],
+            current: Some(0),
+            connected: true,
+            playing: true,
+            position_ms: 12_345,
+            quality: AudioQuality::Kbps160,
+            ..Snapshot::default()
+        }));
+        let mut worker = Worker::new(state.clone());
+        let uri = parse_input(&format!("spotify:track:{ID}")).unwrap();
+        worker.current_uri = Some(uri.clone());
+        worker.stopped = false;
+        worker.request_id = Some(7);
+        worker.set_quality(AudioQuality::Kbps320);
+
+        let snapshot = worker.snapshot();
+        assert_eq!(snapshot.quality, AudioQuality::Kbps320);
+        assert_eq!(snapshot.current, Some(0));
+        assert!(snapshot.playing);
+        assert_eq!(snapshot.position_ms, 12_345);
+        assert_eq!(worker.pending_loads, 0);
+        assert_eq!(worker.request_id, Some(7));
+        assert_eq!(worker.load_quality, AudioQuality::Kbps160);
+
+        // Resuming the existing stream must still describe its original
+        // request, even though the next load will use the new preference.
+        worker.player_event(PlayerEvent::Playing {
+            play_request_id: 7,
+            track_id: uri,
+            position_ms: 12_345,
+        });
+        assert_eq!(
+            worker.snapshot().status,
+            "Lecture - qualite demandee 160 kb/s"
+        );
+        assert_eq!(worker.snapshot().quality, AudioQuality::Kbps320);
+    }
+
+    #[test]
+    fn queued_load_events_cannot_report_a_later_unloaded_quality_preference() {
+        let state = Arc::new(Mutex::new(Snapshot {
+            current: Some(0),
+            quality: AudioQuality::Kbps320,
+            ..Snapshot::default()
+        }));
+        let mut worker = Worker::new(state);
+        let uri = parse_input(&format!("spotify:track:{ID}")).unwrap();
+        worker.current_uri = Some(uri.clone());
+        worker.stopped = false;
+        worker.pending_loads = 2;
+        worker.request_id = Some(1);
+        // Two loads are already queued; the newest requested 320. Changing
+        // the preference again must not relabel either of those requests.
+        worker.set_quality(AudioQuality::Kbps96);
+        let preference_notice = worker.snapshot().status;
+        worker.player_event(PlayerEvent::PlayRequestIdChanged { play_request_id: 2 });
+        worker.player_event(PlayerEvent::Playing {
+            play_request_id: 2,
+            track_id: uri.clone(),
+            position_ms: 0,
+        });
+        assert_eq!(worker.snapshot().status, preference_notice);
+        worker.player_event(PlayerEvent::PlayRequestIdChanged { play_request_id: 3 });
+        worker.player_event(PlayerEvent::Playing {
+            play_request_id: 2,
+            track_id: uri.clone(),
+            position_ms: 0,
+        });
+        assert_eq!(worker.snapshot().status, preference_notice);
+        worker.player_event(PlayerEvent::Playing {
+            play_request_id: 3,
+            track_id: uri,
+            position_ms: 0,
+        });
+        assert_eq!(
+            worker.snapshot().status,
+            "Lecture - qualite demandee 320 kb/s"
+        );
+        assert_eq!(worker.snapshot().quality, AudioQuality::Kbps96);
+    }
 
     #[test]
     fn spotify_links_normalize_without_tracking_query() {

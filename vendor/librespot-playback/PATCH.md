@@ -1,7 +1,7 @@
 # Local patch to librespot-playback 0.8.0
 
-Only the player runtime construction in `src/player.rs` differs from the
-published crate. `Runtime::new()` is replaced with an explicitly configured
+The local changes are confined to `src/player.rs`. For thread startup,
+`Runtime::new()` is replaced with an explicitly configured
 multithread Tokio runtime using one asynchronous worker and all drivers enabled.
 
 The dedicated player thread is preserved. Upstream explicitly states that
@@ -23,9 +23,32 @@ reduction at idle, not evidence of a large playback-memory saving. The local
 patch makes that worker choice explicit in the player code.
 
 These measurements created a session object and player without authenticating
-to Spotify. Authenticated Spotify playback, Windows playback and sustained
-playback latency have not been validated. Retest these before claiming a
-playback-memory or performance improvement.
+to Spotify. They do not validate authenticated playback memory, Windows playback
+memory or sustained playback latency. Measure these separately before claiming
+a playback-memory or performance improvement.
+
+`Player::load_with_bitrate` adds an optional bitrate to the existing load command.
+This keeps each track and its requested bitrate together in the command queue,
+including rapid consecutive loads. Spotiamp only calls it when loading a track;
+changing the preference does not send any command to the current player.
+
+When a load changes the bitrate, the old decoder/loading state and any preload
+are discarded before the existing reuse checks. This ensures loading the same
+Spotify URI again can request the new quality. The ordinary `load()` API and
+seeking retain the existing bitrate. No buffer sizes, format fallback order or
+Spotify entitlement checks change. The UI describes the requested quality;
+upstream can select another available format if the requested one is absent.
+
+Offline regression tests verify command ordering and bitrate pairing, discarded
+old state/preload when quality changes, and preservation on an unchanged bitrate
+or seek. Run them from the Spotiamp project root (they are dependency tests and
+are not included by a plain root `cargo test`):
+
+```sh
+cargo test -p librespot-playback --lib quality_tests
+```
+
+The tests do not connect to Spotify or verify which audio format Spotify serves.
 
 Upstream commit recorded by the published crate:
 `d36f9f1907e8cc9d68a93f8ebc6b627b1bf7267d` (subdirectory `playback`).

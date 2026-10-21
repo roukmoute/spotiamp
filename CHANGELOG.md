@@ -1,5 +1,13 @@
 # Changements
 
+## 0.1.0-alpha.3 — 21 octobre 2026
+
+- Qualité demandée par défaut : 320 kb/s au lieu de 160, maximum du moteur actuel.
+- Sélection 96 / 160 / 320 sous la liste, mémorisée entre les lancements.
+- Changement appliqué au prochain chargement audio, sans couper le titre en cours.
+- La barre d'état identifie la qualité demandée du titre chargé ; un éventuel
+  format de repli n'est pas présenté comme un débit réel mesuré.
+
 ## 0.1.0-alpha.2 — 21 octobre 2026
 
 - Molette Windows : un cran déplace la liste d'un titre, au lieu de dix.

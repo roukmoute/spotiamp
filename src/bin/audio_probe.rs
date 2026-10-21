@@ -7,6 +7,8 @@ mod credentials;
 mod engine;
 #[path = "../model.rs"]
 mod model;
+#[path = "../settings.rs"]
+mod settings;
 
 use librespot_playback::{audio_backend::Sink, convert::Converter, decoder::AudioPacket};
 use std::{

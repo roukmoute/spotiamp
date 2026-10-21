@@ -14,9 +14,9 @@ Les résultats et leurs limites sont dans `PERFORMANCE.md`.
 **[Télécharger la préversion Windows et ses sources](https://github.com/roukmoute/spotiamp/releases).**
 Choisir l'archive `Spotiamp-Windows-x64.zip`, puis la décompresser.
 
-La préversion **0.1.0-alpha.2** corrige la molette : un cran Windows avance
-d'un titre, au lieu de dix. Les titres entre deux vues restent accessibles ;
-les mouvements fractionnaires des molettes précises sont conservés.
+La préversion **0.1.0-alpha.3** demande **320 kb/s par défaut** et permet de
+choisir 96 / 160 / 320 dans le lecteur. Elle conserve la correction de molette :
+un cran avance d'un titre, avec conservation des mouvements fractionnaires.
 
 ![Interface de Spotiamp](preview.png)
 
@@ -38,6 +38,25 @@ précédemment nommé Spool ; le paquet Spotiamp est reconstruit après renommag
    **Ctrl+V**, puis **+ AJ.** ou Entrée.
 4. Double-cliquer sur un titre. Les boutons et la barre de position pilotent
    le moteur audio local. Le client Spotify officiel peut être fermé.
+
+Les boutons **96 / 160 / 320**, à côté de **KB/S** sous la liste, règlent la
+qualité demandée. Le choix est mémorisé et appliqué au prochain chargement de
+titre : le morceau en cours continue sans coupure. Pour l'appliquer immédiatement,
+relancer le morceau par double-clic (il reprend au début). Pause/reprise et
+déplacement dans le morceau conservent la qualité de son chargement initial.
+
+**320 kb/s** est le maximum du moteur intégré actuellement ; le mode Spotify
+sans perte n'est pas pris en charge. Le moteur peut choisir un format de repli
+si le débit demandé n'existe pas pour ce titre. La barre d'état indique donc la
+**qualité demandée**, pas une mesure du débit réel. Le réglage est enregistré
+dans `%APPDATA%/Spotiamp/audio-quality` sous Windows,
+`~/Library/Application Support/Spotiamp/audio-quality` sous macOS et
+`$XDG_CONFIG_HOME/Spotiamp/audio-quality` (sinon `~/.config/Spotiamp/audio-quality`)
+sous Linux. Ce petit fichier ne contient aucun identifiant.
+
+Le débit réseau audio nominal passe de 160 à 320 kb/s. Cela ne signifie pas que
+la RAM double ; l'impact sur les buffers et le décodage reste à mesurer en lecture
+réelle. Aucun nouveau moteur, processus ou préchargement n'est ajouté.
 
 Le compte doit avoir Spotify Premium. La session est mémorisée dans le coffre
 du système : Gestionnaire d'identifiants Windows, Trousseau macOS ou Secret
@@ -93,11 +112,16 @@ Installer Rust avec rustup et les outils natifs de compilation. Le fichier
 ```sh
 cargo build --release --locked --bin spotiamp
 cargo test --locked
+cargo test --locked -p librespot-playback --lib quality_tests
 ```
 
 Les tests du défilement couvrent l'accès aux titres entre deux vues, les crans,
 les fractions, les rafales et les limites de liste. Sous Windows, `cargo test`
 injecte aussi des événements de molette natifs dans une fenêtre de test.
+Les tests de qualité couvrent la persistance, la conservation du flux en cours,
+la demande liée à chaque chargement et l'invalidation du précédent flux quand
+le débit change. Ils fonctionnent hors ligne ; le débit servi par Spotify doit
+encore être vérifié pendant une lecture authentifiée.
 Le test X11 demande un écran virtuel et `xdotool` et se lance explicitement :
 
 ```sh

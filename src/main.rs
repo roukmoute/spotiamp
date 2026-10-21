@@ -8,6 +8,8 @@ mod engine;
 #[path = "engine_stub.rs"]
 mod engine;
 mod model;
+#[cfg(feature = "spotify")]
+mod settings;
 mod ui;
 
 use minifb::{InputCallback, Key, KeyRepeat, MouseButton, MouseMode, Scale, Window, WindowOptions};

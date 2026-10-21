@@ -104,6 +104,7 @@ enum PlayerCommand {
         track_id: SpotifyUri,
         play: bool,
         position_ms: u32,
+        bitrate: Option<Bitrate>,
     },
     Preload {
         track_id: SpotifyUri,
@@ -550,6 +551,25 @@ impl Player {
             track_id,
             play: start_playing,
             position_ms,
+            bitrate: None,
+        });
+    }
+
+    /// Requests a bitrate for this load without changing the stream currently
+    /// playing before the command is processed. A changed bitrate also prevents
+    /// reuse of an already loaded decoder for the same track.
+    pub fn load_with_bitrate(
+        &self,
+        track_id: SpotifyUri,
+        start_playing: bool,
+        position_ms: u32,
+        bitrate: Bitrate,
+    ) {
+        self.command(PlayerCommand::Load {
+            track_id,
+            play: start_playing,
+            position_ms,
+            bitrate: Some(bitrate),
         });
     }
 
@@ -1592,6 +1612,24 @@ impl Future for PlayerInternal {
     }
 }
 
+// Only called when handling a new Load, after stopping a non-gapless sink.
+// Old decoder/preload reuse would otherwise silently retain the previous
+// quality when the user loads the same Spotify URI again.
+fn apply_load_bitrate(
+    config: &mut PlayerConfig,
+    state: &mut PlayerState,
+    preload: &mut PlayerPreload,
+    requested: Option<Bitrate>,
+) {
+    if let Some(bitrate) = requested {
+        if config.bitrate != bitrate {
+            config.bitrate = bitrate;
+            *preload = PlayerPreload::None;
+            *state = PlayerState::Stopped;
+        }
+    }
+}
+
 impl PlayerInternal {
     fn ensure_sink_running(&mut self) {
         if self.sink_status != SinkStatus::Running {
@@ -1947,6 +1985,7 @@ impl PlayerInternal {
         play_request_id_option: Option<u64>,
         play: bool,
         position_ms: u32,
+        bitrate: Option<Bitrate>,
     ) -> PlayerResult {
         let play_request_id =
             play_request_id_option.unwrap_or(self.play_request_id_generator.get());
@@ -1963,6 +2002,13 @@ impl PlayerInternal {
                 self.state
             )));
         }
+
+        apply_load_bitrate(
+            &mut self.config,
+            &mut self.state,
+            &mut self.preload,
+            bitrate,
+        );
 
         // Now we check at different positions whether we already have a pre-loaded version
         // of this track somewhere. If so, use it and return.
@@ -2220,6 +2266,7 @@ impl PlayerInternal {
                 Some(play_request_id),
                 start_playback,
                 position_ms,
+                None,
             );
         }
 
@@ -2276,7 +2323,8 @@ impl PlayerInternal {
                 track_id,
                 play,
                 position_ms,
-            } => self.handle_command_load(track_id, None, play, position_ms)?,
+                bitrate,
+            } => self.handle_command_load(track_id, None, play, position_ms, bitrate)?,
 
             PlayerCommand::Preload { track_id } => self.handle_command_preload(track_id),
 
@@ -2649,5 +2697,96 @@ where
 
     fn byte_len(&self) -> Option<u64> {
         Some(self.length)
+    }
+}
+
+#[cfg(test)]
+mod quality_tests {
+    use super::*;
+
+    fn uri() -> SpotifyUri {
+        SpotifyUri::from_uri("spotify:track:4uLU6hMCjMI75M1A2tKUQC").unwrap()
+    }
+
+    fn pending_track() -> PlayerState {
+        PlayerState::Loading {
+            track_id: uri(),
+            play_request_id: 7,
+            start_playback: true,
+            loader: Box::pin(future::pending()),
+        }
+    }
+
+    #[test]
+    fn explicit_quality_is_ordered_with_its_load_in_one_command() {
+        let (commands, mut received) = mpsc::unbounded_channel();
+        let player = Player {
+            commands: Some(commands),
+            thread_handle: None,
+        };
+        player.load_with_bitrate(uri(), true, 12_000, Bitrate::Bitrate320);
+        player.load_with_bitrate(uri(), false, 2_000, Bitrate::Bitrate96);
+        for (expected_bitrate, expected_play, expected_position) in [
+            (Bitrate::Bitrate320, true, 12_000),
+            (Bitrate::Bitrate96, false, 2_000),
+        ] {
+            let PlayerCommand::Load {
+                track_id,
+                play,
+                position_ms,
+                bitrate,
+            } = received.try_recv().unwrap()
+            else {
+                panic!("quality must travel inside the load command");
+            };
+            assert_eq!(track_id, uri());
+            assert_eq!(play, expected_play);
+            assert_eq!(position_ms, expected_position);
+            assert_eq!(bitrate, Some(expected_bitrate));
+        }
+        assert!(received.try_recv().is_err());
+    }
+
+    #[test]
+    fn changed_quality_discards_old_stream_and_preload_before_reuse() {
+        let mut config = PlayerConfig {
+            bitrate: Bitrate::Bitrate160,
+            ..PlayerConfig::default()
+        };
+        let mut state = pending_track();
+        let mut preload = PlayerPreload::Loading {
+            track_id: uri(),
+            loader: Box::pin(future::pending()),
+        };
+        apply_load_bitrate(
+            &mut config,
+            &mut state,
+            &mut preload,
+            Some(Bitrate::Bitrate320),
+        );
+        assert_eq!(config.bitrate, Bitrate::Bitrate320);
+        assert!(matches!(state, PlayerState::Stopped));
+        assert!(matches!(preload, PlayerPreload::None));
+    }
+
+    #[test]
+    fn unchanged_quality_and_seek_preserve_existing_stream() {
+        let mut config = PlayerConfig {
+            bitrate: Bitrate::Bitrate320,
+            ..PlayerConfig::default()
+        };
+        let mut state = pending_track();
+        let mut preload = PlayerPreload::None;
+        for requested in [Some(Bitrate::Bitrate320), None] {
+            apply_load_bitrate(&mut config, &mut state, &mut preload, requested);
+            assert_eq!(config.bitrate, Bitrate::Bitrate320);
+            assert!(matches!(
+                state,
+                PlayerState::Loading {
+                    play_request_id: 7,
+                    ..
+                }
+            ));
+        }
     }
 }
