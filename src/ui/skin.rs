@@ -327,19 +327,7 @@ impl View {
         }
         self.tiny_text(164, 72, "PCM", DIM);
 
-        self.button(
-            421,
-            29,
-            125,
-            if s.busy {
-                "ANNULER"
-            } else if s.connected {
-                "DECONNECTER"
-            } else {
-                "CONNEXION"
-            },
-            true,
-        );
+        self.button(421, 29, 125, ConnectionAction::for_state(s).label(), true);
         self.rect(214, 36, 4, 4, if s.connected { GREEN } else { 0x56515a });
         self.text(
             225,

@@ -65,6 +65,12 @@ impl Drop for LoginGuard {
 pub fn load() -> Result<Option<Credentials>, &'static str> {
     let _guard = STORE_LOCK.lock().map_err(|_| "Trousseau indisponible")?;
     let entry = Entry::new(SERVICE, ACCOUNT).map_err(|_| "Trousseau indisponible")?;
+    load_entry(&entry)
+}
+
+// Keep the production encoding and error handling testable with an isolated
+// entry. Public callers retain STORE_LOCK for the complete operation.
+fn load_entry(entry: &Entry) -> Result<Option<Credentials>, &'static str> {
     match entry.get_secret() {
         Ok(secret) => serde_json::from_slice(&secret)
             .map(Some)
@@ -84,16 +90,34 @@ pub fn save_if_current(
     if generation.load(Ordering::Acquire) != expected {
         return Ok(false);
     }
+    let entry = Entry::new(SERVICE, ACCOUNT)
+        .map_err(|_| "Trousseau indisponible : connexion pour cette session uniquement")?;
+    save_entry(&entry, credentials).map(|()| true)
+}
+
+fn save_entry(entry: &Entry, credentials: &Credentials) -> Result<(), &'static str> {
     let secret = serde_json::to_vec(credentials).map_err(|_| "Session non enregistrable")?;
-    Entry::new(SERVICE, ACCOUNT)
-        .and_then(|entry| entry.set_secret(&secret))
-        .map(|_| true)
+    entry
+        .set_secret(&secret)
         .map_err(|_| "Trousseau indisponible : connexion pour cette session uniquement")
 }
 
 pub fn clear() -> Result<(), &'static str> {
     let _guard = STORE_LOCK.lock().map_err(|_| "Trousseau indisponible")?;
-    match Entry::new(SERVICE, ACCOUNT).and_then(|entry| entry.delete_credential()) {
+    let entry = match Entry::new(SERVICE, ACCOUNT) {
+        Ok(entry) => entry,
+        Err(KeyringError::NoEntry) => return Ok(()),
+        Err(_) => {
+            return Err(
+                "Impossible d'effacer la session du trousseau; deverrouillez-le puis reessayez",
+            );
+        }
+    };
+    clear_entry(&entry)
+}
+
+fn clear_entry(entry: &Entry) -> Result<(), &'static str> {
+    match entry.delete_credential() {
         Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
         Err(_) => {
             Err("Impossible d'effacer la session du trousseau; deverrouillez-le puis reessayez")
@@ -186,4 +210,48 @@ mod tests {
         drop(lock);
         assert_eq!(thread.join().unwrap(), Ok(false));
     }
+
+    #[test]
+    fn stored_binary_credentials_round_trip_and_clear_is_idempotent() {
+        let entry = Entry::new_with_credential(Box::<keyring::mock::MockCredential>::default());
+        let credentials = Credentials {
+            username: Some("synthetic-serialization-test".into()),
+            auth_type: librespot_protocol::authentication::AuthenticationType::AUTHENTICATION_STORED_SPOTIFY_CREDENTIALS,
+            auth_data: (0..=255).collect(),
+        };
+        assert!(load_entry(&entry).unwrap().is_none());
+        save_entry(&entry, &credentials).unwrap();
+        assert!(load_entry(&entry).unwrap().as_ref() == Some(&credentials));
+        clear_entry(&entry).unwrap();
+        clear_entry(&entry).unwrap();
+        assert!(load_entry(&entry).unwrap().is_none());
+    }
+
+    #[test]
+    fn unreadable_or_unavailable_store_is_not_reported_as_no_saved_session() {
+        let entry = Entry::new_with_credential(Box::<keyring::mock::MockCredential>::default());
+        entry.set_secret(b"synthetic-invalid-json").unwrap();
+        assert!(matches!(
+            load_entry(&entry),
+            Err("Session enregistree illisible")
+        ));
+        let mock = entry
+            .get_credential()
+            .downcast_ref::<keyring::mock::MockCredential>()
+            .unwrap();
+        mock.set_error(KeyringError::PlatformFailure(Box::new(
+            std::io::Error::other("synthetic-store-failure"),
+        )));
+        assert!(matches!(
+            load_entry(&entry),
+            Err("Trousseau verrouille ou indisponible")
+        ));
+        // Neither failed read deletes the entry or silently turns it into None.
+        assert!(entry.get_secret().unwrap() == b"synthetic-invalid-json");
+        clear_entry(&entry).unwrap();
+    }
 }
+
+#[cfg(all(test, target_os = "windows"))]
+#[path = "credentials/windows_tests.rs"]
+mod windows_tests;

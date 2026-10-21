@@ -17,8 +17,8 @@ en anglais. L'installation concerne votre compte, sans droits administrateur.
 Le lecteur apparaît dans le menu Démarrer ; le raccourci sur le Bureau est optionnel.
 L'assistant propose de lancer Spotiamp à la fin.
 
-La version **0.1.2** ajoute les boutons **Shuffle** (lecture aléatoire) et
-**Repeat** (répétition de la file), intégrés au skin classique.
+La version **0.1.3** rétablit automatiquement la connexion Spotify au lancement
+à partir de la session mémorisée dans le coffre du système.
 L'installateur est proposé avec l'archive portable
 `Spotiamp-Windows-x64.zip`, disponible avec les paquets Linux, macOS et les
 [sources dans les releases](https://github.com/roukmoute/spotiamp/releases/latest).
@@ -54,8 +54,10 @@ précédemment nommé Spool ; le paquet Spotiamp est reconstruit après renommag
 
 1. Installer Spotiamp, puis le lancer depuis le menu Démarrer. Pour la version
    portable, décompresser le ZIP et lancer `spotiamp.exe`.
-2. Cliquer sur **CONNEXION**. Autoriser Spotify dans le navigateur, puis revenir
-   dans le lecteur. Aucun mot de passe n'est demandé dans Spotiamp.
+2. À la première utilisation, cliquer sur **CONNEXION**. Autoriser Spotify dans
+   le navigateur, puis revenir dans le lecteur. Aux lancements suivants,
+   Spotiamp tente automatiquement de réutiliser la session mémorisée.
+   Aucun mot de passe n'est demandé dans Spotiamp.
 3. Copier un lien Spotify de titre, d'album ou de playlist. Dans Spotiamp :
    **Ctrl+V**, puis **+ AJ.** ou Entrée.
 4. Double-cliquer sur un titre. Les boutons et la barre de position pilotent
@@ -196,7 +198,16 @@ Le compte doit avoir Spotify Premium. La session est mémorisée dans le coffre
 du système : Gestionnaire d'identifiants Windows, Trousseau macOS ou Secret
 Service Linux. Si ce service est indisponible, la connexion reste limitée à
 la session courante ; il n'y a pas de repli vers un fichier de jetons en clair.
-**DECONNECTER** supprime les identifiants mémorisés. Le navigateur du système
+La connexion est annoncée après la sauvegarde de la session, ou avec un message
+si la sauvegarde n'a pas pu être confirmée.
+Fermer la fenêtre conserve cette session : au prochain lancement, une tentative
+de reconnexion s'effectue en arrière-plan, sans démarrer la musique.
+Si aucune session n'est enregistrée, si le coffre est inaccessible ou si la
+reconnexion échoue, le navigateur ne s'ouvre pas automatiquement ; le bouton
+**CONNEXION** reste disponible. Un échec réseau n'efface pas la session mémorisée.
+**ANNULER** interrompt une tentative de connexion sans oublier le compte.
+**DECONNECTER** supprime les identifiants mémorisés : après effacement réussi,
+la reconnexion automatique n'aura plus lieu au lancement suivant. Le navigateur du système
 sert à l'autorisation Spotify et au lien **Projet GitHub** du panneau À propos ;
 il n'est pas embarqué dans le lecteur.
 

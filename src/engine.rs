@@ -32,6 +32,8 @@ use crate::{
     settings,
 };
 
+#[path = "engine/auth.rs"]
+mod auth;
 #[path = "engine/library.rs"]
 mod library;
 #[path = "engine/order.rs"]
@@ -149,17 +151,13 @@ fn player_config(quality: AudioQuality) -> PlayerConfig {
 
 enum Update {
     Library(library::Update),
-    CredentialSaved {
-        generation: u64,
-        result: Result<bool, &'static str>,
-    },
     CredentialCleared {
         generation: u64,
         result: Result<(), &'static str>,
     },
     Connected {
         generation: u64,
-        result: Result<(Session, bool), String>,
+        result: Result<auth::Connected, String>,
     },
     Rows {
         generation: u64,
@@ -189,6 +187,7 @@ struct Worker {
     generation: u64,
     auth_generation: u64,
     auth_epoch: Arc<AtomicU64>,
+    auth_backend: Arc<dyn auth::Backend>,
     clearing_credentials: bool,
     current_uri: Option<SpotifyUri>,
     stopped: bool,
@@ -222,6 +221,7 @@ impl Worker {
             generation: 0,
             auth_generation: 0,
             auth_epoch: Arc::new(AtomicU64::new(0)),
+            auth_backend: Arc::new(auth::Native),
             clearing_credentials: false,
             current_uri: None,
             stopped: true,
@@ -240,6 +240,7 @@ impl Worker {
 
     async fn run(mut self, mut commands: mpsc::Receiver<Command>) {
         let (updates, mut update_rx) = mpsc::channel(16);
+        self.start_connection(auth::Mode::Automatic, &updates);
         let mut health = tokio::time::interval(Duration::from_secs(2));
         health.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
@@ -280,6 +281,46 @@ impl Worker {
         self.state.lock().map(|s| s.clone()).unwrap_or_default()
     }
 
+    fn start_connection(&mut self, mode: auth::Mode, updates: &mpsc::Sender<Update>) {
+        if self.clearing_credentials {
+            edit(&self.state, |s| {
+                s.status = "Effacement du trousseau en cours...".into()
+            });
+            return;
+        }
+        // Coalesce repeated Connect presses. In particular, a startup attempt
+        // cannot silently acquire permission to open a browser later on.
+        if self.session.is_some() || self.connect_task.is_some() {
+            return;
+        }
+        edit(&self.state, |s| {
+            s.busy = true;
+            s.status = match mode {
+                auth::Mode::Automatic => "Reconnexion a la session Spotify enregistree...",
+                auth::Mode::Manual => {
+                    "Connexion Spotify : autorisez l'acces dans votre navigateur si demande"
+                }
+            }
+            .into();
+        });
+        self.auth_generation = self.auth_generation.wrapping_add(1);
+        self.auth_epoch
+            .store(self.auth_generation, Ordering::Release);
+        let generation = self.auth_generation;
+        let epoch = self.auth_epoch.clone();
+        let attempt =
+            (mode == auth::Mode::Manual).then(|| Arc::new(credentials::LoginAttempt::default()));
+        self.login_attempt = attempt.clone();
+        let backend = self.auth_backend.clone();
+        let updates = updates.clone();
+        self.connect_task = Some(tokio::spawn(async move {
+            let result = auth::connect(backend.as_ref(), mode, attempt, epoch, generation).await;
+            // Connected owns the session until Worker accepts it. A closed
+            // update channel or cancelled/stale result safely shuts it down.
+            let _ = updates.send(Update::Connected { generation, result }).await;
+        }));
+    }
+
     fn command(&mut self, command: Command, updates: &mpsc::Sender<Update>) {
         // A more recent transport/queue action supersedes a library Play
         // waiting on the network; its preview may still finish normally.
@@ -298,39 +339,19 @@ impl Worker {
             self.cancel_library_queue();
         }
         match command {
-            Command::Connect => {
-                if self.clearing_credentials {
+            Command::Connect => self.start_connection(auth::Mode::Manual, updates),
+            Command::CancelConnect => {
+                // A release captured while connecting may arrive after success.
+                // It must never turn into Logout or erase the saved session.
+                if self.connect_task.is_some()
+                    && self.session.is_none()
+                    && !self.clearing_credentials
+                {
+                    self.disconnect();
                     edit(&self.state, |s| {
-                        s.status = "Effacement du trousseau en cours...".into()
+                        s.status = "Connexion annulee; session enregistree conservee".into()
                     });
-                    return;
                 }
-                if self.session.is_some() || self.connect_task.is_some() {
-                    return;
-                }
-                edit(&self.state, |s| {
-                    s.busy = true;
-                    s.status =
-                        "Connexion Spotify : terminez l'autorisation dans votre navigateur".into();
-                });
-                self.auth_generation = self.auth_generation.wrapping_add(1);
-                self.auth_epoch
-                    .store(self.auth_generation, Ordering::Release);
-                let generation = self.auth_generation;
-                let attempt = Arc::new(credentials::LoginAttempt::default());
-                self.login_attempt = Some(attempt.clone());
-                let updates = updates.clone();
-                self.connect_task = Some(tokio::spawn(async move {
-                    let result = connect(attempt).await;
-                    if let Err(error) = updates.send(Update::Connected { generation, result }).await
-                        && let Update::Connected {
-                            result: Ok((session, _)),
-                            ..
-                        } = error.0
-                    {
-                        session.shutdown();
-                    }
-                }));
             }
             Command::Logout => {
                 if self.clearing_credentials {
@@ -344,10 +365,9 @@ impl Worker {
                 });
                 let generation = self.auth_generation;
                 let updates = updates.clone();
+                let backend = self.auth_backend.clone();
                 tokio::spawn(async move {
-                    let result = tokio::task::spawn_blocking(credentials::clear)
-                        .await
-                        .unwrap_or(Err("Le service du trousseau s'est arrete"));
+                    let result = backend.clear().await;
                     let _ = updates
                         .send(Update::CredentialCleared { generation, result })
                         .await;
@@ -475,35 +495,13 @@ impl Worker {
             Update::Connected { generation, result } => {
                 // A result can already be queued when Logout cancels the task.
                 if generation != self.auth_generation || self.connect_task.is_none() {
-                    if let Ok((session, _)) = result {
-                        session.shutdown();
-                    }
                     return;
                 }
                 self.connect_task = None;
                 self.login_attempt = None;
                 match result {
-                    Ok((session, remembered)) => {
-                        if !remembered {
-                            let reusable = Credentials {
-                                username: Some(session.username()),
-                                auth_type:
-                                    AuthenticationType::AUTHENTICATION_STORED_SPOTIFY_CREDENTIALS,
-                                auth_data: session.auth_data(),
-                            };
-                            let epoch = self.auth_epoch.clone();
-                            let updates = updates.clone();
-                            tokio::spawn(async move {
-                                let result = tokio::task::spawn_blocking(move || {
-                                    credentials::save_if_current(&reusable, &epoch, generation)
-                                })
-                                .await
-                                .unwrap_or(Err("Le service du trousseau s'est arrete"));
-                                let _ = updates
-                                    .send(Update::CredentialSaved { generation, result })
-                                    .await;
-                            });
-                        }
+                    Ok(mut connection) => {
+                        let session = connection.take_session();
                         let config = MixerConfig {
                             volume_ctrl: VolumeCtrl::Linear,
                             ..MixerConfig::default()
@@ -535,12 +533,9 @@ impl Worker {
                         edit(&self.state, |s| {
                             s.connected = true;
                             s.busy = false;
-                            s.status = if remembered {
-                                "Connecte. Collez un lien de titre, album ou playlist."
-                            } else {
-                                "Connecte; sauvegarde securisee de la session en cours..."
-                            }
-                            .into();
+                            s.status = connection.notice.take().unwrap_or_else(|| {
+                                "Connecte. Collez un lien de titre, album ou playlist.".into()
+                            });
                         });
                         if self.library.open {
                             self.refresh_library(updates);
@@ -587,17 +582,6 @@ impl Worker {
                     if let Err(message) = result {
                         s.status = message;
                     }
-                });
-            }
-            Update::CredentialSaved { generation, result }
-                if generation == self.auth_generation && self.session.is_some() =>
-            {
-                edit(&self.state, |s| match result {
-                    Ok(true) if s.status.starts_with("Connecte; sauvegarde") => {
-                        s.status = "Connecte. Collez un lien de titre, album ou playlist.".into()
-                    }
-                    Err(message) => s.status = message.into(),
-                    _ => {}
                 });
             }
             Update::CredentialCleared { generation, result }
@@ -930,43 +914,6 @@ async fn receive_event(events: &mut Option<PlayerEventChannel>) -> Option<Player
         Some(events) => events.recv().await,
         None => std::future::pending().await,
     }
-}
-
-async fn connect(attempt: Arc<credentials::LoginAttempt>) -> Result<(Session, bool), String> {
-    let config = SessionConfig {
-        autoplay: Some(false),
-        ..SessionConfig::default()
-    };
-    let saved = tokio::task::spawn_blocking(credentials::load)
-        .await
-        .ok()
-        .and_then(Result::ok)
-        .flatten();
-    if let Some(credentials) = saved {
-        let session = Session::new(config.clone(), None);
-        if matches!(
-            tokio::time::timeout(NETWORK_TIMEOUT, session.connect(credentials, false)).await,
-            Ok(Ok(()))
-        ) {
-            return Ok((session, true));
-        }
-        session.shutdown();
-    }
-    let credentials = credentials::browser_login(config.client_id.clone(), attempt).await?;
-    let session = Session::new(config, None);
-    match tokio::time::timeout(NETWORK_TIMEOUT, session.connect(credentials, false)).await {
-        Ok(Ok(())) => {}
-        _ => {
-            session.shutdown();
-            return Err(
-                "Connexion Spotify impossible. Verifiez le reseau et votre abonnement Premium."
-                    .into(),
-            );
-        }
-    }
-    // Persist only after the worker accepts this result. A cancelled login must
-    // never write credentials after Logout has cleared the OS store.
-    Ok((session, false))
 }
 
 /// A small fallible Rodio sink. Upstream's rodio constructor unwraps device

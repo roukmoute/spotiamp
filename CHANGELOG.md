@@ -1,5 +1,19 @@
 # Changements
 
+## 0.1.3 — 22 octobre 2026
+
+- Reconnexion Spotify automatique au lancement à partir de la session du coffre
+  système. Une seule tentative en arrière-plan, sans démarrage de la lecture.
+- Aucune ouverture automatique du navigateur si la session est absente,
+  inaccessible ou refusée, ou si le réseau est indisponible. La connexion
+  manuelle reste disponible et les échecs réseau n'effacent pas les identifiants.
+- La fermeture du lecteur conserve la session ; **Déconnecter** l'efface
+  explicitement. Les résultats retardés d'une connexion annulée sont ignorés.
+- Les identifiants réutilisables sont sauvegardés avant l'annonce de connexion
+  réussie, y compris après reconnexion. Un échec de sauvegarde est signalé.
+- **Annuler** interrompt une tentative sans oublier le compte. Une connexion
+  terminée pendant un clic ne transforme pas ce clic en déconnexion.
+
 ## 0.1.2 — 22 octobre 2026
 
 - Boutons **Shuffle** et **Repeat** après Suivant, avec relief métallique,

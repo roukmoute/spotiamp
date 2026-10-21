@@ -20,6 +20,7 @@ impl AudioQuality {
 #[derive(Clone, Debug)]
 pub enum Command {
     Connect,
+    CancelConnect,
     Logout,
     Add(String),
     Play(usize),

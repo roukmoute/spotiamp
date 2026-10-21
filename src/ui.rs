@@ -55,6 +55,41 @@ impl AboutTab {
     ];
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ConnectionAction {
+    Connect,
+    Cancel,
+    Logout,
+}
+
+impl ConnectionAction {
+    fn for_state(s: &Snapshot) -> Self {
+        if s.connected {
+            Self::Logout
+        } else if s.busy {
+            Self::Cancel
+        } else {
+            Self::Connect
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Connect => "CONNEXION",
+            Self::Cancel => "ANNULER",
+            Self::Logout => "DECONNECTER",
+        }
+    }
+
+    fn command(self) -> Command {
+        match self {
+            Self::Connect => Command::Connect,
+            Self::Cancel => Command::CancelConnect,
+            Self::Logout => Command::Logout,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Button {
     Help,
@@ -213,6 +248,7 @@ pub struct View {
     about_focus: usize,
     focused: bool,
     pressed_button: Option<Button>,
+    pressed_connection: Option<ConnectionAction>,
     hovered_button: Option<Button>,
     offset: usize,
     scroll_remainder: f64,
@@ -235,6 +271,7 @@ impl Default for View {
             about_focus: 0,
             focused: true,
             pressed_button: None,
+            pressed_connection: None,
             hovered_button: None,
             offset: 0,
             scroll_remainder: 0.0,
@@ -341,6 +378,7 @@ impl View {
 
     pub fn cancel_pointer(&mut self) {
         self.pressed_button = None;
+        self.pressed_connection = None;
         self.hovered_button = None;
         self.end_drag();
     }
@@ -361,6 +399,9 @@ impl View {
             if button.enabled(self, s) {
                 self.pressed_button = Some(button);
                 self.hovered_button = Some(button);
+                if button == Button::Connection {
+                    self.pressed_connection = Some(ConnectionAction::for_state(s));
+                }
             }
             return None;
         }
@@ -374,12 +415,18 @@ impl View {
 
     pub fn pointer_up(&mut self, position: Option<(usize, usize)>, s: &Snapshot) -> Option<Action> {
         let pressed = self.pressed_button.take();
+        let connection = self.pressed_connection.take();
         self.end_drag();
         self.pointer_move(position);
         if self.focused
             && let Some(button) = pressed.filter(|b| Some(*b) == self.hovered_button)
             && button.enabled(self, s)
         {
+            // Completing startup authentication during a press must not turn
+            // an intended Cancel into Logout (which deletes the saved session).
+            if button == Button::Connection && connection != Some(ConnectionAction::for_state(s)) {
+                return None;
+            }
             // Activate the captured control exactly once, on release inside it.
             let (x, y, _, _) = button.rect();
             return self.click(x + 2, y + 2, s);
@@ -521,11 +568,7 @@ impl View {
             }
         }
         if (30..51).contains(&y) && (421..546).contains(&x) {
-            return Some(Action::Send(if s.connected || s.busy {
-                Command::Logout
-            } else {
-                Command::Connect
-            }));
+            return Some(Action::Send(ConnectionAction::for_state(s).command()));
         }
         if (96..106).contains(&y) && (15..545).contains(&x) && s.duration_ms > 0 {
             self.dragging = 1;
@@ -649,6 +692,9 @@ mod scroll_tests;
 
 #[cfg(test)]
 mod transport_tests;
+
+#[cfg(test)]
+mod connection_tests;
 
 #[cfg(test)]
 mod mode_tests;
