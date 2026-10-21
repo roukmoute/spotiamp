@@ -17,7 +17,9 @@ en anglais. L'installation concerne votre compte, sans droits administrateur.
 Le lecteur apparaît dans le menu Démarrer ; le raccourci sur le Bureau est optionnel.
 L'assistant propose de lancer Spotiamp à la fin.
 
-La version **0.1.0** ajoute cet installateur et conserve l'archive portable
+La version **0.1.1** corrige le bouton **Lecture** : reprise à la position de
+pause, ou retour au début du morceau s'il est déjà en lecture.
+L'installateur est proposé avec l'archive portable
 `Spotiamp-Windows-x64.zip`, disponible avec les paquets Linux, macOS et les
 [sources dans les releases](https://github.com/roukmoute/spotiamp/releases/latest).
 
@@ -58,6 +60,14 @@ précédemment nommé Spool ; le paquet Spotiamp est reconstruit après renommag
    **Ctrl+V**, puis **+ AJ.** ou Entrée.
 4. Double-cliquer sur un titre. Les boutons et la barre de position pilotent
    le moteur audio local. Le client Spotify officiel peut être fermé.
+
+Le bouton **Lecture (▶)** reprend le morceau courant à sa position lorsqu'il
+est en pause. S'il est déjà en lecture, il revient au début de ce même morceau.
+Ces actions conservent le titre chargé, même si une autre ligne est sélectionnée,
+ainsi que sa qualité audio. Après **Arrêt**, le bouton démarre le titre sélectionné
+(sinon le titre courant, ou le premier titre de la file).
+Un double-clic sur une ligne ou **Entrée** lance explicitement ce titre depuis
+le début. **Pause (Ⅱ)** et **Espace** alternent entre pause et reprise.
 
 Pour retrouver vos playlists sans copier de lien, ouvrir **BIBLIO. F3** après
 la connexion. La fenêtre affiche les playlists enregistrées ou suivies de votre

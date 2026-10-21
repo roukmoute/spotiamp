@@ -34,9 +34,44 @@ use crate::{
 
 #[path = "engine/library.rs"]
 mod library;
+#[cfg(test)]
+#[path = "engine/transport_tests.rs"]
+mod transport_tests;
 
 pub const MAX_QUEUE: usize = 500;
 const NETWORK_TIMEOUT: Duration = Duration::from_secs(20);
+
+// Keep transport decisions testable at the actual player-call boundary without
+// opening audio, authenticating, or adding another runtime to the application.
+trait PlayerTransport: Send + Sync {
+    fn load_with_bitrate(&self, uri: SpotifyUri, play: bool, position: u32, bitrate: Bitrate);
+    fn play(&self);
+    fn pause(&self);
+    fn stop(&self);
+    fn seek(&self, position: u32);
+    fn is_invalid(&self) -> bool;
+}
+
+impl PlayerTransport for Player {
+    fn load_with_bitrate(&self, uri: SpotifyUri, play: bool, position: u32, bitrate: Bitrate) {
+        Player::load_with_bitrate(self, uri, play, position, bitrate);
+    }
+    fn play(&self) {
+        Player::play(self);
+    }
+    fn pause(&self) {
+        Player::pause(self);
+    }
+    fn stop(&self) {
+        Player::stop(self);
+    }
+    fn seek(&self, position: u32) {
+        Player::seek(self, position);
+    }
+    fn is_invalid(&self) -> bool {
+        Player::is_invalid(self)
+    }
+}
 
 pub struct Engine {
     pub tx: mpsc::Sender<Command>,
@@ -143,7 +178,7 @@ struct Worker {
     state: Arc<Mutex<Snapshot>>,
     library: library::State,
     session: Option<Session>,
-    player: Option<Arc<Player>>,
+    player: Option<Arc<dyn PlayerTransport>>,
     mixer: Option<SoftMixer>,
     events: Option<PlayerEventChannel>,
     connect_task: Option<JoinHandle<()>>,
@@ -155,6 +190,10 @@ struct Worker {
     clearing_credentials: bool,
     current_uri: Option<SpotifyUri>,
     stopped: bool,
+    // Transport commands precede their asynchronous player events. Never let
+    // a delayed Playing/Paused event reverse a newer button press's intent.
+    wants_playback: bool,
+    loading_audio: bool,
     pending_loads: usize,
     request_id: Option<u64>,
     // The preference can change during playback. Keep the last load's request
@@ -166,6 +205,7 @@ struct Worker {
 impl Worker {
     fn new(state: Arc<Mutex<Snapshot>>) -> Self {
         let load_quality = state.lock().map(|s| s.quality).unwrap_or_default();
+        let wants_playback = state.lock().is_ok_and(|s| s.playing);
         Self {
             state,
             library: library::State::default(),
@@ -182,6 +222,8 @@ impl Worker {
             clearing_credentials: false,
             current_uri: None,
             stopped: true,
+            wants_playback,
+            loading_audio: false,
             pending_loads: 0,
             request_id: None,
             load_quality,
@@ -237,6 +279,7 @@ impl Worker {
         if matches!(
             command,
             Command::Add(_)
+                | Command::Play(_)
                 | Command::PlayIndex(_)
                 | Command::Toggle
                 | Command::Stop
@@ -341,16 +384,19 @@ impl Worker {
                     let _ = updates.send(Update::Finished { generation, result }).await;
                 }));
             }
+            Command::Play(index) => self.press_play(index),
             Command::PlayIndex(index) => self.play(index),
             Command::Toggle => {
                 let snapshot = self.snapshot();
                 if let Some(player) = &self.player {
-                    if snapshot.playing {
+                    if !self.stopped && self.wants_playback {
                         player.pause();
+                        self.wants_playback = false;
                     } else if self.stopped {
                         self.play(snapshot.current.unwrap_or(0));
                     } else {
                         player.play();
+                        self.wants_playback = true;
                     }
                 } else {
                     edit(&self.state, |s| {
@@ -592,6 +638,8 @@ impl Worker {
             player.load_with_bitrate(uri.clone(), true, 0, requested_bitrate(self.load_quality));
             self.current_uri = Some(uri);
             self.stopped = false;
+            self.wants_playback = true;
+            self.loading_audio = true;
             edit(&self.state, |s| {
                 s.current = Some(index);
                 s.position_ms = 0;
@@ -599,6 +647,21 @@ impl Worker {
                 s.playing = false;
                 s.status = "Chargement audio...".into();
             });
+        }
+    }
+
+    fn press_play(&mut self, start_index: usize) {
+        if self.stopped || self.current_uri.is_none() {
+            self.play(start_index);
+        } else if let Some(player) = &self.player {
+            if !self.wants_playback {
+                player.play();
+                self.wants_playback = true;
+            } else if !self.loading_audio {
+                // Seeking keeps the loaded decoder and its requested quality.
+                // Repeated Play while Loading must not restart network work.
+                player.seek(0);
+            }
         }
     }
 
@@ -615,6 +678,8 @@ impl Worker {
 
     fn stop(&mut self) {
         self.stopped = true;
+        self.wants_playback = false;
+        self.loading_audio = false;
         if let Some(player) = &self.player {
             player.stop();
         }
@@ -654,6 +719,7 @@ impl Worker {
                 position_ms,
                 ..
             } if active(&track_id) => {
+                self.loading_audio = false;
                 edit(&self.state, |s| {
                     s.playing = true;
                     s.position_ms = position_ms;
@@ -668,6 +734,7 @@ impl Worker {
                 position_ms,
                 ..
             } if active(&track_id) => {
+                self.loading_audio = false;
                 edit(&self.state, |s| {
                     s.playing = false;
                     s.position_ms = position_ms;
@@ -679,6 +746,7 @@ impl Worker {
                 position_ms,
                 ..
             } if active(&track_id) => {
+                self.loading_audio = true;
                 edit(&self.state, |s| {
                     s.playing = false;
                     s.position_ms = position_ms;
@@ -725,6 +793,8 @@ impl Worker {
             EndOfTrack { track_id, .. } if active(&track_id) => self.next(),
             Unavailable { track_id, .. } if active(&track_id) => {
                 self.stopped = true;
+                self.wants_playback = false;
+                self.loading_audio = false;
                 edit(&self.state, |s| {
                     s.playing = false;
                     s.status =

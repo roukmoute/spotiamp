@@ -22,6 +22,7 @@ pub enum Command {
     Connect,
     Logout,
     Add(String),
+    Play(usize),
     PlayIndex(usize),
     Toggle,
     Stop,

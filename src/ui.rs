@@ -528,7 +528,7 @@ impl View {
         if (116..139).contains(&y) {
             let c = match x {
                 15..=52 => Some(Command::Previous),
-                57..=94 => Some(Command::PlayIndex(self.selected.or(s.current).unwrap_or(0))),
+                57..=94 => Some(Command::Play(self.selected.or(s.current).unwrap_or(0))),
                 99..=136 => Some(Command::Toggle),
                 141..=178 => Some(Command::Stop),
                 183..=220 => Some(Command::Next),
@@ -634,6 +634,9 @@ mod chrome_tests;
 
 #[cfg(test)]
 mod scroll_tests;
+
+#[cfg(test)]
+mod transport_tests;
 
 #[cfg(test)]
 mod tests {

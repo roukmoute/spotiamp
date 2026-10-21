@@ -1,5 +1,15 @@
 # Changements
 
+## 0.1.1 — 22 octobre 2026
+
+- Bouton **Lecture** corrigé : après une pause, le morceau reprend à sa
+  position ; pendant la lecture, il recommence au début. Le morceau courant
+  reste la cible, même si une autre ligne de la file est sélectionnée.
+- Reprise et retour au début utilisent le titre déjà chargé et conservent sa
+  qualité audio. Après **Arrêt**, Lecture démarre le titre sélectionné.
+  Le double-clic et Entrée continuent de lancer explicitement une ligne ;
+  Pause et Espace conservent leur fonction pause/reprise.
+
 ## 0.1.0 — 22 octobre 2026
 
 - Installateur Windows x64 en français et en anglais, pour le compte courant,
