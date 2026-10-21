@@ -227,8 +227,10 @@ unsafe extern "system" fn wnd_proc(
         }
 
         winuser::WM_MOUSEWHEEL => {
-            let scroll = ((((wparam as u32) >> 16) & 0xffff) as i16) as f32 * 0.1;
-            wnd.mouse.scroll = scroll;
+            let delta = ((((wparam as u32) >> 16) & 0xffff) as i16) as f32;
+            // One detent is WHEEL_DELTA, including fractional high-resolution
+            // events. Preserve every event received in the current update.
+            wnd.mouse.scroll += delta / winuser::WHEEL_DELTA as f32;
         }
 
         winuser::WM_SETCURSOR => {

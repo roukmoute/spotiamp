@@ -33,6 +33,7 @@ pub struct View {
     pub selected: Option<usize>,
     pub help: bool,
     offset: usize,
+    scroll_remainder: f64,
     dragging: u8,
     last_click: Option<(usize, Instant)>,
     transient: Option<(String, Instant)>,
@@ -48,6 +49,7 @@ impl Default for View {
             selected: None,
             help: false,
             offset: 0,
+            scroll_remainder: 0.0,
             dragging: 0,
             last_click: None,
             transient: None,
@@ -69,11 +71,40 @@ impl View {
         }
     }
     pub fn scroll(&mut self, y: f32, len: usize) {
-        let step = (y.abs().ceil() as usize).min(10);
-        if y > 0. {
+        let max_offset = len.saturating_sub(ROWS);
+        if self.offset > max_offset {
+            self.offset = max_offset;
+            self.scroll_remainder = 0.0;
+        }
+        if max_offset == 0 {
+            self.scroll_remainder = 0.0;
+            return;
+        }
+        if !y.is_finite() {
+            return;
+        }
+        // Backends report wheel notches (or fractional trackpad movement).
+        // Keep fractions across frames instead of rounding each event up.
+        self.scroll_remainder += f64::from(y);
+        // Backend f32 conversion can leave a complete notch just below an
+        // integer (e.g. Win32 deltas 70 + 50). Absorb only that rounding noise.
+        let nearest = self.scroll_remainder.round();
+        if nearest != 0.0 && (self.scroll_remainder - nearest).abs() < 1e-6 {
+            self.scroll_remainder = nearest;
+        }
+        let lines = self.scroll_remainder.trunc();
+        self.scroll_remainder -= lines;
+        let step = lines.abs() as usize;
+        if lines > 0.0 {
             self.offset = self.offset.saturating_sub(step);
-        } else if y < 0. {
-            self.offset = (self.offset + step).min(len.saturating_sub(ROWS));
+        } else if lines < 0.0 {
+            self.offset = self.offset.saturating_add(step).min(max_offset);
+        }
+        // Scrolling beyond an edge must not delay the next inward movement.
+        if (self.offset == 0 && self.scroll_remainder > 0.0)
+            || (self.offset == max_offset && self.scroll_remainder < 0.0)
+        {
+            self.scroll_remainder = 0.0;
         }
     }
     pub fn move_selection(&mut self, delta: i32, len: usize) {
@@ -525,6 +556,9 @@ impl View {
 fn format_time(ms: u32) -> String {
     format!("{}:{:02}", ms / 60_000, ms / 1000 % 60)
 }
+
+#[cfg(test)]
+mod scroll_tests;
 
 #[cfg(test)]
 mod tests {

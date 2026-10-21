@@ -89,7 +89,7 @@ ne répond pas à la priorité Windows.
   conservées même si relâchées entre deux rafraîchissements.
 - Erreur X11 de méthode de saisie reproduite puis corrigée dans minifb :
   l'application renvoie une erreur au lieu de planter. Échelles 1× et 2× lancées.
-- Neuf tests distincts réussis sur les liens, la sélection, la file, les
+- Première préversion : neuf tests distincts réussis sur les liens, la sélection, la file, les
   événements périmés, les touches rapides et l'annulation de sauvegarde.
   `cargo fmt --check` et Clippy avec avertissements traités comme erreurs passent.
 - Windows : le fichier PE et ses dépendances ont été inspectés. Un premier
@@ -103,7 +103,8 @@ ne répond pas à la priorité Windows.
 
 Exécution CI du code : [commit 32b03a5, Windows / Linux / macOS](https://github.com/roukmoute/spotiamp/actions/runs/39630012360).
 
-Le binaire Windows GNU x64 reconstruit localement après renommage fait
+Le binaire Windows GNU x64 de la première préversion (`v0.1.0-alpha.1`),
+reconstruit localement après renommage, fait
 7 474 688 octets (7,13 Mio) **sur disque**.
 Cette taille n'est pas sa consommation mémoire. Empreinte SHA-256 :
 `6c8bb52403db049ff0b79c772cbb98d1121d5e22c2af06ee119276e7ae2fb65f`.

@@ -70,9 +70,11 @@ fn main() {
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--help") {
-        println!(
-            "Spotiamp 0.1 experimental\n--scale 2        double-size bitmap UI\n--screenshot FILE.ppm   render the disconnected UI without opening a window\n--quit-after SECONDS    automatic exit for reproducible idle measurements\nSpace: play/pause; Ctrl+V: paste URL; Enter: add/play; Delete: remove; F1: help"
-        );
+        println!(concat!(
+            "Spotiamp ",
+            env!("CARGO_PKG_VERSION"),
+            " experimental\n--scale 2        double-size bitmap UI\n--screenshot FILE.ppm   render the disconnected UI without opening a window\n--quit-after SECONDS    automatic exit for reproducible idle measurements\nSpace: play/pause; Ctrl+V: paste URL; Enter: add/play; Delete: remove; F1: help"
+        ));
         return Ok(());
     }
     let mut view = ui::View::default();
@@ -93,7 +95,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         Scale::X1
     };
     let mut window = Window::new(
-        "Spotiamp — lecteur Spotify expérimental",
+        &format!(
+            "Spotiamp {} — lecteur Spotify expérimental",
+            env!("CARGO_PKG_VERSION")
+        ),
         ui::WIDTH,
         ui::HEIGHT,
         WindowOptions {

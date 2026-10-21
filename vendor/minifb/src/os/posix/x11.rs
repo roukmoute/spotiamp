@@ -1200,6 +1200,11 @@ impl Window {
             _ => {}
         }
 
+        // Wheel buttons emit both press and release. Count a detent once.
+        if !is_down {
+            return;
+        }
+
         // in X, the mouse wheel is usually mapped to Button4/5
 
         let scroll: (i32, i32) = match ev.button.button {

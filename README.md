@@ -14,6 +14,10 @@ Les résultats et leurs limites sont dans `PERFORMANCE.md`.
 **[Télécharger la préversion Windows et ses sources](https://github.com/roukmoute/spotiamp/releases).**
 Choisir l'archive `Spotiamp-Windows-x64.zip`, puis la décompresser.
 
+La préversion **0.1.0-alpha.2** corrige la molette : un cran Windows avance
+d'un titre, au lieu de dix. Les titres entre deux vues restent accessibles ;
+les mouvements fractionnaires des molettes précises sont conservés.
+
 ![Interface de Spotiamp](preview.png)
 
 L'archive Windows fournie vise **Windows 10/11 x64** (processeur Intel/AMD
@@ -89,6 +93,15 @@ Installer Rust avec rustup et les outils natifs de compilation. Le fichier
 ```sh
 cargo build --release --locked --bin spotiamp
 cargo test --locked
+```
+
+Les tests du défilement couvrent l'accès aux titres entre deux vues, les crans,
+les fractions, les rafales et les limites de liste. Sous Windows, `cargo test`
+injecte aussi des événements de molette natifs dans une fenêtre de test.
+Le test X11 demande un écran virtuel et `xdotool` et se lance explicitement :
+
+```sh
+LC_ALL=C XMODIFIERS=@im=none xvfb-run -a cargo test --locked --bin spotiamp x11_wheel_press_and_release_count_as_one_notch -- --ignored
 ```
 
 Windows : Rust avec la cible `x86_64-pc-windows-msvc` et les outils de compilation
