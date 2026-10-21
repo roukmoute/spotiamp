@@ -373,6 +373,9 @@ unsafe extern "system" fn wnd_proc(
         }
 
         winuser::WM_CANCELMODE | winuser::WM_KILLFOCUS => {
+            if msg == winuser::WM_KILLFOCUS {
+                wnd.key_handler.release_all();
+            }
             cancel_mouse_input(wnd);
             if winuser::GetCapture() == window {
                 winuser::ReleaseCapture();
@@ -1675,6 +1678,7 @@ impl Drop for Window {
             set_window_long(self.hwnd, 0);
             winuser::ReleaseDC(self.hwnd, self.dc);
             winuser::DestroyWindow(self.hwnd);
+            wingdi::DeleteObject(self.clear_brush as _);
         }
     }
 }

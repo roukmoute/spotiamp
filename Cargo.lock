@@ -3203,7 +3203,7 @@ dependencies = [
 
 [[package]]
 name = "spotiamp"
-version = "0.1.0-alpha.7"
+version = "0.1.0-alpha.8"
 dependencies = [
  "arboard",
  "flate2",
@@ -3216,6 +3216,7 @@ dependencies = [
  "librespot-playback",
  "librespot-protocol",
  "minifb",
+ "protobuf",
  "reqwest",
  "rodio",
  "semver",

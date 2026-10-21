@@ -219,7 +219,7 @@ impl View {
         self.text(54, 235, "DANS LE LECTEUR", GREEN, 56);
         self.rect(54, 250, 452, 1, 0x303042);
         for (y, keys, action) in [
-            (265, "F1 / F2", "Aide / À propos"),
+            (265, "F1 / F2 / F3", "Aide / À propos / Bibliothèque"),
             (285, "Espace", "Lecture / pause (hors saisie)"),
             (305, "Ctrl+V / Cmd+V", "Coller un lien Spotify"),
             (325, "Entrée", "Ajouter le lien / lire"),
@@ -235,42 +235,48 @@ impl View {
         for (y, version, first, second) in [
             (
                 109,
+                "ALPHA.8 / PLAYLISTS SPOTIFY",
+                "Bibliothèque native, playlists du compte.",
+                "Titres à la demande, lecture et ajout à la file.",
+            ),
+            (
+                142,
                 "ALPHA.7 / FENÊTRE INTÉGRÉE",
                 "Bandeau déplaçable, boutons Réduire et Fermer.",
                 "Cadre système retiré, même interface légère.",
             ),
             (
-                146,
+                175,
                 "ALPHA.6 / MISES À JOUR",
                 "Détection, téléchargement et installation.",
                 "Vérification du paquet puis redémarrage.",
             ),
             (
-                183,
+                208,
                 "ALPHA.5 / À PROPOS",
                 "Version, crédits, raccourcis et historique.",
                 "Quatre onglets, accessibles aussi au clavier.",
             ),
             (
-                220,
+                241,
                 "ALPHA.4 / SKIN CLASSIQUE",
                 "Boutons métalliques et états enfoncés.",
                 "Clics courts fiables, focus et capture souris.",
             ),
             (
-                257,
+                274,
                 "ALPHA.3 / QUALITÉ AUDIO",
                 "Choix 96 / 160 / 320 kb/s, 320 par défaut.",
                 "Préférence mémorisée, au prochain chargement.",
             ),
             (
-                294,
+                307,
                 "ALPHA.2 / MOLETTE",
                 "Défilement précis et mouvements accumulés.",
                 "Correction des événements Windows et X11.",
             ),
             (
-                331,
+                340,
                 "ALPHA.1 / PREMIÈRE PRÉVERSION",
                 "Connexion Spotify, import de liens, file.",
                 "Lecture native et commandes audio locales.",
@@ -282,7 +288,7 @@ impl View {
         }
         self.text(
             54,
-            371,
+            382,
             "Historique complet : CHANGELOG.md dans les sources.",
             DIM,
             56,

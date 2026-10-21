@@ -8,9 +8,15 @@ mod engine;
 #[cfg(not(feature = "spotify"))]
 #[path = "engine_stub.rs"]
 mod engine;
+#[cfg(any(test, target_os = "macos"))]
+mod library_native_tests;
+mod library_ui;
+mod library_window;
 mod model;
 #[cfg(feature = "spotify")]
 mod settings;
+#[cfg(feature = "spotify")]
+mod spotify_library;
 mod ui;
 mod updater;
 
@@ -204,6 +210,19 @@ fn process_frame_input(
         return;
     }
 
+    if actions
+        .iter()
+        .any(|action| matches!(action, ui::Action::OpenLibrary))
+    {
+        actions.retain(|action| {
+            matches!(
+                action,
+                ui::Action::OpenLibrary | ui::Action::Minimize | ui::Action::Close
+            )
+        });
+        return;
+    }
+
     let pressed = |key| input.keys.iter().any(|(k, _, _)| *k == key);
     let shortcut = |key| {
         input
@@ -211,6 +230,11 @@ fn process_frame_input(
             .iter()
             .any(|(k, control, _)| *k == key && *control)
     };
+    if pressed(Key::F3) {
+        view.cancel_pointer();
+        actions.push(ui::Action::OpenLibrary);
+        return;
+    }
     if pressed(Key::F1) {
         view.cancel_pointer();
         view.help = !view.help;
@@ -294,7 +318,60 @@ fn requested_about_tab(args: &[String]) -> Result<Option<ui::AboutTab>, &'static
     }))
 }
 
+fn toggle_library(
+    library: &mut Option<library_window::LibraryWindow>,
+    close_pending: &mut bool,
+    scale: Scale,
+    parent: &Window,
+    engine: &engine::Engine,
+    view: &mut ui::View,
+) {
+    if library.take().is_some() {
+        *close_pending = true;
+        return;
+    }
+    flush_library_close(close_pending, engine);
+    if *close_pending {
+        view.notice("Bibliotheque en cours de fermeture; reessayez dans un instant.");
+        return;
+    }
+    match library_window::LibraryWindow::new(scale, parent) {
+        Ok(window) => {
+            if let Err(error) = engine
+                .tx
+                .try_send(Command::Library(model::LibraryCommand::Open))
+            {
+                view.notice(&error.to_string());
+            } else {
+                *library = Some(window);
+            }
+        }
+        Err(_) => view.notice("Impossible d'ouvrir la bibliotheque Spotify."),
+    }
+}
+
+fn flush_library_close(pending: &mut bool, engine: &engine::Engine) {
+    // Keep retrying if the bounded command channel is momentarily full. The
+    // native window is already gone, but the worker must release its contents.
+    if *pending
+        && engine
+            .tx
+            .try_send(Command::Library(model::LibraryCommand::Close))
+            .is_ok()
+    {
+        *pending = false;
+    }
+}
+
 fn main() {
+    #[cfg(target_os = "macos")]
+    if std::env::args_os().any(|arg| arg == "--test-library-windows") {
+        if let Err(error) = library_native_tests::smoke() {
+            eprintln!("Spotiamp: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     #[cfg(feature = "updates")]
     let initial_notice =
         match updater::install::dispatch_internal(&std::env::args_os().collect::<Vec<_>>()) {
@@ -328,7 +405,7 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
         println!(concat!(
             "Spotiamp ",
             env!("CARGO_PKG_VERSION"),
-            " experimental\n--scale 2        double-size bitmap UI\n--about [player|credits|shortcuts|history|updates]   open the About dialog\n--screenshot FILE.ppm   render the disconnected UI without opening a window\n--no-update-check       skip the automatic startup update check\n--quit-after SECONDS    automatic exit for reproducible idle measurements\nSpace: play/pause; Ctrl+V: paste URL; Enter: add/play; Delete: remove; F1: help; F2: About"
+            " experimental\n--scale 2        double-size bitmap UI\n--library        open the Spotify playlist library\n--about [player|credits|shortcuts|history|updates]   open the About dialog\n--screenshot FILE.ppm   render the disconnected UI without opening a window\n--no-update-check       skip the automatic startup update check\n--quit-after SECONDS    automatic exit for reproducible idle measurements\nSpace: play/pause; Ctrl+V: paste URL; Enter: add/play; Delete: remove; F1: help; F2: About; F3: playlist library"
         ));
         return Ok(());
     }
@@ -387,6 +464,18 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
         modifiers: 0,
     }));
     let engine = engine::Engine::spawn();
+    let mut library = None;
+    let mut library_close_pending = false;
+    if args.iter().any(|arg| arg == "--library") {
+        toggle_library(
+            &mut library,
+            &mut library_close_pending,
+            scale,
+            &window,
+            &engine,
+            &mut view,
+        );
+    }
     let mut clipboard = None;
     let mut updater = updater::Controller::default();
     let automatic_updates = !args.iter().any(|arg| arg == "--no-update-check");
@@ -456,6 +545,17 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
                     None
                 }
                 ui::Action::Send(c) => Some(c),
+                ui::Action::OpenLibrary => {
+                    toggle_library(
+                        &mut library,
+                        &mut library_close_pending,
+                        scale,
+                        &window,
+                        &engine,
+                        &mut view,
+                    );
+                    None
+                }
                 ui::Action::Submit => {
                     let text = view.input.trim().to_owned();
                     if text.is_empty() {
@@ -533,6 +633,21 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
         } else {
             window.update();
         }
+        let close_library = match library.as_mut().map(|library| library.frame(&engine)) {
+            Some(Ok(open)) => !open,
+            Some(Err(_)) => {
+                view.notice(
+                    "La fenetre de bibliotheque a ete fermee apres une erreur d'affichage.",
+                );
+                true
+            }
+            None => false,
+        };
+        if close_library {
+            library = None;
+            library_close_pending = true;
+        }
+        flush_library_close(&mut library_close_pending, &engine);
     }
     let _ = engine.tx.try_send(Command::Shutdown);
     Ok(())
@@ -543,6 +658,9 @@ mod pointer_tests;
 
 #[cfg(test)]
 mod about_input_tests;
+
+#[cfg(test)]
+mod library_input_tests;
 
 #[cfg(all(test, target_os = "windows"))]
 mod window_native_windows_tests;

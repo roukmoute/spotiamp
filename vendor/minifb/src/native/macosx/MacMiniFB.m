@@ -148,6 +148,7 @@ static bool create_shaders() {
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 void* mfb_open(const char* name, int width, int height, uint32_t flags, int scale, void** view_handle) {
+    @autoreleasepool {
     bool prev_init = s_init;
 
     //NSAutoreleasePool* pool = [[NSAutoreleasePool alloc] init];
@@ -166,6 +167,13 @@ void* mfb_open(const char* name, int width, int height, uint32_t flags, int scal
         }
 
         if (!create_shaders()) {
+            return 0;
+        }
+
+        // Shared by every window. Replacing this on each open leaked a queue
+        // and changed the queue used by already-open windows.
+        g_command_queue = [g_metal_device newCommandQueue];
+        if (!g_command_queue) {
             return 0;
         }
 
@@ -195,13 +203,12 @@ void* mfb_open(const char* name, int width, int height, uint32_t flags, int scal
     window->draw_parameters = calloc(sizeof(DrawParameters), 1);
 
     if (!window->draw_parameters) {
+        [window release];
         return 0;
     }
 
-    // Setup command queue
-    g_command_queue = [g_metal_device newCommandQueue];
-
     WindowViewController* viewController = [WindowViewController new];
+    window->view_controller = viewController;
 
     MTLTextureDescriptor* textureDescriptor = [[MTLTextureDescriptor alloc] init];
 
@@ -241,6 +248,7 @@ void* mfb_open(const char* name, int width, int height, uint32_t flags, int scal
 
         viewController->m_delayed_delete_textures[i].frame_count = -1;
     }
+    [textureDescriptor release];
 
     // Used for syncing the CPU and GPU
     viewController->m_semaphore = dispatch_semaphore_create(MaxBuffersInFlight);
@@ -256,6 +264,7 @@ void* mfb_open(const char* name, int width, int height, uint32_t flags, int scal
     [window.contentView addSubview:view];
 
     window->metal_view = view;
+    [view release]; // contentView retains its subview
 
     OSXWindowFrameView* temp_view = window->frame_view;
     temp_view->m_view_controller = viewController;
@@ -266,6 +275,7 @@ void* mfb_open(const char* name, int width, int height, uint32_t flags, int scal
     window->key_callback = 0;
     window->mouse_button_callback = 0;
     window->mouse_cancel_callback = 0;
+    window->focus_lost_callback = 0;
     window->shared_data = 0;
     window->titlebar_drag_region = NSZeroRect;
     window->titlebar_drag_enabled = false;
@@ -301,6 +311,7 @@ void* mfb_open(const char* name, int width, int height, uint32_t flags, int scal
     //[pool drain];
 
     return window;
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -439,12 +450,22 @@ void mfb_set_cursor_visibility(void *window, bool visibility) {
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 void mfb_close(void* win) {
-    NSWindow* window = (NSWindow*)win;
+    OSXWindow* window = (OSXWindow*)win;
 
     NSAutoreleasePool* pool = [[NSAutoreleasePool alloc] init];
 
     if (window) {
+        // Native Close may already have run. setReleasedWhenClosed:NO keeps
+        // our owning retain alive until this one and only Rust Drop call.
+        window->rust_data = NULL;
+        window->shared_data = NULL;
+        window->key_callback = NULL;
+        window->char_callback = NULL;
+        window->mouse_button_callback = NULL;
+        window->mouse_cancel_callback = NULL;
+        window->focus_lost_callback = NULL;
         [window close];
+        [window release];
     }
 
     [pool drain];
@@ -626,6 +647,10 @@ void mfb_set_mouse_callback(
     OSXWindow* win = (OSXWindow*)window;
     win->mouse_button_callback = button_callback;
     win->mouse_cancel_callback = cancel_callback;
+}
+
+void mfb_set_focus_lost_callback(void* window, void (*callback)(void* user_data)) {
+    ((OSXWindow*)window)->focus_lost_callback = callback;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

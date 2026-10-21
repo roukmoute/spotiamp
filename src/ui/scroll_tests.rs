@@ -251,6 +251,9 @@ mod windows_native {
 
     #[test]
     fn win32_wheel_messages_reach_the_playlist_with_notch_and_fraction_units() {
+        let _serial = crate::window_native_windows_tests::WINDOWS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let mut window = Window::new(
             "Spotiamp native wheel regression",
             32,

@@ -2,6 +2,47 @@
 
 Spotiamp carries the following fixes in its bundled minifb backend.
 
+## Multiple windows: keyboard focus and native resource ownership
+
+`KeyHandler::release_all` sends one key-up callback for each held key and
+immediately resets repeat durations. Windows calls it on `WM_KILLFOCUS`, X11
+on `FocusOut`, and macOS through a separate `DidResignKey` callback. It is not
+called on ordinary mouse-capture/menu cancellation. This prevents Ctrl, F3 or
+arrow keys remaining held when their physical release reaches another window.
+The unit test checks callback delivery, repeat cancellation, idempotence and
+the next key-down.
+
+macOS registers the boxed Rust state immediately after window construction:
+another window's global event pump can dispatch its events before its first
+update. Closing clears every native callback/data pointer before releasing
+the owned `NSWindow`. `setReleasedWhenClosed:NO` remains in force, so a prior
+native close cannot release the window underneath Rust. The `close` override
+records that closure directly; subclass methods named `windowWillClose` were
+not registered as a delegate or notification observer.
+
+Each Mac window now owns its Metal controller. The view hierarchy owns the
+Metal view, and temporary texture descriptors and tracking areas are released.
+Controller destruction first waits for all three in-flight command buffers,
+then releases the textures, vertex buffers and semaphore. Failure paths before
+command submission return their semaphore permit too. The command queue is
+created once and shared; repeatedly opening a window no longer replaces and
+leaks it. Window-owned C drawing/menu data is freed after the controller stops.
+Windows also deletes its owned background brush after destroying its DC/window.
+
+Spotiamp's native tests switch focus between two real windows while Ctrl/F3/Up
+are held, release them in the other window, and verify fresh text/shortcuts and
+no stale repeats. Twenty open/render/native-close/drop cycles leave the parent
+open. Windows checks GDI counts with all HWND tests serialized; X11 checks open
+file descriptors. The macOS main-thread smoke additionally uses zeroing weak
+references to assert that closed windows and Metal controllers are destroyed.
+These are lifecycle checks, not playback-memory benchmarks. Native macOS and
+Windows execution still requires their respective CI runners.
+
+Ownership references:
+- https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/MemoryMgmt/Articles/mmRules.html
+- https://developer.apple.com/documentation/appkit/nswindow/isreleasedwhenclosed
+- https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-deleteobject
+
 ## X11 window initialization
 
 `DisplayInfo::setup` previously retained the display-owned `XDefaultGC`.
@@ -20,6 +61,21 @@ For an isolated Xvfb test server without IBus, use `XMODIFIERS=@im=none` in the
 **test environment**. Also test with a deliberately unavailable input method to
 verify that creation fails cleanly. Both paths were checked with a standalone
 minifb reproduction and Spotiamp's interface-only build on Linux x86_64.
+
+## X11 idle-window repaint
+
+An application that renders only when its state changes must still recover its
+pixels after the window manager exposes/restores the window. X11 now selects
+`ExposureMask` and re-presents its existing scaled `XImage` on the final event
+of an Expose batch. This path uses `XPutImage` and flushes the connection; it
+does not resample the application buffer, allocate another image or trigger a
+continuous render loop. `ConfigureNotify` retains the image when only position
+or stacking changes; reallocation occurs only for a real dimension change.
+
+The native regression draws one frame at scales 1 and 2, moves the window,
+erases its native drawable with `XClearArea` requesting exposures, then pumps
+event-only `update()` calls. `XGetImage` verifies that the pixels were erased
+and that the cached color returns without another application frame.
 
 ## Wheel input
 

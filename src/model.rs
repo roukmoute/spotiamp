@@ -32,7 +32,54 @@ pub enum Command {
     SetQuality(AudioQuality),
     Remove(usize),
     Clear,
+    Library(LibraryCommand),
     Shutdown,
+}
+
+#[cfg_attr(not(feature = "spotify"), allow(dead_code))]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum PlaylistId {
+    Spotify(String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlaylistEntry {
+    pub id: PlaylistId,
+    pub name: String,
+    pub track_count: Option<usize>,
+    pub duration_ms: Option<u64>,
+    pub folder: String,
+    pub available: bool,
+}
+
+#[cfg_attr(not(feature = "spotify"), allow(dead_code))]
+#[derive(Clone, Debug)]
+pub enum LibraryCommand {
+    Open,
+    Close,
+    Refresh,
+    Select(PlaylistId),
+    Queue {
+        id: PlaylistId,
+        replace: bool,
+        play: bool,
+        start: usize,
+    },
+}
+
+/// Cheap to copy: library contents are shared and only the selected playlist
+/// has track rows in memory. Audio snapshots never contain this library.
+#[derive(Clone, Debug, Default)]
+pub struct LibrarySnapshot {
+    pub revision: u64,
+    pub entries: std::sync::Arc<Vec<PlaylistEntry>>,
+    pub selected_id: Option<PlaylistId>,
+    pub tracks: std::sync::Arc<Vec<TrackRow>>,
+    pub loading: bool,
+    pub busy: bool,
+    pub status: String,
+    pub connected: bool,
+    pub queue_len: usize,
 }
 
 #[derive(Clone, Default, Debug, PartialEq, Eq, Hash)]

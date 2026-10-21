@@ -14,10 +14,15 @@ Les résultats et leurs limites sont dans `PERFORMANCE.md`.
 **[Télécharger la préversion Windows et ses sources](https://github.com/roukmoute/spotiamp/releases).**
 Choisir l'archive `Spotiamp-Windows-x64.zip`, puis la décompresser.
 
-La préversion **0.1.0-alpha.7** retire le **cadre et la barre de titre du système**
-sous Windows, macOS et Linux. Les boutons **Réduire** et **Fermer** font partie
-du bandeau classique de Spotiamp, qui permet aussi de déplacer la fenêtre.
-Ce changement conserve le rendu bitmap existant, sans dépendance ni service ajouté.
+La préversion **0.1.0-alpha.8** ajoute une **bibliothèque de vos playlists Spotify**,
+en lecture seule, dans une fenêtre au style classique. **BIBLIO. F3** ou **F3**
+l'ouvre : playlists et dossiers à gauche, titres de la playlist choisie à droite.
+Le catalogue est chargé à l'ouverture et les titres seulement à la sélection.
+Cette nouvelle découverte de bibliothèque reste à vérifier avec un compte
+Spotify réel ; les essais du lecteur décrits plus haut ne la valident pas.
+
+Le lecteur et sa bibliothèque gardent le **bandeau sans cadre système**, avec
+les boutons **Réduire** et **Fermer** intégrés et le déplacement par glissement.
 
 Les **mises à jour intégrées** restent accessibles dans l'onglet **Mise à jour**
 du panneau **À propos** : détection d'une nouvelle version, téléchargement,
@@ -45,6 +50,38 @@ précédemment nommé Spool ; le paquet Spotiamp est reconstruit après renommag
    **Ctrl+V**, puis **+ AJ.** ou Entrée.
 4. Double-cliquer sur un titre. Les boutons et la barre de position pilotent
    le moteur audio local. Le client Spotify officiel peut être fermé.
+
+Pour retrouver vos playlists sans copier de lien, ouvrir **BIBLIO. F3** après
+la connexion. La fenêtre affiche les playlists enregistrées ou suivies de votre
+compte, avec leur dossier en sous-titre. Cliquer sur une playlist charge ses
+titres ; **Actualiser** ou **F5** recharge le catalogue Spotify.
+
+**Lire** remplace la file par la playlist chargée et démarre le titre sélectionné,
+ou le premier titre si aucune ligne n'est sélectionnée. Le remplacement n'a lieu
+qu'après le chargement réussi de la liste de titres : une erreur d'accès ou une
+playlist vide conserve la file précédente. Le double-clic sur un titre utilise
+la même action en démarrant à cette ligne. **À la file** ajoute la playlist à la
+file existante sans remplacer son contenu ni lancer une nouvelle lecture.
+
+La playlist affichée et la file sont limitées à **500 titres accessibles**.
+Si la file contient déjà des titres, **À la file** ajoute seulement ce que les
+places restantes permettent ; un message indique la limitation. Les noms,
+artistes et durées arrivent progressivement, avec deux requêtes de métadonnées
+simultanées au maximum. La bibliothèque ne modifie aucune playlist sur Spotify.
+Le catalogue est plafonné à **1 000 playlists** et **2 000 entrées** en comptant
+les marqueurs de dossiers ; un dépassement est signalé au lieu de charger une
+liste partielle silencieusement.
+
+Dans la bibliothèque, **Tab** ou **Gauche/Droite** change de panneau ;
+**Haut/Bas**, **Début/Fin** et **Page précédente/suivante** parcourent les lignes.
+**Entrée** lance la lecture, **Ctrl+Entrée** ajoute à la file, et la molette
+déplace d'une ligne par cran le panneau survolé. **F3**, **Échap** ou la croix
+ferme cette fenêtre. La lecture du lecteur continue ; les données de bibliothèque
+et son buffer graphique sont relâchés à la fermeture.
+Les touches **Ctrl**, **F3** et les **flèches** sont réinitialisées aux changements
+de focus entre les deux fenêtres. Sous Linux, restaurer une fenêtre réduite
+réaffiche l'image conservée, même si son contenu n'a pas changé. La fermeture
+libère aussi les ressources natives de la fenêtre.
 
 Les boutons s'activent au relâchement de la souris dans le bouton pressé.
 Relâcher à l'extérieur annule le clic ; une perte de focus annule aussi l'appui.
@@ -121,7 +158,7 @@ Les liens acceptés sont `https://open.spotify.com/track/...`, `/album/...`,
 résolus. Les playlists sont limitées aux titres accessibles renvoyés par Spotify.
 
 Raccourcis du lecteur : Espace lecture/pause, flèches sélection, Entrée lecture
-ou ajout, Suppr retirer, Tab champ de lien, F1 aide, F2 À propos, Échap fermer
+ou ajout, Suppr retirer, Tab champ de lien, F1 aide, F2 À propos, F3 bibliothèque, Échap fermer
 l'aide ou le panneau. Sous macOS, Cmd+V colle également un lien. Le texte utilise
 une petite police bitmap : les glyphes absents sont affichés avec `?`.
 
@@ -133,7 +170,12 @@ une petite police bitmap : les glyphes absents sont affichés avec `?`.
 - Recherche de mise à jour ponctuelle, sans thread ni client HTTP gardé au repos.
   Téléchargement sur disque et progression affichée dans le buffer existant.
 - Pas de pochettes, de visualiseur, de cache audio persistant ni de téléchargement
-  de la bibliothèque complète.
+  des titres de toutes les playlists. Le catalogue de playlists est paginé,
+  et une seule playlist est chargée pour l'affichage à la fois.
+- Fenêtre de bibliothèque créée uniquement à son ouverture. Son framebuffer,
+  le catalogue et les titres affichés sont relâchés à la fermeture ; la file
+  du lecteur reste indépendante. Les données partagées utilisent des `Arc` et
+  une révision évite de recopier ou parcourir les titres à chaque image.
 - File limitée à 500 titres, deux requêtes de métadonnées simultanées.
 - Buffer graphique réutilisé ; rendu seulement lorsque l'état visible change.
 - Pas de préchargement du morceau suivant ; cela peut introduire un silence
@@ -143,9 +185,10 @@ une petite police bitmap : les glyphes absents sont affichés avec `?`.
   threads nécessaires aux chargements et à la sortie audio. Ce plafond est
   documenté dans `vendor/librespot-playback/PATCH.md`.
 
-La première version comprend connexion, import par lien, liste, lecture locale,
-pause, arrêt, précédent/suivant, volume et déplacement dans le titre. Elle
-n'inclut pas encore recherche de catalogue, navigation de bibliothèque, égaliseur,
+Le lecteur comprend connexion, import par lien, bibliothèque de playlists Spotify,
+file, lecture locale, pause, arrêt, précédent/suivant, volume et déplacement dans
+le titre. Il n'inclut pas encore recherche de catalogue, vue albums/artistes/titres
+likés, égaliseur,
 skins `.wsz`, lecture hors ligne, icône de notification, touches multimédia
 globales ni sauvegarde de la file. L'accessibilité et la saisie complexe sont
 limitées par cette interface bitmap.
@@ -190,6 +233,12 @@ le buffer graphique. Un appui sur **Télécharger** ne devient pas un clic sur
 **Installer** si l'état change avant le relâchement. Les tests natifs Windows et
 X11 injectent aussi des clics courts et vérifient leurs coordonnées en taille
 double. La CI exécute les tests X11 dans Xvfb, avec `xdotool`.
+
+Les tests de bibliothèque utilisent des données synthétiques : sélection et
+défilement dans chaque panneau, changements de liste pendant un chargement,
+double-clic sur le bon titre, commandes désactivées et conservation du framebuffer.
+Ils ne remplacent pas un essai authentifié de découverte des playlists et de
+lecture Spotify.
 
 Windows : Rust avec la cible `x86_64-pc-windows-msvc` et les outils de compilation
 Visual Studio C++. macOS : outils Xcode. Linux Debian/Ubuntu :

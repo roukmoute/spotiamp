@@ -38,6 +38,16 @@
     
     [[NSNotificationCenter defaultCenter]
         removeObserver:self];
+    // Stop new draws before waiting for/releasing the controller's GPU work.
+    // The content-view hierarchy owns metal_view; it is released by NSWindow.
+    [(MTKView*)metal_view setDelegate:nil];
+    if (frame_view) {
+        ((OSXWindowFrameView*)frame_view)->m_view_controller = nil;
+    }
+    [view_controller release];
+    view_controller = nil;
+    free(draw_parameters);
+    free(menu_data);
     [super dealloc];
 }
 
@@ -60,6 +70,10 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 -(void)flagsChanged:(NSEvent *)event {
+    if (!key_callback) {
+        [super flagsChanged:event];
+        return;
+    }
     const uint32_t flags = [event modifierFlags];
 
     // Ctrl checking - First check device dependent flags, otherwise fallback to none-device dependent
@@ -147,6 +161,9 @@
 - (void)mainWindowChanged:(NSNotification *)note {
     self->is_active = [[note name] isEqualToString:NSWindowDidBecomeKeyNotification];
     if (!self->is_active) {
+        if (focus_lost_callback) {
+            focus_lost_callback(rust_data);
+        }
         if (shared_data) {
             memset(shared_data->mouse_state, 0, sizeof(shared_data->mouse_state));
         }
@@ -161,6 +178,13 @@
 - (void)windowWillClose:(NSNotification *)notification {
     (void)notification;
     should_close = true;
+}
+
+// NSWindow does not call delegate methods implemented only by its subclass.
+// Track both the native close action and an explicit close without a delegate.
+- (void)close {
+    should_close = true;
+    [super close];
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

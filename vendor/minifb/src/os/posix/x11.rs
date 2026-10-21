@@ -418,6 +418,7 @@ impl Window {
                 d.display,
                 handle,
                 xlib::StructureNotifyMask
+                    | xlib::ExposureMask
                     | xlib::KeyPressMask
                     | xlib::KeyReleaseMask
                     | xlib::ButtonPressMask
@@ -1025,6 +1026,12 @@ impl Window {
             }
         }
 
+        self.raw_present();
+    }
+
+    // Reuse the already scaled backing image on Expose. Event-only updates
+    // must restore the window without asking the application to render again.
+    unsafe fn raw_present(&self) {
         (self.d.lib.XPutImage)(
             self.d.display,
             self.handle,
@@ -1165,20 +1172,29 @@ impl Window {
             }
 
             xlib::ConfigureNotify => {
-                // TODO : pass this onto the application
-                self.width = ev.configure.width as u32;
-                self.height = ev.configure.height as u32;
-                self.free_image();
-                self.ximage = Self::alloc_image(
-                    &self.d,
-                    self.width as usize,
-                    self.height as usize,
-                    &mut self.draw_buffer,
-                )
-                .expect("todo");
+                let width = ev.configure.width as u32;
+                let height = ev.configure.height as u32;
+                // ConfigureNotify also reports moves and restacking. Keep the
+                // current image unless its dimensions actually change.
+                if width != self.width || height != self.height {
+                    self.width = width;
+                    self.height = height;
+                    self.free_image();
+                    self.ximage = Self::alloc_image(
+                        &self.d,
+                        self.width as usize,
+                        self.height as usize,
+                        &mut self.draw_buffer,
+                    )
+                    .expect("todo");
+                }
+            }
+            xlib::Expose if ev.expose.count == 0 => {
+                self.raw_present();
             }
             xlib::FocusOut => {
                 self.active = false;
+                self.key_handler.release_all();
                 self.buttons.fill(0);
                 if let Some(callback) = self.key_handler.key_callback.as_mut() {
                     callback.mouse_input_cancelled();

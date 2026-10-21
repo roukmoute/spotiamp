@@ -397,6 +397,10 @@ impl View {
         self.rect(5, 142, WIDTH - 10, 1, 0x11121d);
         self.rect(5, 143, WIDTH - 10, 1, 0x656174);
         self.header(145, "LISTE DE LECTURE");
+        let library_down = self.button_down(448, 145);
+        self.metal_face(448, 145, 100, 16, true, library_down);
+        let offset = usize::from(library_down);
+        self.text(458 + offset, 150 + offset, "BIBLIO. F3", 0x242b40, 10);
         self.bevel(
             14,
             171,
@@ -603,7 +607,7 @@ impl View {
             "CONNEXION ouvre votre navigateur pour Spotify.",
             "La musique est lue directement par ce lecteur.",
             "Le client Spotify officiel peut rester ferme.",
-            "",
+            "F3 : ouvrir vos playlists Spotify",
             "Ajoutez un lien de titre, d'album ou de playlist.",
             "Exemple : https://open.spotify.com/track/...",
             "Double-clic : lire. Liste limitee a 500 titres.",

@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-static WINDOWS: Mutex<()> = Mutex::new(());
+pub(crate) static WINDOWS: Mutex<()> = Mutex::new(());
 type Hwnd = *mut c_void;
 #[repr(C)]
 #[derive(Default)]

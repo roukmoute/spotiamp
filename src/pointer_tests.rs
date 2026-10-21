@@ -127,6 +127,9 @@ fn short_click_edges_are_retained_and_overflow_cancels_instead_of_sticking() {
 #[cfg(target_os = "windows")]
 #[test]
 fn win32_short_mouse_click_preserves_edges_and_scaled_coordinates() {
+    let _serial = crate::window_native_windows_tests::WINDOWS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     use std::ffi::c_void;
     #[link(name = "user32")]
     unsafe extern "system" {

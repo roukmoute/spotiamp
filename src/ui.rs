@@ -33,6 +33,7 @@ pub enum Action {
     InstallUpdate,
     Minimize,
     Close,
+    OpenLibrary,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -60,6 +61,7 @@ enum Button {
     Minimize,
     Close,
     About,
+    Library,
     AboutTab(AboutTab),
     AboutCloseTop,
     AboutClose,
@@ -86,8 +88,9 @@ enum Button {
 impl Button {
     const TITLEBAR: [Self; 3] = [Self::Help, Self::Minimize, Self::Close];
 
-    const ALL: [Self; 14] = [
+    const ALL: [Self; 15] = [
         Self::About,
+        Self::Library,
         Self::Connection,
         Self::Previous,
         Self::Play,
@@ -121,6 +124,7 @@ impl Button {
     fn rect(self) -> (usize, usize, usize, usize) {
         match self {
             Self::About => (308, 116, 22, 22),
+            Self::Library => (448, 145, 100, 16),
             Self::AboutTab(tab) => (40 + tab as usize * 96, 65, 96, 25),
             Self::AboutCloseTop => (505, 33, 20, 18),
             Self::AboutClose => (420, 405, 100, 22),
@@ -492,6 +496,10 @@ impl View {
         if self.help {
             self.help = false;
             return None;
+        }
+        if Button::at(x, y, None, &self.update) == Some(Button::Library) {
+            self.cancel_pointer();
+            return Some(Action::OpenLibrary);
         }
         self.input_active = (170..195).contains(&y) && (14..422).contains(&x);
         self.select_all = false;

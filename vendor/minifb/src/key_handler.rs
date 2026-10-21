@@ -55,6 +55,18 @@ impl KeyHandler {
         }
     }
 
+    /// A key-up can go to another window after focus changes. Release both
+    /// polled levels and callback state, including modifier keys, immediately.
+    /// Mouse capture cancellation alone must not call this method.
+    pub fn release_all(&mut self) {
+        for index in 0..Key::Count as usize {
+            if self.keys[index] {
+                self.set_key_state(key_from_index(index).unwrap(), false);
+            }
+        }
+        self.keys_down_duration.fill(-1.0);
+    }
+
     pub fn get_keys(&self) -> Vec<Key> {
         let mut keys: Vec<Key> = Vec::new();
 
@@ -197,6 +209,42 @@ impl KeyHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{cell::RefCell, rc::Rc};
+
+    struct Events(Rc<RefCell<Vec<(Key, bool)>>>);
+    impl InputCallback for Events {
+        fn add_char(&mut self, _: u32) {}
+        fn set_key_state(&mut self, key: Key, down: bool) {
+            self.0.borrow_mut().push((key, down));
+        }
+    }
+
+    #[test]
+    fn focus_loss_releases_callbacks_levels_and_repeat_once() {
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let mut handler = KeyHandler::new();
+        handler.set_input_callback(Box::new(Events(events.clone())));
+        let keys = [Key::LeftCtrl, Key::F3, Key::Up];
+        for key in keys {
+            handler.set_key_state(key, true);
+        }
+        handler.update();
+        assert!(handler.is_key_pressed(Key::Up, KeyRepeat::Yes));
+        events.borrow_mut().clear();
+        handler.release_all();
+        for key in keys {
+            assert!(!handler.is_key_down(key));
+            assert!(!handler.is_key_pressed(key, KeyRepeat::Yes));
+            assert!(handler.is_key_released(key));
+        }
+        assert_eq!(events.borrow().len(), keys.len());
+        assert!(events.borrow().iter().all(|(_, down)| !down));
+        handler.release_all();
+        assert_eq!(events.borrow().len(), keys.len());
+        handler.set_key_state(Key::F3, true);
+        handler.update();
+        assert!(handler.is_key_pressed(Key::F3, KeyRepeat::No));
+    }
 
     /// Pins the contiguity that `key_from_index`'s transmute relies on.
     #[test]

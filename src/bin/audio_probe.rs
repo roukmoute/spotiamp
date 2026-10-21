@@ -9,6 +9,8 @@ mod engine;
 mod model;
 #[path = "../settings.rs"]
 mod settings;
+#[path = "../spotify_library.rs"]
+mod spotify_library;
 
 use librespot_playback::{audio_backend::Sink, convert::Converter, decoder::AudioPacket};
 use std::{

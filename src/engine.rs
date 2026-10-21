@@ -26,7 +26,14 @@ use tokio::{
 };
 
 pub use crate::model::{Command, Snapshot, TrackRow};
-use crate::{credentials, model::AudioQuality, settings};
+use crate::{
+    credentials,
+    model::{AudioQuality, LibrarySnapshot},
+    settings,
+};
+
+#[path = "engine/library.rs"]
+mod library;
 
 pub const MAX_QUEUE: usize = 500;
 const NETWORK_TIMEOUT: Duration = Duration::from_secs(20);
@@ -34,6 +41,7 @@ const NETWORK_TIMEOUT: Duration = Duration::from_secs(20);
 pub struct Engine {
     pub tx: mpsc::Sender<Command>,
     pub state: Arc<Mutex<Snapshot>>,
+    pub library: Arc<Mutex<LibrarySnapshot>>,
 }
 
 impl Engine {
@@ -45,6 +53,8 @@ impl Engine {
             ..Snapshot::default()
         }));
         let (tx, rx) = mpsc::channel(32);
+        let library = Arc::new(Mutex::new(LibrarySnapshot::default()));
+        let shared_library = library.clone();
         let shared = state.clone();
         let result = std::thread::Builder::new()
             .name("spotiamp-engine".into())
@@ -55,7 +65,9 @@ impl Engine {
                     .build();
                 match runtime {
                     Ok(runtime) => {
-                        runtime.block_on(Worker::new(shared).run(rx));
+                        let mut worker = Worker::new(shared);
+                        worker.library.shared = shared_library;
+                        runtime.block_on(worker.run(rx));
                         // A browser callback may still be winding down. Never hold up
                         // closing the application on a third-party OAuth listener.
                         runtime.shutdown_timeout(Duration::from_millis(200));
@@ -70,7 +82,7 @@ impl Engine {
                 s.status = "Impossible de creer le thread audio".into()
             });
         }
-        Self { tx, state }
+        Self { tx, state, library }
     }
 }
 
@@ -99,6 +111,7 @@ fn player_config(quality: AudioQuality) -> PlayerConfig {
 }
 
 enum Update {
+    Library(library::Update),
     CredentialSaved {
         generation: u64,
         result: Result<bool, &'static str>,
@@ -128,6 +141,7 @@ enum Update {
 
 struct Worker {
     state: Arc<Mutex<Snapshot>>,
+    library: library::State,
     session: Option<Session>,
     player: Option<Arc<Player>>,
     mixer: Option<SoftMixer>,
@@ -154,6 +168,7 @@ impl Worker {
         let load_quality = state.lock().map(|s| s.quality).unwrap_or_default();
         Self {
             state,
+            library: library::State::default(),
             session: None,
             player: None,
             mixer: None,
@@ -207,6 +222,7 @@ impl Worker {
                     }
                 }
             }
+            self.sync_library_summary();
         }
         self.disconnect();
     }
@@ -216,6 +232,21 @@ impl Worker {
     }
 
     fn command(&mut self, command: Command, updates: &mpsc::Sender<Update>) {
+        // A more recent transport/queue action supersedes a library Play
+        // waiting on the network; its preview may still finish normally.
+        if matches!(
+            command,
+            Command::Add(_)
+                | Command::PlayIndex(_)
+                | Command::Toggle
+                | Command::Stop
+                | Command::Next
+                | Command::Previous
+                | Command::Remove(_)
+                | Command::Clear
+        ) {
+            self.cancel_library_queue();
+        }
         match command {
             Command::Connect => {
                 if self.clearing_credentials {
@@ -380,12 +411,14 @@ impl Worker {
                     s.status = "File vide".into();
                 });
             }
+            Command::Library(command) => self.library_command(command, updates),
             Command::Shutdown => {}
         }
     }
 
     fn update(&mut self, update: Update, updates: &mpsc::Sender<Update>) {
         match update {
+            Update::Library(update) => self.library_update(update),
             Update::Connected { generation, result } => {
                 // A result can already be queued when Logout cancels the task.
                 if generation != self.auth_generation || self.connect_task.is_none() {
@@ -456,6 +489,9 @@ impl Worker {
                             }
                             .into();
                         });
+                        if self.library.open {
+                            self.refresh_library(updates);
+                        }
                     }
                     Err(message) => edit(&self.state, |s| {
                         s.busy = false;
@@ -708,6 +744,7 @@ impl Worker {
     }
 
     fn disconnect(&mut self) {
+        self.reset_library("Connectez Spotify pour afficher vos playlists");
         self.auth_generation = self.auth_generation.wrapping_add(1);
         self.auth_epoch
             .store(self.auth_generation, Ordering::Release);
@@ -922,23 +959,21 @@ fn parse_input(input: &str) -> Result<SpotifyUri, &'static str> {
     SpotifyUri::from_uri(&canonical).map_err(|_| "Identifiant Spotify invalide")
 }
 
-async fn import(
-    session: Session,
-    uri: SpotifyUri,
+async fn resolve_ids(
+    session: &Session,
+    uri: &SpotifyUri,
     capacity: usize,
-    generation: u64,
-    updates: &mpsc::Sender<Update>,
-) -> Result<(), String> {
-    let resolved = tokio::time::timeout(NETWORK_TIMEOUT, async {
-        match &uri {
+) -> Result<(Vec<SpotifyUri>, bool), String> {
+    tokio::time::timeout(NETWORK_TIMEOUT, async {
+        match uri {
             SpotifyUri::Track { .. } => Ok((vec![uri.clone()], false)),
             SpotifyUri::Album { .. } => {
-                let album = Album::get(&session, &uri).await?;
+                let album = Album::get(session, uri).await?;
                 let truncated = album.tracks().count() > capacity;
                 Ok((album.tracks().take(capacity).cloned().collect(), truncated))
             }
             SpotifyUri::Playlist { .. } => {
-                let playlist = Playlist::get(&session, &uri).await?;
+                let playlist = Playlist::get(session, uri).await?;
                 let truncated =
                     playlist.contents.is_truncated || playlist.length as usize > capacity;
                 let tracks = playlist
@@ -956,8 +991,40 @@ async fn import(
     .map_err(|_| "Spotify ne repond pas; reessayez".to_owned())?
     .map_err(|_: librespot_core::Error| {
         "Impossible de lire ce lien Spotify; verifiez son acces".to_owned()
-    })?;
-    let (ids, truncated): (Vec<SpotifyUri>, bool) = resolved;
+    })
+}
+
+async fn track_metadata(session: &Session, uri: &SpotifyUri) -> TrackRow {
+    let result = tokio::time::timeout(Duration::from_secs(8), Track::get(session, uri)).await;
+    let uri = uri.to_uri().unwrap_or_default();
+    match result {
+        Ok(Ok(track)) => TrackRow {
+            uri,
+            title: track.name,
+            artist: track
+                .artists
+                .iter()
+                .map(|a| a.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", "),
+            duration_ms: track.duration.max(0) as u32,
+        },
+        _ => TrackRow {
+            title: "Titre Spotify (metadonnees indisponibles)".into(),
+            uri,
+            ..TrackRow::default()
+        },
+    }
+}
+
+async fn import(
+    session: Session,
+    uri: SpotifyUri,
+    capacity: usize,
+    generation: u64,
+    updates: &mpsc::Sender<Update>,
+) -> Result<(), String> {
+    let (ids, truncated) = resolve_ids(&session, &uri, capacity).await?;
     if ids.is_empty() {
         return Err("Aucun titre musical accessible dans ce lien".into());
     }
@@ -996,29 +1063,7 @@ async fn import(
                 break;
             };
             let session = session.clone();
-            requests.spawn(async move {
-                let result =
-                    tokio::time::timeout(Duration::from_secs(8), Track::get(&session, &uri)).await;
-                let uri = uri.to_uri().unwrap_or_default();
-                match result {
-                    Ok(Ok(track)) => TrackRow {
-                        uri,
-                        title: track.name,
-                        artist: track
-                            .artists
-                            .iter()
-                            .map(|a| a.name.as_str())
-                            .collect::<Vec<_>>()
-                            .join(", "),
-                        duration_ms: track.duration.max(0) as u32,
-                    },
-                    _ => TrackRow {
-                        title: "Titre Spotify (metadonnees indisponibles)".into(),
-                        uri,
-                        ..TrackRow::default()
-                    },
-                }
-            });
+            requests.spawn(async move { track_metadata(&session, &uri).await });
         }
         match requests.join_next().await {
             Some(Ok(row)) => {

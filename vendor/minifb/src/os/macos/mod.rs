@@ -191,6 +191,10 @@ extern "C" {
         button_callback: unsafe extern "C" fn(*mut c_void, i32, i32, f32, f32),
         cancel_callback: unsafe extern "C" fn(*mut c_void),
     );
+    fn mfb_set_focus_lost_callback(
+        window: *mut c_void,
+        callback: unsafe extern "C" fn(*mut c_void),
+    );
     fn mfb_set_cursor_style(window: *mut c_void, cursor: u32);
     fn mfb_set_cursor_visibility(window: *mut c_void, visibility: bool);
     fn mfb_should_close(window: *mut c_void) -> i32;
@@ -281,6 +285,12 @@ unsafe extern "C" fn key_callback(window: *mut c_void, key: i32, state: i32) {
         (*win)
             .key_handler
             .set_key_state(KEY_MAPPINGS[key as usize], s);
+    }
+}
+
+unsafe extern "C" fn focus_lost_callback(window: *mut c_void) {
+    if let Some(win) = (window as *mut WindowState).as_mut() {
+        win.key_handler.release_all();
     }
 }
 
@@ -377,15 +387,15 @@ impl Window {
                 &mut view_handle,
             );
 
-            if opts.topmost {
-                mfb_topmost(handle, true);
-            }
-
             if handle == std::ptr::null_mut() {
                 return Err(Error::WindowCreate("Unable to open Window".to_owned()));
             }
 
-            Ok(Window {
+            if opts.topmost {
+                mfb_topmost(handle, true);
+            }
+
+            let mut window = Window {
                 state: Box::new(WindowState {
                     window_handle: handle,
                     view_handle,
@@ -402,7 +412,11 @@ impl Window {
                     has_set_data: false,
                     menus: Vec::new(),
                 }),
-            })
+            };
+            // Another window's event pump can dispatch this window's events
+            // before its own first update. Register its stable heap state now.
+            window.set_input_data();
+            Ok(window)
         }
     }
 
@@ -476,6 +490,7 @@ impl Window {
             mouse_button_callback,
             mouse_cancel_callback,
         );
+        mfb_set_focus_lost_callback(self.window_handle, focus_lost_callback);
     }
 
     #[inline]

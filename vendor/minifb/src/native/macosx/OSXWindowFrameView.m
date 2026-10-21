@@ -145,6 +145,29 @@ static void calculate_scaling(
 
 
 @implementation WindowViewController
+- (void)dealloc {
+    // Every submitted command signals exactly once, including an occluded
+    // window with no drawable. Stop/detach the view before releasing us.
+    if (m_semaphore) {
+        for (int i = 0; i < MaxBuffersInFlight; ++i) {
+            dispatch_semaphore_wait(m_semaphore, DISPATCH_TIME_FOREVER);
+        }
+        // Restore the original count before disposing the semaphore.
+        for (int i = 0; i < MaxBuffersInFlight; ++i) {
+            dispatch_semaphore_signal(m_semaphore);
+        }
+        dispatch_release(m_semaphore);
+    }
+    for (int i = 0; i < MaxBuffersInFlight; ++i) {
+        [m_draw_state[i].texture release];
+        [m_draw_state[i].vertex_buffer release];
+        if (m_delayed_delete_textures[i].frame_count >= 0) {
+            [m_delayed_delete_textures[i].texture release];
+        }
+    }
+    [super dealloc];
+}
+
 - (void)mtkView:(nonnull MTKView *)view drawableSizeWillChange:(CGSize)size {
     (void)size;
     (void)view;
@@ -221,10 +244,12 @@ uint32_t upper_power_of_two(uint32_t v) {
         // Allocate the now texture
 
         id<MTLTexture> texture = [view.device newTextureWithDescriptor:texture_desc];
+        [texture_desc release];
 
         if (texture == 0) {
             printf("Failed to create texture of size %d - %d. Please report this issue. Skipping rendering\n",
                 new_width, new_height);
+            dispatch_semaphore_signal(m_semaphore);
             return;
         }
 
@@ -273,6 +298,10 @@ uint32_t upper_power_of_two(uint32_t v) {
 
     // Create a new command buffer for each render pass to the current drawable
     id<MTLCommandBuffer> commandBuffer = [g_command_queue commandBuffer];
+    if (!commandBuffer) {
+        dispatch_semaphore_signal(m_semaphore);
+        return;
+    }
     commandBuffer.label = @"minifb_command_buffer";
 
     // Add completion hander which signals _inFlightSemaphore when Metal and the GPU has fully
@@ -426,8 +455,10 @@ uint32_t upper_power_of_two(uint32_t v) {
 
 - (void)scrollWheel:(NSEvent *)event {
     OSXWindow* window = (OSXWindow*)[self window];
-    window->shared_data->scroll_x += [event deltaX];
-    window->shared_data->scroll_y += [event deltaY];
+    if (window->shared_data) {
+        window->shared_data->scroll_x += [event deltaX];
+        window->shared_data->scroll_y += [event deltaY];
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -484,6 +515,7 @@ uint32_t upper_power_of_two(uint32_t v) {
 
 - (void)dealloc {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [trackingArea release];
     [super dealloc];
 }
 

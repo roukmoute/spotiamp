@@ -1,5 +1,31 @@
 # Changements
 
+## 0.1.0-alpha.8 — 22 octobre 2026
+
+- Bibliothèque de vos playlists Spotify en lecture seule, ouverte avec
+  **BIBLIO. F3** ou **F3**, dans une fenêtre classique séparée. Playlists et
+  dossiers à gauche, titres de la playlist sélectionnée à droite.
+- Catalogue paginé à l'ouverture ; les titres sont chargés seulement à la
+  sélection. **Actualiser / F5** recharge la liste. Noms, artistes et durées
+  arrivent progressivement, avec deux requêtes de métadonnées simultanées.
+- **Lire** remplace la file après chargement réussi de la playlist et démarre
+  au titre sélectionné. Un double-clic démarre à la ligne choisie.
+  **À la file** complète la file existante sans la remplacer ni lancer la lecture.
+  Une erreur d'accès ou une playlist vide conserve la file précédente.
+- Limite explicite de **500 titres accessibles** par playlist affichée et
+  dans la file ; les ajouts respectent les places restantes et signalent la limite.
+- Navigation au clavier et molette d'une ligne par cran dans chaque panneau.
+  Réduire, fermer et déplacer la bibliothèque utilisent le même bandeau intégré.
+- Gestion des deux fenêtres : touches Ctrl/F3/flèches réinitialisées au changement
+  de focus ; restauration Linux réaffichant l'image conservée ; ressources
+  natives libérées à la fermeture.
+- Fenêtre et framebuffer créés à l'ouverture ; catalogue et titres affichés
+  relâchés à la fermeture, sans interrompre la lecture du lecteur. Les instantanés
+  partagés et leur révision évitent la copie des listes à chaque image.
+- Cette nouvelle bibliothèque reste à vérifier avec un compte Spotify réel.
+  Les tests hors ligne utilisent des données synthétiques et ne prouvent pas
+  la découverte ni la lecture authentifiée.
+
 ## 0.1.0-alpha.7 — 21 octobre 2026
 
 - Cadre et barre de titre du système retirés sous Windows, macOS et Linux.

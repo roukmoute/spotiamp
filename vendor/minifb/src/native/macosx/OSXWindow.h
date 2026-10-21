@@ -41,6 +41,7 @@ void build_submenu(NSMenu* menu, MenuDesc* desc);
     @public void (*char_callback)(void* user_data, unsigned int key);
     @public void (*mouse_button_callback)(void* user_data, int button, int state, float x, float y);
     @public void (*mouse_cancel_callback)(void* user_data);
+    @public void (*focus_lost_callback)(void* user_data);
     @public float width;
     @public float height;
     @public int scale;
@@ -58,6 +59,9 @@ void build_submenu(NSMenu* menu, MenuDesc* desc);
     @public MenuData* menu_data;
     @public void* frame_view;
     @public void* metal_view;
+    // Owns the +1 returned by [WindowViewController new]. MTKView's delegate
+    // and OSXWindowFrameView's pointer are borrowed references.
+    @public id view_controller;
     @public id keyUpMonitor;
 }
 @end

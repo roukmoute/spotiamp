@@ -62,7 +62,9 @@ jobs:
         run: cargo build --release --locked --target ${{ matrix.target }} --bin spotiamp
       - name: Smoke test native macOS window on the main thread
         if: runner.os == 'macOS'
-        run: target/${{ matrix.target }}/release/spotiamp --no-update-check --quit-after 2
+        run: |
+          target/${{ matrix.target }}/release/spotiamp --no-update-check --library --quit-after 2
+          target/${{ matrix.target }}/release/spotiamp --test-library-windows
       - name: Package binary, sources, and dependency licenses
         run: python scripts/package.py --target ${{ matrix.target }}
       - name: Validate packaged archive through the native updater
