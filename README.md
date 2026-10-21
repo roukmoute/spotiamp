@@ -14,11 +14,12 @@ Les résultats et leurs limites sont dans `PERFORMANCE.md`.
 **[Télécharger la préversion Windows et ses sources](https://github.com/roukmoute/spotiamp/releases).**
 Choisir l'archive `Spotiamp-Windows-x64.zip`, puis la décompresser.
 
-La préversion **0.1.0-alpha.4** adopte un skin plus proche du Winamp classique :
-touches métalliques, boutons enfoncés pendant l'appui, cadres encastrés et
-poignées rainurées. Le rendu reste dessiné directement dans le buffer existant,
-sans image de skin à charger, nouvelle dépendance ni animation permanente.
-La qualité **320 kb/s par défaut** et la molette d'un titre par cran sont conservées.
+La préversion **0.1.0-alpha.5** ajoute un panneau **À propos** au style classique :
+version, crédits, raccourcis et historique. Il réutilise le buffer graphique du
+lecteur, sans nouvelle dépendance, image externe ni animation permanente.
+Les touches métalliques, boutons enfoncés pendant l'appui, cadres encastrés et
+poignées rainurées sont conservés, comme la qualité **320 kb/s par défaut** et
+la molette d'un titre par cran.
 
 ![Interface de Spotiamp](preview.png)
 
@@ -45,6 +46,20 @@ Les boutons s'activent au relâchement de la souris dans le bouton pressé.
 Relâcher à l'extérieur annule le clic ; une perte de focus annule aussi l'appui.
 Les barres de volume et de position réagissent dès l'appui et pendant le glissement.
 
+Le bouton **À propos**, près du volume, ou **F2** ouvre un panneau à quatre
+onglets : **Spotiamp**, **Crédits**, **Raccourcis** et **Historique**.
+**Projet GitHub** ouvre le dépôt dans le navigateur du système.
+**Copier les infos** copie la version, le système, l'architecture, le moteur et
+la qualité préférée ; ces informations ne contiennent aucune donnée de compte.
+Un message confirme la copie ou signale une erreur d'accès au presse-papiers
+ou d'ouverture du navigateur.
+
+Dans ce panneau, **Tab/Maj+Tab** parcourt les onglets et boutons, les quatre
+**flèches** changent d'onglet et **Entrée/Espace** active le contrôle sélectionné.
+**F1** affiche les raccourcis ; **F2**, **Échap**, la croix ou **Fermer** ferment
+le panneau. La lecture continue pendant sa consultation ; les commandes du
+lecteur restent bloquées derrière le panneau.
+
 Les boutons **96 / 160 / 320**, à côté de **KB/S** sous la liste, règlent la
 qualité demandée. Le choix est mémorisé et appliqué au prochain chargement de
 titre : le morceau en cours continue sans coupure. Pour l'appliquer immédiatement,
@@ -68,18 +83,19 @@ Le compte doit avoir Spotify Premium. La session est mémorisée dans le coffre
 du système : Gestionnaire d'identifiants Windows, Trousseau macOS ou Secret
 Service Linux. Si ce service est indisponible, la connexion reste limitée à
 la session courante ; il n'y a pas de repli vers un fichier de jetons en clair.
-**DECONNECTER** supprime les identifiants mémorisés. Le navigateur est utilisé
-pour l'autorisation seulement ; il n'est pas embarqué dans le lecteur.
+**DECONNECTER** supprime les identifiants mémorisés. Le navigateur du système
+sert à l'autorisation Spotify et au lien **Projet GitHub** du panneau À propos ;
+il n'est pas embarqué dans le lecteur.
 
 Les liens acceptés sont `https://open.spotify.com/track/...`, `/album/...`,
 `/playlist/...`, y compris les URL `intl-fr`, et les URI `spotify:track:...`,
 `spotify:album:...`, `spotify:playlist:...`. Les liens raccourcis ne sont pas
 résolus. Les playlists sont limitées aux titres accessibles renvoyés par Spotify.
 
-Raccourcis : Espace lecture/pause, flèches sélection, Entrée lecture ou ajout,
-Suppr retirer, Tab champ de lien, F1 aide, Échap fermer l'aide. Sous macOS,
-Cmd+V colle également un lien. Le texte utilise une petite police bitmap :
-les glyphes absents sont affichés avec `?`.
+Raccourcis du lecteur : Espace lecture/pause, flèches sélection, Entrée lecture
+ou ajout, Suppr retirer, Tab champ de lien, F1 aide, F2 À propos, Échap fermer
+l'aide ou le panneau. Sous macOS, Cmd+V colle également un lien. Le texte utilise
+une petite police bitmap : les glyphes absents sont affichés avec `?`.
 
 ## Choix pour limiter la mémoire
 
@@ -135,9 +151,11 @@ LC_ALL=C XMODIFIERS=@im=none xvfb-run -a cargo test --locked --bin spotiamp x11_
 ```
 
 Les tests d'interface vérifient les états visuels pressé/relâché, l'annulation
-hors bouton, les contrôles désactivés et la perte de focus. Les tests natifs
-Windows et X11 injectent aussi des clics courts et vérifient leurs coordonnées
-en taille double. La CI exécute les tests X11 dans Xvfb, avec `xdotool`.
+hors bouton, les contrôles désactivés et la perte de focus. Ceux du panneau
+À propos couvrent les onglets, la navigation clavier, les boutons et le blocage
+des interactions avec le lecteur en arrière-plan. Les tests natifs Windows et
+X11 injectent aussi des clics courts et vérifient leurs coordonnées en taille
+double. La CI exécute les tests X11 dans Xvfb, avec `xdotool`.
 
 Windows : Rust avec la cible `x86_64-pc-windows-msvc` et les outils de compilation
 Visual Studio C++. macOS : outils Xcode. Linux Debian/Ubuntu :

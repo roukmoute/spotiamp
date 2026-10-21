@@ -1,5 +1,20 @@
 # Changements
 
+## 0.1.0-alpha.5 — 21 octobre 2026
+
+- Panneau À propos intégré au skin, avec quatre onglets : Spotiamp, Crédits,
+  Raccourcis et Historique. Version du programme, crédits des composants et
+  licence du projet y figurent.
+- Accès au dépôt GitHub et copie de la version, du système, de l'architecture,
+  du moteur et de la qualité préférée, sans donnée de compte. Un message
+  confirme la copie ou signale une erreur de presse-papiers ou de navigateur.
+- Navigation à la souris et au clavier, focus visible et boutons pressés.
+  F2 ouvre ou ferme le panneau ; Échap le ferme et F1 affiche ses raccourcis.
+  Les interactions du lecteur sont bloquées derrière le panneau, pendant que
+  la lecture audio continue.
+- Le panneau réutilise le buffer graphique existant, sans nouvelle dépendance,
+  image externe ni animation permanente.
+
 ## 0.1.0-alpha.4 — 21 octobre 2026
 
 - Skin plus proche du Winamp classique : touches métalliques, pictogrammes de

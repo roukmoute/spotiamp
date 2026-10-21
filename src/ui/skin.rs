@@ -12,14 +12,14 @@ enum TransportIcon {
 }
 
 impl View {
-    fn rect(&mut self, x: usize, y: usize, w: usize, h: usize, color: u32) {
+    pub(super) fn rect(&mut self, x: usize, y: usize, w: usize, h: usize, color: u32) {
         for yy in y.min(HEIGHT)..y.saturating_add(h).min(HEIGHT) {
             self.pixels[yy * WIDTH + x.min(WIDTH)..yy * WIDTH + x.saturating_add(w).min(WIDTH)]
                 .fill(color);
         }
     }
 
-    fn bevel(&mut self, x: usize, y: usize, w: usize, h: usize, fill: u32, inset: bool) {
+    pub(super) fn bevel(&mut self, x: usize, y: usize, w: usize, h: usize, fill: u32, inset: bool) {
         self.rect(x, y, w, h, fill);
         if w < 3 || h < 3 {
             return;
@@ -39,7 +39,7 @@ impl View {
         self.rect(x + w - 2, y + 1, 1, h - 2, inner_bottom);
     }
 
-    fn text(&mut self, x: usize, y: usize, text: &str, color: u32, max: usize) {
+    pub(super) fn text(&mut self, x: usize, y: usize, text: &str, color: u32, max: usize) {
         for (index, c) in text.chars().take(max).enumerate() {
             let glyph = font8x8::BASIC_FONTS
                 .get(c)
@@ -58,7 +58,7 @@ impl View {
     }
 
     // Five-pixel capitals keep title strips as compact as the original skin.
-    fn tiny_text(&mut self, x: usize, y: usize, text: &str, color: u32) {
+    pub(super) fn tiny_text(&mut self, x: usize, y: usize, text: &str, color: u32) {
         for (index, c) in text.chars().enumerate() {
             let rows = match c {
                 'A' => [14, 17, 31, 17, 17],
@@ -100,7 +100,15 @@ impl View {
         }
     }
 
-    fn metal_face(&mut self, x: usize, y: usize, w: usize, h: usize, enabled: bool, down: bool) {
+    pub(super) fn metal_face(
+        &mut self,
+        x: usize,
+        y: usize,
+        w: usize,
+        h: usize,
+        enabled: bool,
+        down: bool,
+    ) {
         self.rect(x, y, w, h, 0x0b0d17);
         let (high, face, low) = if enabled {
             (0xe8edf0, 0xb6bec8, 0x747d91)
@@ -359,6 +367,23 @@ impl View {
             self.transport_button(x, icon, s.connected);
         }
         self.tiny_text(244, 125, "VOLUME", WHITE);
+        let about_down = self.button_down(308, 116);
+        self.metal_face(308, 116, 22, 22, true, about_down);
+        let d = usize::from(about_down);
+        // Small original gold bolt; the About panel uses the same framebuffer.
+        for (row, bits) in [
+            0x018u16, 0x030, 0x060, 0x0c0, 0x1fe, 0x03c, 0x078, 0x070, 0x060, 0x040,
+        ]
+        .iter()
+        .enumerate()
+        {
+            for col in 0..9 {
+                if bits & (1 << (8 - col)) != 0 {
+                    self.rect(315 + col + d, 122 + row + d, 1, 1, 0x77632f);
+                    self.rect(314 + col + d, 121 + row + d, 1, 1, 0xe7c969);
+                }
+            }
+        }
         self.bevel(337, 123, 207, 8, BLACK, true);
         let volume = s.volume as usize * 201 / 65535;
         self.rect(340, 126, volume, 2, 0x76a631);
@@ -525,9 +550,14 @@ impl View {
             GOLD,
             66,
         );
+        if self.hovered_button == Some(Button::About) && self.about.is_none() && !self.help {
+            self.bevel(284, 140, 264, 19, 0xefe7bc, false);
+            self.text(292, 146, "À propos de Spotiamp (F2)", SHADOW, 31);
+        }
         if self.help {
             self.render_help();
         }
+        self.render_about();
     }
 
     fn render_help(&mut self) {
@@ -549,6 +579,7 @@ impl View {
             "Fleches : selection / molette : defilement",
             "Suppr : retirer un titre ; Tab : champ de lien",
             "Barres : position de lecture et volume",
+            "F2 : À propos, crédits et raccourcis",
             "Qualite modifiee : au prochain chargement audio.",
             "Identifiants gardes dans le coffre du systeme.",
             "Sans coffre disponible : connexion non memorisee.",

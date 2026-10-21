@@ -23,11 +23,31 @@ pub enum Action {
     Send(Command),
     Paste,
     Submit,
+    CopyAboutInfo,
+    OpenProject,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum AboutTab {
+    Player,
+    Credits,
+    Shortcuts,
+    History,
+}
+
+impl AboutTab {
+    const ALL: [Self; 4] = [Self::Player, Self::Credits, Self::Shortcuts, Self::History];
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 enum Button {
     Help,
+    About,
+    AboutTab(AboutTab),
+    AboutCloseTop,
+    AboutClose,
+    AboutCopy,
+    AboutProject,
     Connection,
     Previous,
     Play,
@@ -44,8 +64,9 @@ enum Button {
 }
 
 impl Button {
-    const ALL: [Self; 14] = [
+    const ALL: [Self; 15] = [
         Self::Help,
+        Self::About,
         Self::Connection,
         Self::Previous,
         Self::Play,
@@ -61,8 +82,25 @@ impl Button {
         Self::Quality320,
     ];
 
+    const MODAL: [Self; 8] = [
+        Self::AboutTab(AboutTab::Player),
+        Self::AboutTab(AboutTab::Credits),
+        Self::AboutTab(AboutTab::Shortcuts),
+        Self::AboutTab(AboutTab::History),
+        Self::AboutCloseTop,
+        Self::AboutClose,
+        Self::AboutCopy,
+        Self::AboutProject,
+    ];
+
     fn rect(self) -> (usize, usize, usize, usize) {
         match self {
+            Self::About => (308, 116, 22, 22),
+            Self::AboutTab(tab) => (40 + tab as usize * 120, 65, 120, 25),
+            Self::AboutCloseTop => (505, 33, 20, 18),
+            Self::AboutClose => (420, 405, 100, 22),
+            Self::AboutCopy => (236, 405, 174, 22),
+            Self::AboutProject => (40, 405, 186, 22),
             Self::Help => (530, 3, 16, 14),
             Self::Connection => (421, 29, 125, 22),
             Self::Previous => (15, 116, 38, 22),
@@ -80,8 +118,9 @@ impl Button {
         }
     }
 
-    fn at(x: usize, y: usize) -> Option<Self> {
-        Self::ALL.into_iter().find(|button| {
+    fn at(x: usize, y: usize, modal: bool) -> Option<Self> {
+        let buttons: &[Self] = if modal { &Self::MODAL } else { &Self::ALL };
+        buttons.iter().copied().find(|button| {
             let (left, top, width, height) = button.rect();
             (left..left + width).contains(&x) && (top..top + height).contains(&y)
         })
@@ -105,6 +144,8 @@ pub struct View {
     pub select_all: bool,
     pub selected: Option<usize>,
     pub help: bool,
+    pub about: Option<AboutTab>,
+    about_focus: usize,
     focused: bool,
     pressed_button: Option<Button>,
     hovered_button: Option<Button>,
@@ -124,6 +165,8 @@ impl Default for View {
             select_all: false,
             selected: None,
             help: false,
+            about: None,
+            about_focus: 0,
             focused: true,
             pressed_button: None,
             hovered_button: None,
@@ -137,6 +180,58 @@ impl Default for View {
 }
 
 impl View {
+    pub fn open_about(&mut self) {
+        self.cancel_pointer();
+        self.about = Some(AboutTab::Player);
+        self.about_focus = 0;
+        self.help = false;
+        self.input_active = false;
+        self.select_all = false;
+        self.last_click = None;
+        self.transient = None;
+    }
+
+    pub fn close_about(&mut self) {
+        self.cancel_pointer();
+        self.about = None;
+    }
+
+    pub fn about_key(&mut self, key: minifb::Key, shift: bool) -> Option<Action> {
+        use minifb::Key;
+        let tab = self.about?;
+        self.cancel_pointer();
+        match key {
+            Key::Escape => self.close_about(),
+            Key::F1 => {
+                self.about = Some(AboutTab::Shortcuts);
+                self.about_focus = 2;
+            }
+            Key::Tab => self.about_focus = (self.about_focus + if shift { 6 } else { 1 }) % 7,
+            Key::Left | Key::Up | Key::Right | Key::Down => {
+                let delta = if matches!(key, Key::Left | Key::Up) {
+                    3
+                } else {
+                    1
+                };
+                self.about_focus = (tab as usize + delta) % 4;
+                self.about = Some(AboutTab::ALL[self.about_focus]);
+            }
+            Key::Enter | Key::Space => return self.activate_about_focus(),
+            _ => {}
+        }
+        None
+    }
+
+    fn activate_about_focus(&mut self) -> Option<Action> {
+        match self.about_focus {
+            0..=3 => self.about = Some(AboutTab::ALL[self.about_focus]),
+            4 => return Some(Action::OpenProject),
+            5 => return Some(Action::CopyAboutInfo),
+            _ => self.close_about(),
+        }
+        None
+    }
+
     pub fn set_focus(&mut self, focused: bool) {
         self.focused = focused;
         if !focused {
@@ -159,7 +254,7 @@ impl View {
             self.help = false;
             return None;
         }
-        if let Some(button) = Button::at(x, y) {
+        if let Some(button) = Button::at(x, y, self.about.is_some()) {
             self.input_active = false;
             self.select_all = false;
             if button.enabled(self, s) {
@@ -172,7 +267,7 @@ impl View {
     }
 
     pub fn pointer_move(&mut self, position: Option<(usize, usize)>) {
-        self.hovered_button = position.and_then(|(x, y)| Button::at(x, y));
+        self.hovered_button = position.and_then(|(x, y)| Button::at(x, y, self.about.is_some()));
     }
 
     pub fn pointer_up(&mut self, position: Option<(usize, usize)>, s: &Snapshot) -> Option<Action> {
@@ -201,6 +296,9 @@ impl View {
         self.transient = Some((text.into(), Instant::now()));
     }
     pub fn insert_char(&mut self, c: char) {
+        if self.about.is_some() {
+            return;
+        }
         if self.select_all {
             self.input.clear();
             self.select_all = false;
@@ -210,6 +308,9 @@ impl View {
         }
     }
     pub fn scroll(&mut self, y: f32, len: usize) {
+        if self.about.is_some() {
+            return;
+        }
         let max_offset = len.saturating_sub(ROWS);
         if self.offset > max_offset {
             self.offset = max_offset;
@@ -247,6 +348,9 @@ impl View {
         }
     }
     pub fn move_selection(&mut self, delta: i32, len: usize) {
+        if self.about.is_some() {
+            return;
+        }
         if len == 0 {
             self.selected = None;
             return;
@@ -263,6 +367,20 @@ impl View {
         }
     }
     pub fn click(&mut self, x: usize, y: usize, s: &Snapshot) -> Option<Action> {
+        if self.about.is_some() {
+            self.about_focus = match Button::at(x, y, true) {
+                Some(Button::AboutTab(tab)) => tab as usize,
+                Some(Button::AboutProject) => 4,
+                Some(Button::AboutCopy) => 5,
+                Some(Button::AboutClose | Button::AboutCloseTop) => 6,
+                _ => return None,
+            };
+            return self.activate_about_focus();
+        }
+        if Button::at(x, y, false) == Some(Button::About) {
+            self.open_about();
+            return None;
+        }
         if self.help {
             self.help = false;
             return None;
@@ -342,6 +460,9 @@ impl View {
         None
     }
     pub fn drag(&self, x: usize, _y: usize, s: &Snapshot) -> Option<Action> {
+        if self.about.is_some() {
+            return None;
+        }
         match self.dragging {
             1 => Some(Action::Send(Command::Seek(
                 ((x.clamp(15, 545) - 15) as u64 * s.duration_ms as u64 / 530) as u32,
@@ -371,6 +492,12 @@ impl View {
             self.dragging,
         )
             .hash(&mut hash);
+        (
+            self.about,
+            self.about_focus,
+            self.hovered_button == Some(Button::About),
+        )
+            .hash(&mut hash);
         self.transient
             .as_ref()
             .filter(|(_, t)| t.elapsed() < Duration::from_secs(8))
@@ -380,7 +507,11 @@ impl View {
     }
 }
 
+mod about_skin;
 mod skin;
+
+#[cfg(test)]
+mod about_tests;
 
 #[cfg(test)]
 mod scroll_tests;
