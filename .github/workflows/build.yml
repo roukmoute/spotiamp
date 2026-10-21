@@ -51,6 +51,8 @@ jobs:
         run: cargo fetch --locked
       - name: Check formatting
         run: cargo fmt --all -- --check
+      - name: Check reproducible Windows S icon assets
+        run: python scripts/generate_windows_icon.py --check
       - name: Test
         run: cargo test --locked --target ${{ matrix.target }}
       - name: Test playback quality changes

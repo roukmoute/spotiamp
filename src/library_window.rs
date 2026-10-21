@@ -5,6 +5,8 @@ use std::{cell::RefCell, rc::Rc};
 
 pub struct LibraryWindow {
     window: Window,
+    #[cfg(target_os = "windows")]
+    _icons: Option<crate::windows_icon::WindowIcons>,
     view: library_ui::View,
     snapshot: LibrarySnapshot,
     chars: Rc<RefCell<Vec<char>>>,
@@ -32,6 +34,8 @@ impl LibraryWindow {
                 ..WindowOptions::default()
             },
         )?;
+        #[cfg(target_os = "windows")]
+        let icons = crate::windows_icon::WindowIcons::attach(&window).ok();
         window.set_titlebar_drag_region(Some(library_ui::TITLEBAR_DRAG_REGION));
         // The player already paces the shared UI loop at 30 Hz.
         window.set_target_fps(0);
@@ -49,6 +53,8 @@ impl LibraryWindow {
         }));
         Ok(Self {
             window,
+            #[cfg(target_os = "windows")]
+            _icons: icons,
             view: library_ui::View::default(),
             snapshot: LibrarySnapshot::default(),
             chars,

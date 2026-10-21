@@ -17,8 +17,8 @@ en anglais. L'installation concerne votre compte, sans droits administrateur.
 Le lecteur apparaît dans le menu Démarrer ; le raccourci sur le Bureau est optionnel.
 L'assistant propose de lancer Spotiamp à la fin.
 
-La version **0.1.3** rétablit automatiquement la connexion Spotify au lancement
-à partir de la session mémorisée dans le coffre du système.
+La version **0.1.4** reprend le **S doré du panneau À propos** pour l'icône
+Windows et l'affiche aussi dans la barre des tâches et Alt+Tab.
 L'installateur est proposé avec l'archive portable
 `Spotiamp-Windows-x64.zip`, disponible avec les paquets Linux, macOS et les
 [sources dans les releases](https://github.com/roukmoute/spotiamp/releases/latest).
@@ -157,8 +157,11 @@ automatique au démarrage ; **Vérifier** reste disponible.
 
 L'installateur utilise par défaut `%LOCALAPPDATA%\Programs\Spotiamp` : les mises
 à jour intégrées peuvent y remplacer les fichiers sans élévation. Il n'ajoute
-aucun service, lancement automatique ni processus résident. Une icône et les
-informations de version sont intégrées à l'exécutable. Les raccourcis continuent
+aucun service, lancement automatique ni processus résident. Le **S doré** du
+panneau À propos et les informations de version sont intégrés à l'exécutable.
+Le lecteur et sa bibliothèque utilisent cette même icône pour leurs fenêtres,
+la barre des tâches et Alt+Tab, sans fichier d'image externe à charger.
+Les raccourcis continuent
 de fonctionner après une mise à jour ; la version dans les paramètres Windows
 est actualisée au lancement du lecteur installé.
 

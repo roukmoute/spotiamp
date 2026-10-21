@@ -60,6 +60,7 @@ $report = [ordered]@{
     fixture_note = 'Current Inno installation overlaid with the pinned published alpha.8 portable files; actual old helper and actual new executable used. GitHub discovery/download and Spotify playback are not tested.'
     installation_directory = $installDirectory
     checks = $checks
+    window_icons = @()
     error = $null
     cleanup_errors = @()
 }
@@ -216,6 +217,85 @@ function Assert-ExecutableResources([string]$Executable) {
         $actual.Dispose(); $expected.Dispose(); $actualIcon.Dispose(); $expectedIcon.Dispose()
     }
 }
+function Assert-NativeWindowIcons([IntPtr]$Window, [string]$Label) {
+    $iconPath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\assets\windows\spotiamp.ico'))
+    foreach ($kind in @(0, 1)) {
+        $name = if ($kind -eq 0) { 'small' } else { 'big' }
+        # WM_GETICON tests the actual window, not the executable file resource.
+        # Copy the returned HICON: the original belongs to the running reader.
+        # minifb shows the HWND before the app attaches its two icons; a cross-
+        # process message can arrive during those native calls. Allow startup
+        # to finish, then require a real handle and exact pixels for both sizes.
+        $handle = Wait-Until "$Label explicit $name window icon" {
+            $candidate = [SpotiampInstallerWindow]::WindowIcon($Window, $kind)
+            if ($candidate -ne [IntPtr]::Zero) { return $candidate }
+            return $false
+        } 5
+        Assert-That ($handle -ne [IntPtr]::Zero) "$Label has no explicit $name window icon"
+        $copy = [SpotiampInstallerWindow]::CopyIcon($handle)
+        Assert-That ($copy -ne [IntPtr]::Zero) "Cannot copy $Label $name window icon"
+        $expectedHandle = [IntPtr]::Zero
+        $actualIcon = $null; $expectedIcon = $null; $actual = $null; $expected = $null
+        try {
+            $actualIcon = [Drawing.Icon]::FromHandle($copy)
+            $actual = $actualIcon.ToBitmap()
+            # Load at the dimensions actually selected by the app/OS DPI mode,
+            # with the same Win32 loader as the resource. No hard-coded 16/32.
+            $expectedHandle = [SpotiampInstallerWindow]::LoadImage([IntPtr]::Zero, $iconPath, 1, $actual.Width, $actual.Height, 0x0010)
+            Assert-That ($expectedHandle -ne [IntPtr]::Zero) "Cannot load expected $name S icon"
+            $expectedIcon = [Drawing.Icon]::FromHandle($expectedHandle)
+            $expected = $expectedIcon.ToBitmap()
+            Assert-That ($actual.Size -eq $expected.Size) "$Label $name icon dimensions differ"
+            $visible = 0
+            for ($y = 0; $y -lt $actual.Height; $y++) {
+                for ($x = 0; $x -lt $actual.Width; $x++) {
+                    $pixel = $actual.GetPixel($x, $y)
+                    $reference = $expected.GetPixel($x, $y)
+                    Assert-That ($pixel.A -eq $reference.A -and ($pixel.A -eq 0 -or $pixel.ToArgb() -eq $reference.ToArgb())) "$Label $name window icon differs from the gold S asset at ($x,$y)"
+                    if ($pixel.A -gt 0) { $visible++ }
+                }
+            }
+            Assert-That ($visible -gt 0) "$Label $name window icon is empty"
+            $file = "$Label-icon-$name.png"
+            $actual.Save((Join-Path $OutputDirectory $file), [Drawing.Imaging.ImageFormat]::Png)
+            $report.window_icons += @{ window = $Label; kind = $name; width = $actual.Width; height = $actual.Height; capture = $file }
+        } finally {
+            if ($actual) { $actual.Dispose() }
+            if ($expected) { $expected.Dispose() }
+            if ($actualIcon) { $actualIcon.Dispose() }
+            if ($expectedIcon) { $expectedIcon.Dispose() }
+            [void][SpotiampInstallerWindow]::DestroyIcon($copy)
+            if ($expectedHandle -ne [IntPtr]::Zero) { [void][SpotiampInstallerWindow]::DestroyIcon($expectedHandle) }
+        }
+    }
+}
+function Assert-ReaderWindowIcons([Diagnostics.Process]$Process, [string]$Label) {
+    $player = Wait-Window $Process
+    Assert-NativeWindowIcons $player "$Label-player"
+    Assert-That ([SpotiampInstallerWindow]::SetForegroundWindow($player)) 'Cannot focus player for F3'
+    [void](Wait-Until 'player foreground before F3' { [SpotiampInstallerWindow]::GetForegroundWindow() -eq $player })
+    # Exercise the normal native shortcut, so the lazily created library gets
+    # its own icon check. Both messages preserve real F3 scan/transition flags.
+    Assert-That ([SpotiampInstallerWindow]::PostMessage($player, 0x0100, [IntPtr]0x72, [IntPtr]0x003D0001)) 'Cannot press F3'
+    Assert-That ([SpotiampInstallerWindow]::PostMessage($player, 0x0101, [IntPtr]0x72, [IntPtr]0xC03D0001L)) 'Cannot release F3'
+    $library = Wait-Until 'Spotify library opened by F3' {
+        $Process.Refresh()
+        Assert-That (-not $Process.HasExited) 'Reader exited while opening the library'
+        foreach ($window in [SpotiampInstallerWindow]::VisibleWindows($Process.Id)) {
+            if ($window -ne $player -and [SpotiampInstallerWindow]::WindowTitle($window) -eq 'Spotiamp — Bibliothèque Spotify') { return $window }
+        }
+        return $false
+    }
+    try { Assert-NativeWindowIcons $library "$Label-library" }
+    finally {
+        if ([SpotiampInstallerWindow]::IsWindow($library)) {
+            Assert-That ([SpotiampInstallerWindow]::PostMessage($library, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) 'Cannot close the test library'
+            [void](Wait-Until 'test library destroyed' { -not [SpotiampInstallerWindow]::IsWindow($library) })
+        }
+    }
+    $Process.Refresh()
+    Assert-That (-not $Process.HasExited -and [SpotiampInstallerWindow]::IsWindowVisible($player)) 'Closing library also closed the player'
+}
 function Assert-Registration([string]$Version) {
     $registration = Read-Registration
     Assert-That ($null -ne $registration) 'Per-user uninstall registration is missing'
@@ -324,6 +404,7 @@ Add-Type @'
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Text;
 public static class SpotiampInstallerWindow {
     [StructLayout(LayoutKind.Sequential)]
     public struct Rect { public int Left, Top, Right, Bottom; }
@@ -343,9 +424,40 @@ public static class SpotiampInstallerWindow {
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool IsWindow(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll", EntryPoint="GetWindowTextW", CharSet=CharSet.Unicode)]
+    private static extern int GetWindowText(IntPtr window, StringBuilder text, int capacity);
+    [DllImport("user32.dll", EntryPoint="SendMessageTimeoutW", SetLastError=true)]
+    private static extern IntPtr SendMessageTimeout(IntPtr window, uint message, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result);
+    [DllImport("user32.dll")]
+    public static extern IntPtr CopyIcon(IntPtr icon);
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool DestroyIcon(IntPtr icon);
+    [DllImport("user32.dll", EntryPoint="LoadImageW", CharSet=CharSet.Unicode, SetLastError=true)]
+    public static extern IntPtr LoadImage(IntPtr module, string name, uint kind, int width, int height, uint flags);
     [DllImport("user32.dll", EntryPoint="PostMessageW", SetLastError=true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool PostMessage(IntPtr hWnd, uint message, IntPtr wParam, IntPtr lParam);
+    public static string WindowTitle(IntPtr window) {
+        var text = new StringBuilder(256);
+        GetWindowText(window, text, text.Capacity);
+        return text.ToString();
+    }
+    public static IntPtr WindowIcon(IntPtr window, int kind) {
+        IntPtr result;
+        // Bound the test even if the window stops pumping messages.
+        if (SendMessageTimeout(window, 0x007F, new IntPtr(kind), IntPtr.Zero, 0x22, 2000, out result) == IntPtr.Zero)
+            throw new InvalidOperationException("WM_GETICON timed out or its window disappeared");
+        return result;
+    }
     public static IntPtr[] VisibleWindows(int processId) {
         var result = new List<IntPtr>();
         EnumWindows((window, parameter) => {
@@ -447,11 +559,14 @@ try {
     Add-Check 'Silent per-user install in a Unicode/spaced directory matches every portable package byte and creates both shortcuts'
 
     $installedExe = Join-Path $installDirectory 'spotiamp.exe'
-    $reader = Start-Native $installedExe @('--no-update-check', '--quit-after', '3')
+    # Bounded waits below and the global finally own process cleanup. Avoid an
+    # independent quit timer racing the library/icon checks on a slow runner.
+    $reader = Start-Native $installedExe @('--no-update-check')
     [void](Wait-Window $reader)
     Assert-ApplicationMutex
-    Wait-Success $reader 15
-    Add-Check 'Installed executable creates a visible native window, holds the application mutex and exits normally'
+    Assert-ReaderWindowIcons $reader 'installed'
+    Close-Reader $reader
+    Add-Check 'Installed executable holds the application mutex; player/library small and big window icons match the gold S asset, and both windows close normally'
 
     $personalFile = Join-Path $installDirectory "my-file-$testToken.txt"
     Write-Utf8 $personalFile "personal-$testToken"
@@ -523,6 +638,7 @@ try {
     $running.Add($newReader)
     [void](Wait-Window $newReader)
     Assert-ApplicationMutex
+    Assert-ReaderWindowIcons $newReader 'updated'
     Assert-That ((Get-Hash $installedExe) -eq $currentInfo.binary_sha256) 'The native updater did not install the new executable bytes'
     [void](Wait-Until 'committed update stage cleanup' { -not (Test-Path -LiteralPath $stage) } 40)
     Assert-Payload $currentPackage $installDirectory
@@ -532,7 +648,7 @@ try {
     Assert-That ([IO.File]::ReadAllText($personalFile) -eq "personal-$testToken") 'Native update changed personal install-directory data'
     Assert-That ([IO.File]::ReadAllText($userDataSentinel) -eq "user-data-$testToken") 'Native update changed user data outside the installation'
     Assert-That ((Get-Hash $qualityPath) -eq $qualityHash) 'Native update changed the audio preference'
-    Add-Check 'Published alpha.8 helper replaced the running old installation with different current executable bytes, restarted its visible UI, cleaned staging and synchronized registered version'
+    Add-Check 'Published alpha.8 helper replaced the running old installation, restarted player/library with matching gold S window icons, cleaned staging and synchronized registered version'
     Close-Reader $newReader
     Add-Check 'Restarted reader closed normally with a verified zero exit code'
 

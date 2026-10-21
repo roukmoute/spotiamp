@@ -20,6 +20,8 @@ mod spotify_library;
 mod ui;
 mod updater;
 #[cfg(target_os = "windows")]
+mod windows_icon;
+#[cfg(target_os = "windows")]
 mod windows_install;
 
 use minifb::{InputCallback, Key, KeyRepeat, MouseButton, MouseMode, Scale, Window, WindowOptions};
@@ -473,6 +475,8 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
             ..WindowOptions::default()
         },
     )?;
+    #[cfg(target_os = "windows")]
+    let _window_icons = windows_icon::WindowIcons::attach(&window).ok();
     window.set_titlebar_drag_region(Some(ui::TITLEBAR_DRAG_REGION));
     // Poll input at 30 Hz, but repaint only when visible state changes.
     window.set_target_fps(30);

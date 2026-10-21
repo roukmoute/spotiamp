@@ -1,5 +1,14 @@
 # Changements
 
+## 0.1.4 — 22 octobre 2026
+
+- Icône Windows reprenant le **S doré du panneau À propos**, avec plusieurs
+  tailles intégrées à l'exécutable et à l'installateur.
+- Icônes natives attribuées au lecteur et à la bibliothèque : la barre des
+  tâches et Alt+Tab ne dépendent plus de l'icône générique de Windows.
+- Chargement depuis les ressources intégrées, sans fichier externe, décodeur
+  d'image ou processus supplémentaire.
+
 ## 0.1.3 — 22 octobre 2026
 
 - Reconnexion Spotify automatique au lancement à partir de la session du coffre
