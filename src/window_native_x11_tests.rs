@@ -65,11 +65,15 @@ fn xdotool(window: &mut Window, args: &[&str]) {
 #[test]
 #[ignore = "requires isolated Xvfb, Openbox, xprop and xdotool"]
 fn x11_borderless_window_drags_minimizes_restores_and_closes_at_both_scales() {
+    // Openbox publishes _NET_SUPPORTING_WM_CHECK early, before its event loop
+    // is ready. Its startup command runs after initialization is complete.
+    let ready_atom = format!("_SPOTIAMP_TEST_WM_READY_{}", std::process::id());
+    let announce_ready = format!("xprop -root -f {ready_atom} 8s -set {ready_atom} ready");
     let mut manager = Process(
         std::process::Command::new("openbox")
-            .arg("--sm-disable")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .args(["--sm-disable", "--startup", &announce_ready])
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
             .spawn()
             .expect("Openbox is required for native window-manager behavior"),
     );
@@ -80,10 +84,10 @@ fn x11_borderless_window_drags_minimizes_restores_and_closes_at_both_scales() {
             "Openbox failed to start"
         );
         let output = std::process::Command::new("xprop")
-            .args(["-root", "_NET_SUPPORTING_WM_CHECK"])
+            .args(["-root", &ready_atom])
             .output()
             .unwrap();
-        if String::from_utf8_lossy(&output.stdout).contains("window id #") {
+        if String::from_utf8_lossy(&output.stdout).contains("= \"ready\"") {
             break;
         }
         assert!(Instant::now() < until, "Openbox did not initialize");
