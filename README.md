@@ -18,8 +18,9 @@ Choisir l'archive `Spotiamp-Windows-x64.zip`, puis la décompresser.
 
 L'archive Windows fournie vise **Windows 10/11 x64** (processeur Intel/AMD
 64 bits), conformément au [socle de la cible Rust](https://doc.rust-lang.org/rustc/platform-support.html).
-Ce binaire GNU est portable et non signé. Ses imports ont été inspectés : seules
-des DLL système Windows sont requises, sans DLL MinGW supplémentaire. L'interface
+Le binaire GNU publié en préversion est portable et non signé. Ses imports ont
+été inspectés : seules des DLL système Windows sont requises, sans DLL MinGW
+supplémentaire. L'interface
 minifb utilise Win32/GDI et l'audio WASAPI. Aucun environnement Rust n'est requis
 pour lancer l'exécutable. Le premier essai Windows porte sur le prototype
 précédemment nommé Spool ; le paquet Spotiamp est reconstruit après renommage.
@@ -109,8 +110,9 @@ cargo build --release --no-default-features --bin spotiamp
 cargo run --release --bin engine_probe
 ```
 
-Le workflow `.github/workflows/build.yml` prépare les tests et artefacts sur les
-trois systèmes. Sa présence n'affirme pas qu'il a déjà été exécuté à distance.
+Le workflow `.github/workflows/build.yml` automatise les tests et artefacts sur
+les trois systèmes. Les tests ont réussi sur Windows x64, Linux x64 et macOS
+Apple Silicon lors de la [première exécution](https://github.com/roukmoute/spotiamp/actions/runs/39630012360).
 La compilation Windows MSVC du workflow utilise le runtime C statique
 (`-C target-feature=+crt-static`).
 Les scripts `measure-windows.ps1` et `measure-linux.py` enregistrent les mesures

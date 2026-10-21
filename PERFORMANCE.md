@@ -94,13 +94,21 @@ ne répond pas à la priorité Windows.
   `cargo fmt --check` et Clippy avec avertissements traités comme erreurs passent.
 - Windows : le fichier PE et ses dépendances ont été inspectés. Un premier
   essai utilisateur du prototype Spool a été réalisé ; voir ci-dessous.
-- macOS : cible et workflow préparés, compilation et exécution non réalisées.
+  Les tests automatisés ont aussi réussi sur le runner Windows 2022 x64.
+- Linux x64 et macOS Apple Silicon : compilation native, tests, packaging des
+  licences et mise à disposition des artefacts réussis sur GitHub Actions.
+  L'interface et la lecture audio macOS n'ont pas été testées manuellement.
 - Les playlists privées, la qualité audio, la stabilité prolongée et les
   compteurs mémoire complets en lecture restent à vérifier.
 
-Le fichier Windows x64 final fait 7 474 688 octets (7,13 Mio) **sur disque**.
+Exécution CI du code : [commit 32b03a5, Windows / Linux / macOS](https://github.com/roukmoute/spotiamp/actions/runs/39630012360).
+
+Le binaire Windows GNU x64 reconstruit localement après renommage fait
+7 474 688 octets (7,13 Mio) **sur disque**.
 Cette taille n'est pas sa consommation mémoire. Empreinte SHA-256 :
 `6c8bb52403db049ff0b79c772cbb98d1121d5e22c2af06ee119276e7ae2fb65f`.
+Les binaires produits par d'autres cibles ou machines de compilation peuvent
+différer ; chaque archive binaire indique son empreinte dans `BUILD-INFO.json`.
 
 ## Premier retour Windows — 21 octobre 2026
 
