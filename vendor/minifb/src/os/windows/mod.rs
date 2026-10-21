@@ -224,6 +224,28 @@ unsafe extern "system" fn wnd_proc(
         // the whole window to the framebuffer (no native caption or border).
         winuser::WM_NCCALCSIZE if wnd.frameless => return 0,
 
+        winuser::WM_GETMINMAXINFO if wnd.frameless => {
+            // Overlapped windows otherwise inherit screen-sized tracking limits.
+            // Preserve the requested fixed framebuffer size, even when an explicit
+            // Scale::X2 window is larger than the desktop. WM_SIZE can report a
+            // clamped/minimized size, so it must not supply these constraints.
+            let limits = &mut *(lparam as *mut winuser::MINMAXINFO);
+            let (width, height) = wnd.fixed_frame_size;
+            limits.ptMinTrackSize = windef::POINT {
+                x: width,
+                y: height,
+            };
+            limits.ptMaxTrackSize = windef::POINT {
+                x: width,
+                y: height,
+            };
+            limits.ptMaxSize = windef::POINT {
+                x: width,
+                y: height,
+            };
+            return 0;
+        }
+
         winuser::WM_NCHITTEST => {
             let mut point = windef::POINT {
                 x: lparam as u16 as i16 as i32,
@@ -631,6 +653,7 @@ pub struct WindowState {
     is_open: bool,
     scale_factor: i32,
     frameless: bool,
+    fixed_frame_size: (i32, i32),
     titlebar_drag_region: Option<(usize, usize, usize, usize)>,
     width: i32,
     height: i32,
@@ -798,6 +821,10 @@ impl Window {
                     is_open: true,
                     scale_factor,
                     frameless: opts.borderless && !opts.none,
+                    fixed_frame_size: (
+                        (width * scale_factor as usize) as i32,
+                        (height * scale_factor as usize) as i32,
+                    ),
                     titlebar_drag_region: None,
                     width: (width * scale_factor as usize) as i32,
                     height: (height * scale_factor as usize) as i32,

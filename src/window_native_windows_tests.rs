@@ -26,6 +26,16 @@ struct Rect {
     bottom: i32,
 }
 #[repr(C)]
+#[derive(Default)]
+struct MinMaxInfo {
+    reserved: Point,
+    max_size: Point,
+    max_position: Point,
+    min_track_size: Point,
+    max_track_size: Point,
+}
+
+#[repr(C)]
 struct GuiThreadInfo {
     size: u32,
     flags: u32,
@@ -46,6 +56,7 @@ unsafe extern "system" {
     fn SendMessageW(window: Hwnd, message: u32, wparam: usize, lparam: isize) -> isize;
     fn PostMessageW(window: Hwnd, message: u32, wparam: usize, lparam: isize) -> i32;
     fn GetSystemMenu(window: Hwnd, revert: i32) -> Hwnd;
+    fn IsWindow(window: Hwnd) -> i32;
     fn IsIconic(window: Hwnd) -> i32;
     fn IsZoomed(window: Hwnd) -> i32;
     fn ShowWindow(window: Hwnd, command: i32) -> i32;
@@ -103,6 +114,21 @@ fn native_borderless_styles_hit_regions_scaling_and_minimize_restore() {
             "not a taskbar-hidden tool window"
         );
         assert!(!unsafe { GetSystemMenu(handle, 0) }.is_null());
+        let mut limits = MinMaxInfo::default();
+        unsafe {
+            SendMessageW(handle, 0x0024, 0, (&mut limits as *mut MinMaxInfo) as isize);
+        }
+        for size in [
+            limits.min_track_size,
+            limits.max_track_size,
+            limits.max_size,
+        ] {
+            assert_eq!(
+                (size.x, size.y),
+                (560 * factor, 440 * factor),
+                "fixed buffer dimensions must override desktop-sized native limits"
+            );
+        }
         let mut outer = Rect::default();
         let mut client = Rect::default();
         assert_ne!(unsafe { GetWindowRect(handle, &mut outer) }, 0);
@@ -233,9 +259,23 @@ fn native_alt_space_opens_system_menu_without_player_input_and_alt_f4_closes() {
     unsafe {
         SendMessageW(handle, 0x0104, 0x73, (1 << 29) | (0x3e << 16) | 1);
     } // WM_SYSKEYDOWN, Alt+F4
+    // DefWindowProc may post later system/close messages. Exercise the same
+    // message pump as the real application instead of requiring synchronous close.
+    let close_started = Instant::now();
+    while window.is_open() && close_started.elapsed() < Duration::from_secs(2) {
+        window.update();
+        if window.is_open() {
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
     assert!(
         !window.is_open(),
         "Alt+F4 must reach the native close action"
+    );
+    assert_eq!(
+        unsafe { IsWindow(handle) },
+        0,
+        "Alt+F4 must destroy the native HWND"
     );
     assert!(!input.0.borrow().contains(&Key::F4));
 }

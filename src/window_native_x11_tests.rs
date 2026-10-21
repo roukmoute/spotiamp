@@ -26,6 +26,22 @@ fn pump(window: &mut Window, duration: Duration) {
     }
 }
 
+fn wait_for_property(window: &mut Window, id: &str, name: &str, expected: &str) {
+    let until = Instant::now() + Duration::from_secs(5);
+    loop {
+        window.update();
+        let observed = property(id, name);
+        if observed.contains(expected) {
+            return;
+        }
+        assert!(
+            Instant::now() < until,
+            "window manager did not set {name} to {expected:?}: {observed}"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
 fn xdotool(window: &mut Window, args: &[&str]) {
     let mut command = Process(
         std::process::Command::new("xdotool")
@@ -93,6 +109,10 @@ fn x11_borderless_window_drags_minimizes_restores_and_closes_at_both_scales() {
             .update_with_buffer(&vec![0x29283d; 200 * 120], 200, 120)
             .unwrap();
         let id = (window.get_window_handle() as usize).to_string();
+        // MapWindow and the window manager's adoption are asynchronous. Wait
+        // for the managed client before asking Openbox to move or activate it.
+        wait_for_property(&mut window, &id, "WM_STATE", "Normal");
+        wait_for_property(&mut window, &id, "_NET_FRAME_EXTENTS", "= 0, 0, 0, 0");
         xdotool(
             &mut window,
             &[
@@ -164,14 +184,13 @@ fn x11_borderless_window_drags_minimizes_restores_and_closes_at_both_scales() {
         );
         assert_eq!(window.get_position(), after);
         window.minimize();
-        pump(&mut window, Duration::from_millis(250));
-        assert!(property(&id, "WM_STATE").contains("Iconic"));
+        wait_for_property(&mut window, &id, "WM_STATE", "Iconic");
         assert!(window.is_open(), "minimizing must keep the player alive");
         xdotool(
             &mut window,
             &["windowmap", &id, "windowactivate", "--sync", &id],
         );
-        assert!(property(&id, "WM_STATE").contains("Normal"));
+        wait_for_property(&mut window, &id, "WM_STATE", "Normal");
         assert!(window.is_active());
         xdotool(&mut window, &["key", "alt+F4"]);
         assert!(

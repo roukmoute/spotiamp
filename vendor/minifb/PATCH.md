@@ -93,7 +93,11 @@ window commands, but `WM_NCCALCSIZE` gives the framebuffer the entire window:
 there is no visible system title bar or border. The heap state pointer is
 installed and `SWP_FRAMECHANGED` applied before the window is shown, preventing
 an initial native-frame flash. A fixed borderless window has no resize or
-maximize styles, and caption double-click does not maximize it. The window
+maximize styles, and caption double-click does not maximize it.
+`WM_GETMINMAXINFO` supplies the requested fixed framebuffer dimensions instead
+of inheriting desktop-sized tracking limits; an explicit scale-2 window is not
+silently reduced on a small display. These limits are stored independently of
+the current `WM_SIZE`, which can report a minimized or initially clamped size. The window
 remains an ordinary unowned top-level window eligible for the taskbar.
 
 `WM_NCHITTEST` decodes signed screen coordinates, converts them to client
@@ -119,7 +123,8 @@ API is explicitly a no-op; minimization uses `xdg_toplevel.set_minimized`.
 Spotiamp's Windows tests use real HWNDs to check the complete client rectangle,
 styles, signed-coordinate hit testing at scales 1 and 2, excluded controls,
 drag disabling, fixed-size double-click, minimize/restore, the actual system
-menu and Alt+F4. They also check that system shortcuts do not become application
+menu and Alt+F4, pumping the message queue until native closure (which may be
+posted asynchronously). They also check that system shortcuts do not become application
 input while ordinary keys still do. These tests run as part of the application's
 normal Windows test suite. Native macOS behavior requires a macOS runner;
 compiling its Objective-C bridge alone does not establish interaction behavior.
@@ -128,6 +133,8 @@ Native behavior references:
 - https://learn.microsoft.com/en-us/windows/win32/dwm/customframe
 - https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-nchittest
 - https://learn.microsoft.com/en-us/windows/win32/winmsg/window-styles
+- https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-getminmaxinfo
+- https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-minmaxinfo
 - https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-syskeydown
 - https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-cancelmode
 - https://specifications.freedesktop.org/wm/latest/ar01s04.html
