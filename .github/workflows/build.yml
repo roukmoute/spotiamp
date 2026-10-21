@@ -62,6 +62,10 @@ jobs:
         run: cargo build --release --locked --target ${{ matrix.target }} --bin spotiamp
       - name: Package binary, sources, and dependency licenses
         run: python scripts/package.py --target ${{ matrix.target }}
+      - name: Validate packaged archive through the native updater
+        env:
+          SPOTIAMP_RELEASE_ARCHIVE: dist/spotiamp-${{ matrix.target }}.zip
+        run: cargo test --locked --bin spotiamp --target ${{ matrix.target }} updater::package::tests::release_archive_passes_native_update_validation -- --exact --ignored --nocapture
       - uses: actions/upload-artifact@v4
         # The action already retries transient HTTP errors (five attempts).
         # Exhausted retries must still fail the job so missing artifacts stay visible.

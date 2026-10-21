@@ -357,6 +357,14 @@ impl View {
                 self.rect(knob + dx + 1, 99, 1, 5, 0xdce1e4);
             }
         }
+        let update_notice = match self.update {
+            UpdateStatus::Available { .. } => Some("Mise à jour disponible - F2"),
+            UpdateStatus::Ready { .. } => Some("Mise à jour prête - F2"),
+            _ => None,
+        };
+        if let Some(notice) = update_notice {
+            self.text(236, 108, notice, GOLD, 38);
+        }
         for (x, icon) in [
             (15, TransportIcon::Previous),
             (57, TransportIcon::Play),
@@ -383,6 +391,10 @@ impl View {
                     self.rect(314 + col + d, 121 + row + d, 1, 1, 0xe7c969);
                 }
             }
+        }
+        if update_notice.is_some() {
+            self.rect(325 + d, 119 + d, 3, 3, 0x285e24);
+            self.rect(325 + d, 119 + d, 2, 2, GREEN);
         }
         self.bevel(337, 123, 207, 8, BLACK, true);
         let volume = s.volume as usize * 201 / 65535;
@@ -552,7 +564,17 @@ impl View {
         );
         if self.hovered_button == Some(Button::About) && self.about.is_none() && !self.help {
             self.bevel(284, 140, 264, 19, 0xefe7bc, false);
-            self.text(292, 146, "À propos de Spotiamp (F2)", SHADOW, 31);
+            self.text(
+                292,
+                146,
+                if update_notice.is_some() {
+                    "Mise à jour : ouvrir avec F2"
+                } else {
+                    "À propos de Spotiamp (F2)"
+                },
+                SHADOW,
+                31,
+            );
         }
         if self.help {
             self.render_help();

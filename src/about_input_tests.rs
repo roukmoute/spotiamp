@@ -234,6 +234,7 @@ fn about_cli_selects_each_tab_and_allows_a_following_screenshot_option() {
         ("credits", ui::AboutTab::Credits),
         ("shortcuts", ui::AboutTab::Shortcuts),
         ("history", ui::AboutTab::History),
+        ("updates", ui::AboutTab::Updates),
     ] {
         assert_eq!(
             requested_about_tab(&["--about".into(), name.into()]),
@@ -245,4 +246,100 @@ fn about_cli_selects_each_tab_and_allows_a_following_screenshot_option() {
         Ok(Some(ui::AboutTab::Player))
     );
     assert!(requested_about_tab(&["--about".into(), "unknown".into()]).is_err());
+}
+
+#[test]
+fn update_actions_survive_modal_filter_without_background_actions() {
+    use updater::UpdateStatus;
+    let state = state();
+    for (update, x, tabs, expected) in [
+        (UpdateStatus::Idle, 100.0, 4, 0),
+        (
+            UpdateStatus::Available {
+                version: "0.1.0-alpha.7".into(),
+            },
+            400.0,
+            5,
+            1,
+        ),
+        (
+            UpdateStatus::Ready {
+                version: "0.1.0-alpha.7".into(),
+            },
+            400.0,
+            5,
+            2,
+        ),
+    ] {
+        for keyboard in [false, true] {
+            let mut view = ui::View::default();
+            view.update = update.clone();
+            view.input = "keep this link".into();
+            view.selected = Some(2);
+            view.open_about();
+            view.click(470, 76, &state); // Updates tab; focus begins on its label.
+            if keyboard {
+                for _ in 0..tabs {
+                    view.about_key(Key::Tab, false);
+                }
+            }
+            let mut actions = Vec::new();
+            let mouse = click(x, 325.0);
+            process_frame_input(
+                &mut view,
+                &state,
+                FrameInput {
+                    keys: &[
+                        (Key::Space, false, false),
+                        (Key::V, true, false),
+                        (Key::Delete, false, false),
+                    ],
+                    mouse: if keyboard { &[] } else { &mouse },
+                    chars: &['x'],
+                    active: true,
+                    wheel: Some(-20.0),
+                    repeat_down: true,
+                    ..FrameInput::default()
+                },
+                &mut actions,
+            );
+            assert!(matches!(
+                (expected, actions.as_slice()),
+                (0, [ui::Action::CheckUpdates])
+                    | (1, [ui::Action::DownloadUpdate])
+                    | (2, [ui::Action::InstallUpdate])
+            ));
+            assert_eq!(view.about, Some(ui::AboutTab::Updates));
+            assert_eq!(view.input, "keep this link");
+            assert_eq!(view.selected, Some(2));
+        }
+    }
+}
+
+#[test]
+fn install_then_close_in_one_mouse_batch_preserves_install_without_click_through() {
+    let state = state();
+    let mut view = ui::View::default();
+    view.update = updater::UpdateStatus::Ready {
+        version: "0.1.0-alpha.7".into(),
+    };
+    view.open_about();
+    let events: Vec<_> = click(400.0, 325.0)
+        .into_iter()
+        .chain(click(510.0, 40.0))
+        .chain(click(70.0, 125.0))
+        .collect();
+    let mut actions = Vec::new();
+    process_frame_input(
+        &mut view,
+        &state,
+        FrameInput {
+            mouse: &events,
+            active: true,
+            ..FrameInput::default()
+        },
+        &mut actions,
+    );
+    assert!(view.about.is_none());
+    assert!(matches!(actions.as_slice(), [ui::Action::InstallUpdate]));
 }

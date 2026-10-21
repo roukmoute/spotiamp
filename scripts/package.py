@@ -19,6 +19,23 @@ def command(*args):
     return subprocess.check_output(args, cwd=ROOT, encoding="utf-8")
 
 
+def source_commit():
+    """Identify a clean project checkout; source archives may have no Git history."""
+    def git(*args):
+        return subprocess.check_output(
+            ("git", *args), cwd=ROOT, encoding="utf-8", stderr=subprocess.DEVNULL,
+        ).strip()
+
+    try:
+        if Path(git("rev-parse", "--show-toplevel")).resolve() != ROOT:
+            return None
+        if git("status", "--porcelain", "--untracked-files=normal"):
+            return None
+        return git("rev-parse", "--verify", "HEAD")
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
 def reachable_packages(metadata):
     nodes = {node["id"]: node for node in metadata["resolve"]["nodes"]}
     pending = [metadata["resolve"]["root"]]
@@ -80,6 +97,10 @@ def main():
         "cargo", "metadata", "--locked", "--offline", "--format-version", "1",
         "--filter-platform", args.target,
     ))
+    root_package = next(
+        package for package in metadata["packages"]
+        if package["id"] == metadata["resolve"]["root"]
+    )
     packages = reachable_packages(metadata)
     notices = []
     license_entries = []
@@ -141,6 +162,9 @@ def main():
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     build_info = {
+        "app_version": root_package["version"],
+        "git_commit": source_commit(),
+        "binary_name": binary_name,
         "target": args.target,
         "build_host": platform.platform(),
         "build_host_libc": platform.libc_ver(),

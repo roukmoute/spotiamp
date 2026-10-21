@@ -242,14 +242,12 @@ impl Worker {
                 self.connect_task = Some(tokio::spawn(async move {
                     let result = connect(attempt).await;
                     if let Err(error) = updates.send(Update::Connected { generation, result }).await
-                    {
-                        if let Update::Connected {
+                        && let Update::Connected {
                             result: Ok((session, _)),
                             ..
                         } = error.0
-                        {
-                            session.shutdown();
-                        }
+                    {
+                        session.shutdown();
                     }
                 }));
             }
@@ -485,10 +483,10 @@ impl Worker {
                             *existing = row.clone();
                         }
                     }
-                    if let Some(index) = s.current {
-                        if let Some(current) = s.queue.get(index) {
-                            s.duration_ms = current.duration_ms;
-                        }
+                    if let Some(index) = s.current
+                        && let Some(current) = s.queue.get(index)
+                    {
+                        s.duration_ms = current.duration_ms;
                     }
                 });
             }

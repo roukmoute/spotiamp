@@ -59,6 +59,29 @@ Le script crée dans `dist/` une archive portable et `spotiamp-source.zip`. Il i
 les notices des dépendances résolues pour cette cible et les sources des
 composants MPL. Les textes de licence manquants provoquent une erreur explicite.
 `--binary /chemin/vers/spotiamp.exe` accepte un autre dossier de compilation.
-Les archives contiennent `BUILD-INFO.json` (compilateur et empreintes). Les
-dépendances Rust sont fixées par `Cargo.lock` ; la chaîne système peut encore
-faire varier le binaire. Le workflow CI produit les trois cibles sans publier de release.
+Les archives contiennent `BUILD-INFO.json` : `app_version` vient du paquet racine
+de `cargo metadata`, `binary_name` indique l'exécutable à la racine du ZIP, et
+`git_commit` identifie le checkout Git propre utilisé pour préparer l'archive.
+Ce dernier vaut `null` si le projet a des modifications, des fichiers non suivis,
+ou aucun historique Git. Les empreintes et tailles du binaire, la cible et le
+compilateur restent présents. Compilez et empaquetez le même checkout : le script
+décrit les sources courantes et ne déduit pas la version d'un ancien binaire passé
+avec `--binary`.
+
+Les dépendances Rust sont fixées par `Cargo.lock` ; la chaîne système peut encore
+faire varier le binaire. Le workflow CI produit les trois cibles sans publier de
+release. Après réussite des trois jobs sur le même commit, les archives internes
+des artefacts CI sont publiées avec les noms suivants :
+
+| Cible | Asset de release | Exécutable dans le ZIP |
+| --- | --- | --- |
+| Windows x64 | `Spotiamp-Windows-x64.zip` | `spotiamp.exe` |
+| Linux x64 | `Spotiamp-Linux-x64.zip` | `spotiamp` |
+| macOS ARM64 | `Spotiamp-macOS-arm64.zip` | `spotiamp` |
+| Sources | `Spotiamp-source.zip` | Sources sous `spotiamp/` |
+
+`Spotiamp-SHA256SUMS.txt` accompagne ces quatre ZIP et contient une ligne par
+archive : empreinte SHA-256, deux espaces, puis nom exact de l'asset. Calculez les
+empreintes après les renommages et vérifiez les métadonnées avant de publier le
+brouillon complet. Les fichiers d'authentification et de configuration utilisateur
+ne font pas partie des archives.

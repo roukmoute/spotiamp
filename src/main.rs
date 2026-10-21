@@ -12,6 +12,7 @@ mod model;
 #[cfg(feature = "spotify")]
 mod settings;
 mod ui;
+mod updater;
 
 use minifb::{InputCallback, Key, KeyRepeat, MouseButton, MouseMode, Scale, Window, WindowOptions};
 use model::Command;
@@ -188,8 +189,16 @@ fn process_frame_input(
         view.pointer_move(input.pointer.and_then(|(x, y)| inside_window(x, y)));
     }
     if modal_seen {
-        actions
-            .retain(|action| matches!(action, ui::Action::CopyAboutInfo | ui::Action::OpenProject));
+        actions.retain(|action| {
+            matches!(
+                action,
+                ui::Action::CopyAboutInfo
+                    | ui::Action::OpenProject
+                    | ui::Action::CheckUpdates
+                    | ui::Action::DownloadUpdate
+                    | ui::Action::InstallUpdate
+            )
+        });
         return;
     }
 
@@ -213,10 +222,10 @@ fn process_frame_input(
         view.input_active = !view.input_active;
     }
     let mut action = None;
-    if input.mouse_down {
-        if let Some((x, y)) = input.pointer {
-            action = view.drag(x as usize, y as usize, snapshot);
-        }
+    if input.mouse_down
+        && let Some((x, y)) = input.pointer
+    {
+        action = view.drag(x as usize, y as usize, snapshot);
     }
     if let Some(y) = input.wheel {
         view.scroll(y, snapshot.queue.len());
@@ -246,15 +255,15 @@ fn process_frame_input(
         if pressed(Key::Space) {
             action = Some(ui::Action::Send(Command::Toggle));
         }
-        if pressed(Key::Enter) {
-            if let Some(i) = view.selected {
-                action = Some(ui::Action::Send(Command::PlayIndex(i)));
-            }
+        if pressed(Key::Enter)
+            && let Some(i) = view.selected
+        {
+            action = Some(ui::Action::Send(Command::PlayIndex(i)));
         }
-        if pressed(Key::Delete) {
-            if let Some(i) = view.selected {
-                action = Some(ui::Action::Send(Command::Remove(i)));
-            }
+        if pressed(Key::Delete)
+            && let Some(i) = view.selected
+        {
+            action = Some(ui::Action::Send(Command::Remove(i)));
         }
         if pressed(Key::Down) || input.repeat_down {
             view.move_selection(1, snapshot.queue.len());
@@ -278,28 +287,53 @@ fn requested_about_tab(args: &[String]) -> Result<Option<ui::AboutTab>, &'static
         "credits" => ui::AboutTab::Credits,
         "shortcuts" => ui::AboutTab::Shortcuts,
         "history" => ui::AboutTab::History,
-        _ => return Err("--about expects player, credits, shortcuts or history"),
+        "updates" => ui::AboutTab::Updates,
+        _ => return Err("--about expects player, credits, shortcuts, history or updates"),
     }))
 }
 
 fn main() {
-    if let Err(e) = run() {
+    #[cfg(feature = "updates")]
+    let initial_notice =
+        match updater::install::dispatch_internal(&std::env::args_os().collect::<Vec<_>>()) {
+            updater::install::Dispatch::NotInternal => None,
+            updater::install::Dispatch::Exit(result) => {
+                if let Err(error) = result {
+                    eprintln!("Spotiamp: {error}");
+                    std::process::exit(1);
+                }
+                return;
+            }
+            updater::install::Dispatch::Continue(result) => Some(match result {
+                Ok(()) => "Mise a jour installee.".to_owned(),
+                Err(error) => error,
+            }),
+        };
+    #[cfg(not(feature = "updates"))]
+    let initial_notice = None;
+    if let Err(e) = run(initial_notice) {
         eprintln!("Spotiamp: {e}");
         std::process::exit(1);
     }
 }
 
-fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = std::env::args_os()
+        .skip(1)
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
     if args.iter().any(|a| a == "--help") {
         println!(concat!(
             "Spotiamp ",
             env!("CARGO_PKG_VERSION"),
-            " experimental\n--scale 2        double-size bitmap UI\n--about [player|credits|shortcuts|history]   open the About dialog\n--screenshot FILE.ppm   render the disconnected UI without opening a window\n--quit-after SECONDS    automatic exit for reproducible idle measurements\nSpace: play/pause; Ctrl+V: paste URL; Enter: add/play; Delete: remove; F1: help; F2: About"
+            " experimental\n--scale 2        double-size bitmap UI\n--about [player|credits|shortcuts|history|updates]   open the About dialog\n--screenshot FILE.ppm   render the disconnected UI without opening a window\n--no-update-check       skip the automatic startup update check\n--quit-after SECONDS    automatic exit for reproducible idle measurements\nSpace: play/pause; Ctrl+V: paste URL; Enter: add/play; Delete: remove; F1: help; F2: About"
         ));
         return Ok(());
     }
     let mut view = ui::View::default();
+    if let Some(notice) = initial_notice {
+        view.notice(&notice);
+    }
     if let Some(tab) = requested_about_tab(&args)? {
         view.open_about();
         for _ in 0..tab as usize {
@@ -349,6 +383,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }));
     let engine = engine::Engine::spawn();
     let mut clipboard = None;
+    let mut updater = updater::Controller::default();
+    let automatic_updates = !args.iter().any(|arg| arg == "--no-update-check");
     let mut project_opener = about_actions::ProjectOpener::default();
     let mut actions = Vec::with_capacity(8);
     let mut fingerprint = None;
@@ -363,6 +399,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             if *shared != snapshot {
                 snapshot.clone_from(&shared);
             }
+        }
+        if automatic_updates {
+            updater.automatic_check(start.elapsed());
+        }
+        if updater.poll() {
+            break;
+        }
+        if view.update != updater.status {
+            view.update.clone_from(&updater.status);
         }
         if let Some(result) = project_opener.poll() {
             view.notice(match result {
@@ -438,6 +483,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     });
                     None
                 }
+                ui::Action::CheckUpdates => {
+                    updater.check();
+                    None
+                }
+                ui::Action::DownloadUpdate => {
+                    updater.download();
+                    None
+                }
+                ui::Action::InstallUpdate => {
+                    updater.install(matches!(scale, Scale::X2));
+                    None
+                }
                 ui::Action::OpenProject => {
                     view.notice(match project_opener.start() {
                         Ok(()) => "Ouverture du projet dans le navigateur...",
@@ -453,6 +510,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     view.input_active = false;
                 }
             }
+        }
+        if view.update != updater.status {
+            view.update.clone_from(&updater.status);
         }
         let next_fingerprint = view.fingerprint(&snapshot);
         if fingerprint != Some(next_fingerprint) {

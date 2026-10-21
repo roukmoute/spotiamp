@@ -1,4 +1,5 @@
 use crate::model::{AudioQuality, Command, Snapshot};
+use crate::updater::UpdateStatus;
 use font8x8::UnicodeFonts;
 use std::{
     fs::File,
@@ -25,6 +26,9 @@ pub enum Action {
     Submit,
     CopyAboutInfo,
     OpenProject,
+    CheckUpdates,
+    DownloadUpdate,
+    InstallUpdate,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -33,10 +37,17 @@ pub enum AboutTab {
     Credits,
     Shortcuts,
     History,
+    Updates,
 }
 
 impl AboutTab {
-    const ALL: [Self; 4] = [Self::Player, Self::Credits, Self::Shortcuts, Self::History];
+    const ALL: [Self; 5] = [
+        Self::Player,
+        Self::Credits,
+        Self::Shortcuts,
+        Self::History,
+        Self::Updates,
+    ];
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -48,6 +59,9 @@ enum Button {
     AboutClose,
     AboutCopy,
     AboutProject,
+    UpdateCheck,
+    UpdateDownload,
+    UpdateInstall,
     Connection,
     Previous,
     Play,
@@ -82,25 +96,31 @@ impl Button {
         Self::Quality320,
     ];
 
-    const MODAL: [Self; 8] = [
+    const MODAL: [Self; 12] = [
         Self::AboutTab(AboutTab::Player),
         Self::AboutTab(AboutTab::Credits),
         Self::AboutTab(AboutTab::Shortcuts),
         Self::AboutTab(AboutTab::History),
+        Self::AboutTab(AboutTab::Updates),
         Self::AboutCloseTop,
         Self::AboutClose,
         Self::AboutCopy,
         Self::AboutProject,
+        Self::UpdateCheck,
+        Self::UpdateDownload,
+        Self::UpdateInstall,
     ];
 
     fn rect(self) -> (usize, usize, usize, usize) {
         match self {
             Self::About => (308, 116, 22, 22),
-            Self::AboutTab(tab) => (40 + tab as usize * 120, 65, 120, 25),
+            Self::AboutTab(tab) => (40 + tab as usize * 96, 65, 96, 25),
             Self::AboutCloseTop => (505, 33, 20, 18),
             Self::AboutClose => (420, 405, 100, 22),
             Self::AboutCopy => (236, 405, 174, 22),
             Self::AboutProject => (40, 405, 186, 22),
+            Self::UpdateCheck => (64, 315, 208, 24),
+            Self::UpdateDownload | Self::UpdateInstall => (286, 315, 208, 24),
             Self::Help => (530, 3, 16, 14),
             Self::Connection => (421, 29, 125, 22),
             Self::Previous => (15, 116, 38, 22),
@@ -118,11 +138,28 @@ impl Button {
         }
     }
 
-    fn at(x: usize, y: usize, modal: bool) -> Option<Self> {
-        let buttons: &[Self] = if modal { &Self::MODAL } else { &Self::ALL };
+    fn at(x: usize, y: usize, about: Option<AboutTab>, update: &UpdateStatus) -> Option<Self> {
+        let buttons: &[Self] = if about.is_some() {
+            &Self::MODAL
+        } else {
+            &Self::ALL
+        };
         buttons.iter().copied().find(|button| {
+            // Distinct capture identities prevent a Download press from becoming
+            // an Install release if the asynchronous update state changes.
+            let visible = match button {
+                Self::UpdateCheck => about == Some(AboutTab::Updates),
+                Self::UpdateDownload => {
+                    about == Some(AboutTab::Updates)
+                        && !matches!(update, UpdateStatus::Ready { .. })
+                }
+                Self::UpdateInstall => {
+                    about == Some(AboutTab::Updates) && matches!(update, UpdateStatus::Ready { .. })
+                }
+                _ => true,
+            };
             let (left, top, width, height) = button.rect();
-            (left..left + width).contains(&x) && (top..top + height).contains(&y)
+            visible && (left..left + width).contains(&x) && (top..top + height).contains(&y)
         })
     }
 
@@ -132,6 +169,9 @@ impl Button {
             Self::Add => s.connected && !s.busy,
             Self::Remove => view.selected.is_some_and(|i| i < s.queue.len()),
             Self::Clear => !s.queue.is_empty(),
+            Self::UpdateCheck => view.can_check_update(),
+            Self::UpdateDownload => matches!(view.update, UpdateStatus::Available { .. }),
+            Self::UpdateInstall => matches!(view.update, UpdateStatus::Ready { .. }),
             _ => true,
         }
     }
@@ -145,6 +185,7 @@ pub struct View {
     pub selected: Option<usize>,
     pub help: bool,
     pub about: Option<AboutTab>,
+    pub update: UpdateStatus,
     about_focus: usize,
     focused: bool,
     pressed_button: Option<Button>,
@@ -166,6 +207,7 @@ impl Default for View {
             selected: None,
             help: false,
             about: None,
+            update: UpdateStatus::default(),
             about_focus: 0,
             focused: true,
             pressed_button: None,
@@ -182,8 +224,19 @@ impl Default for View {
 impl View {
     pub fn open_about(&mut self) {
         self.cancel_pointer();
-        self.about = Some(AboutTab::Player);
-        self.about_focus = 0;
+        let tab = if matches!(
+            self.update,
+            UpdateStatus::Available { .. }
+                | UpdateStatus::Downloading { .. }
+                | UpdateStatus::Ready { .. }
+                | UpdateStatus::Failed(_)
+        ) {
+            AboutTab::Updates
+        } else {
+            AboutTab::Player
+        };
+        self.about = Some(tab);
+        self.about_focus = tab as usize;
         self.help = false;
         self.input_active = false;
         self.select_all = false;
@@ -206,14 +259,17 @@ impl View {
                 self.about = Some(AboutTab::Shortcuts);
                 self.about_focus = 2;
             }
-            Key::Tab => self.about_focus = (self.about_focus + if shift { 6 } else { 1 }) % 7,
+            Key::Tab => {
+                let count = if tab == AboutTab::Updates { 10 } else { 8 };
+                self.about_focus = (self.about_focus + if shift { count - 1 } else { 1 }) % count;
+            }
             Key::Left | Key::Up | Key::Right | Key::Down => {
                 let delta = if matches!(key, Key::Left | Key::Up) {
-                    3
+                    AboutTab::ALL.len() - 1
                 } else {
                     1
                 };
-                self.about_focus = (tab as usize + delta) % 4;
+                self.about_focus = (tab as usize + delta) % AboutTab::ALL.len();
                 self.about = Some(AboutTab::ALL[self.about_focus]);
             }
             Key::Enter | Key::Space => return self.activate_about_focus(),
@@ -224,12 +280,32 @@ impl View {
 
     fn activate_about_focus(&mut self) -> Option<Action> {
         match self.about_focus {
-            0..=3 => self.about = Some(AboutTab::ALL[self.about_focus]),
-            4 => return Some(Action::OpenProject),
-            5 => return Some(Action::CopyAboutInfo),
-            _ => self.close_about(),
+            0..=4 => self.about = Some(AboutTab::ALL[self.about_focus]),
+            5 => return Some(Action::OpenProject),
+            6 => return Some(Action::CopyAboutInfo),
+            7 => self.close_about(),
+            8 if self.about == Some(AboutTab::Updates) && self.can_check_update() => {
+                return Some(Action::CheckUpdates);
+            }
+            9 if self.about == Some(AboutTab::Updates) => match self.update {
+                UpdateStatus::Available { .. } => return Some(Action::DownloadUpdate),
+                UpdateStatus::Ready { .. } => return Some(Action::InstallUpdate),
+                _ => {}
+            },
+            _ => {}
         }
         None
+    }
+
+    fn can_check_update(&self) -> bool {
+        matches!(
+            self.update,
+            UpdateStatus::Idle
+                | UpdateStatus::Current
+                | UpdateStatus::Available { .. }
+                | UpdateStatus::Ready { .. }
+                | UpdateStatus::Failed(_)
+        )
     }
 
     pub fn set_focus(&mut self, focused: bool) {
@@ -254,7 +330,7 @@ impl View {
             self.help = false;
             return None;
         }
-        if let Some(button) = Button::at(x, y, self.about.is_some()) {
+        if let Some(button) = Button::at(x, y, self.about, &self.update) {
             self.input_active = false;
             self.select_all = false;
             if button.enabled(self, s) {
@@ -267,21 +343,21 @@ impl View {
     }
 
     pub fn pointer_move(&mut self, position: Option<(usize, usize)>) {
-        self.hovered_button = position.and_then(|(x, y)| Button::at(x, y, self.about.is_some()));
+        self.hovered_button =
+            position.and_then(|(x, y)| Button::at(x, y, self.about, &self.update));
     }
 
     pub fn pointer_up(&mut self, position: Option<(usize, usize)>, s: &Snapshot) -> Option<Action> {
         let pressed = self.pressed_button.take();
         self.end_drag();
         self.pointer_move(position);
-        if self.focused {
-            if let Some(button) = pressed.filter(|b| Some(*b) == self.hovered_button) {
-                if button.enabled(self, s) {
-                    // Activate the captured control exactly once, on release inside it.
-                    let (x, y, _, _) = button.rect();
-                    return self.click(x + 2, y + 2, s);
-                }
-            }
+        if self.focused
+            && let Some(button) = pressed.filter(|b| Some(*b) == self.hovered_button)
+            && button.enabled(self, s)
+        {
+            // Activate the captured control exactly once, on release inside it.
+            let (x, y, _, _) = button.rect();
+            return self.click(x + 2, y + 2, s);
         }
         None
     }
@@ -368,16 +444,18 @@ impl View {
     }
     pub fn click(&mut self, x: usize, y: usize, s: &Snapshot) -> Option<Action> {
         if self.about.is_some() {
-            self.about_focus = match Button::at(x, y, true) {
+            self.about_focus = match Button::at(x, y, self.about, &self.update) {
                 Some(Button::AboutTab(tab)) => tab as usize,
-                Some(Button::AboutProject) => 4,
-                Some(Button::AboutCopy) => 5,
-                Some(Button::AboutClose | Button::AboutCloseTop) => 6,
+                Some(Button::AboutProject) => 5,
+                Some(Button::AboutCopy) => 6,
+                Some(Button::AboutClose | Button::AboutCloseTop) => 7,
+                Some(Button::UpdateCheck) => 8,
+                Some(Button::UpdateDownload | Button::UpdateInstall) => 9,
                 _ => return None,
             };
             return self.activate_about_focus();
         }
-        if Button::at(x, y, false) == Some(Button::About) {
+        if Button::at(x, y, None, &self.update) == Some(Button::About) {
             self.open_about();
             return None;
         }
@@ -480,6 +558,7 @@ impl View {
         let mut hash = std::hash::DefaultHasher::new();
         s.hash(&mut hash);
         self.input.hash(&mut hash);
+        self.update.hash(&mut hash);
         (
             self.input_active,
             self.select_all,
@@ -512,6 +591,9 @@ mod skin;
 
 #[cfg(test)]
 mod about_tests;
+
+#[cfg(test)]
+mod update_tests;
 
 #[cfg(test)]
 mod scroll_tests;

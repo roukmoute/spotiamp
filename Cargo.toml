@@ -1,17 +1,25 @@
 [package]
 name = "spotiamp"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.89"
 description = "A small native, classic-style Spotify player — experimental"
 license = "MIT"
 default-run = "spotiamp"
 
 [features]
-default = ["spotify"]
+default = ["spotify", "updates"]
+updates = ["dep:libc", "dep:reqwest", "dep:serde", "dep:serde_json", "dep:sha2", "dep:tempfile", "dep:semver", "dep:zip", "dep:flate2"]
 spotify = ["dep:librespot-core", "dep:librespot-playback", "dep:librespot-metadata", "dep:librespot-oauth", "dep:librespot-protocol", "dep:tokio", "dep:keyring", "dep:serde_json", "dep:url", "dep:rodio"]
 
 [dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls-webpki-roots", "system-proxy"], optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+sha2 = { version = "0.10", optional = true }
+tempfile = { version = "3", optional = true }
+semver = { version = "1", optional = true }
+zip = { version = "9.0.5", default-features = false, features = ["deflate-flate2"], optional = true }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"], optional = true }
 minifb = { version = "0.29", default-features = false, features = ["x11"] }
 font8x8 = "0.3"
 arboard = { version = "3", default-features = false }
@@ -29,6 +37,7 @@ rodio = { version = "0.21", default-features = false, features = ["playback"], o
 keyring = { version = "3.6.3", default-features = false, features = ["windows-native"], optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+libc = { version = "0.2", optional = true }
 keyring = { version = "3.6.3", default-features = false, features = ["apple-native"], optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]

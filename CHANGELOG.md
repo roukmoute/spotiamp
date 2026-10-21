@@ -1,5 +1,24 @@
 # Changements
 
+## 0.1.0-alpha.6 — 21 octobre 2026
+
+- Mises à jour intégrées depuis les releases GitHub, préversions comprises :
+  recherche trois secondes après le lancement, notification persistante, puis
+  téléchargement et installation sur demande. `--no-update-check` désactive
+  la recherche automatique ; la vérification manuelle reste disponible.
+- Cinquième onglet **Mise à jour** dans À propos, avec version disponible,
+  progression, erreurs et boutons adaptés à l'état. F2 l'ouvre directement
+  lorsqu'une version est disponible, en téléchargement, prête ou en erreur.
+- Paquet compatible téléchargé sur disque et vérifié avant installation.
+  Un processus temporaire remplace l'exécutable puis relance le lecteur.
+  Le redémarrage interrompt la lecture et perd la file non sauvegardée ;
+  les identifiants déjà mémorisés dans le coffre et la qualité sont conservés.
+- Recherche et téléchargement hors du thread d'interface, sans client HTTP ni
+  thread de vérification permanent. Le panneau réutilise le buffer graphique.
+- Tests de l'interface pour chaque état, la navigation clavier, les contrôles
+  désactivés et les changements d'état pendant un clic. Aucun clic du panneau
+  ne traverse vers les commandes de lecture.
+
 ## 0.1.0-alpha.5 — 21 octobre 2026
 
 - Panneau À propos intégré au skin, avec quatre onglets : Spotiamp, Crédits,

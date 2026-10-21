@@ -14,9 +14,10 @@ Les résultats et leurs limites sont dans `PERFORMANCE.md`.
 **[Télécharger la préversion Windows et ses sources](https://github.com/roukmoute/spotiamp/releases).**
 Choisir l'archive `Spotiamp-Windows-x64.zip`, puis la décompresser.
 
-La préversion **0.1.0-alpha.5** ajoute un panneau **À propos** au style classique :
-version, crédits, raccourcis et historique. Il réutilise le buffer graphique du
-lecteur, sans nouvelle dépendance, image externe ni animation permanente.
+La préversion **0.1.0-alpha.6** ajoute les **mises à jour intégrées** : détection
+d'une nouvelle version, téléchargement, puis installation et redémarrage à votre
+demande. L'onglet **Mise à jour** rejoint le panneau **À propos** ; son affichage
+réutilise le buffer graphique du lecteur, sans image externe ni animation permanente.
 Les touches métalliques, boutons enfoncés pendant l'appui, cadres encastrés et
 poignées rainurées sont conservés, comme la qualité **320 kb/s par défaut** et
 la molette d'un titre par cran.
@@ -25,9 +26,8 @@ la molette d'un titre par cran.
 
 L'archive Windows fournie vise **Windows 10/11 x64** (processeur Intel/AMD
 64 bits), conformément au [socle de la cible Rust](https://doc.rust-lang.org/rustc/platform-support.html).
-Le binaire GNU publié en préversion est portable et non signé. Ses imports ont
-été inspectés : seules des DLL système Windows sont requises, sans DLL MinGW
-supplémentaire. L'interface
+Le binaire Windows publié en préversion est portable et non signé. La CI le
+compile avec le runtime C statique. L'interface
 minifb utilise Win32/GDI et l'audio WASAPI. Aucun environnement Rust n'est requis
 pour lancer l'exécutable. Le premier essai Windows porte sur le prototype
 précédemment nommé Spool ; le paquet Spotiamp est reconstruit après renommage.
@@ -46,8 +46,8 @@ Les boutons s'activent au relâchement de la souris dans le bouton pressé.
 Relâcher à l'extérieur annule le clic ; une perte de focus annule aussi l'appui.
 Les barres de volume et de position réagissent dès l'appui et pendant le glissement.
 
-Le bouton **À propos**, près du volume, ou **F2** ouvre un panneau à quatre
-onglets : **Spotiamp**, **Crédits**, **Raccourcis** et **Historique**.
+Le bouton **À propos**, près du volume, ou **F2** ouvre un panneau à cinq
+onglets : **Spotiamp**, **Crédits**, **Raccourcis**, **Historique** et **Mise à jour**.
 **Projet GitHub** ouvre le dépôt dans le navigateur du système.
 **Copier les infos** copie la version, le système, l'architecture, le moteur et
 la qualité préférée ; ces informations ne contiennent aucune donnée de compte.
@@ -59,6 +59,24 @@ Dans ce panneau, **Tab/Maj+Tab** parcourt les onglets et boutons, les quatre
 **F1** affiche les raccourcis ; **F2**, **Échap**, la croix ou **Fermer** ferment
 le panneau. La lecture continue pendant sa consultation ; les commandes du
 lecteur restent bloquées derrière le panneau.
+
+Une recherche de mise à jour commence trois secondes après le lancement, une
+seule fois par session. Cette version alpha inclut les préversions dans sa
+recherche ; une future version stable ne proposera que les versions stables.
+La recherche ne propose qu'un paquet
+compatible avec le système et l'architecture du lecteur. Une notification
+persistante et un repère sur le bouton **À propos** signalent une version
+disponible ; **F2** ouvre alors directement l'onglet **Mise à jour**.
+
+Dans cet onglet, **Vérifier** relance la recherche. **Télécharger** récupère le
+paquet sur disque et vérifie son empreinte SHA-256 ; la lecture peut continuer.
+Lorsque le paquet est prêt, **Installer / Redémarrer** ferme le lecteur,
+remplace l'exécutable puis le relance. **La lecture s'arrête et la file est
+perdue**, car elle n'est pas encore sauvegardée. Les identifiants Spotify déjà
+mémorisés dans le coffre du système et la qualité préférée sont conservés.
+Un échec s'affiche dans le panneau. Le dossier du programme doit être accessible
+en écriture pour l'installation. `--no-update-check` désactive la recherche
+automatique au démarrage ; **Vérifier** reste disponible.
 
 Les boutons **96 / 160 / 320**, à côté de **KB/S** sous la liste, règlent la
 qualité demandée. Le choix est mémorisé et appliqué au prochain chargement de
@@ -100,7 +118,10 @@ une petite police bitmap : les glyphes absents sont affichés avec `?`.
 ## Choix pour limiter la mémoire
 
 - Rendu logiciel bitmap, un seul thème, aucune WebView ni moteur de navigateur.
-- Un seul processus ; le réseau et l'audio restent hors du thread d'interface.
+- Un processus pendant la lecture ; le réseau et l'audio restent hors du thread
+  d'interface. Un processus temporaire remplace l'exécutable lors d'une mise à jour.
+- Recherche de mise à jour ponctuelle, sans thread ni client HTTP gardé au repos.
+  Téléchargement sur disque et progression affichée dans le buffer existant.
 - Pas de pochettes, de visualiseur, de cache audio persistant ni de téléchargement
   de la bibliothèque complète.
 - File limitée à 500 titres, deux requêtes de métadonnées simultanées.
@@ -153,7 +174,10 @@ LC_ALL=C XMODIFIERS=@im=none xvfb-run -a cargo test --locked --bin spotiamp x11_
 Les tests d'interface vérifient les états visuels pressé/relâché, l'annulation
 hors bouton, les contrôles désactivés et la perte de focus. Ceux du panneau
 À propos couvrent les onglets, la navigation clavier, les boutons et le blocage
-des interactions avec le lecteur en arrière-plan. Les tests natifs Windows et
+des interactions avec le lecteur en arrière-plan. Ceux des mises à jour couvrent
+les états et actions disponibles, la capture souris et le rendu sans remplacer
+le buffer graphique. Un appui sur **Télécharger** ne devient pas un clic sur
+**Installer** si l'état change avant le relâchement. Les tests natifs Windows et
 X11 injectent aussi des clics courts et vérifient leurs coordonnées en taille
 double. La CI exécute les tests X11 dans Xvfb, avec `xdotool`.
 
@@ -170,7 +194,7 @@ La connexion OAuth écoute temporairement sur `127.0.0.1:5588`.
 
 ```sh
 cargo run --release -- --scale 2
-# Mesure d'interface uniquement : aucune lecture disponible dans ce binaire.
+# Interface seule : lecture et mises à jour désactivées dans ce binaire.
 cargo build --release --no-default-features --bin spotiamp
 # Initialisation du moteur hors ligne, sans morceau ni sortie sonore réelle.
 cargo run --release --bin engine_probe

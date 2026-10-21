@@ -26,27 +26,28 @@ impl View {
             (AboutTab::Credits, "Crédits"),
             (AboutTab::Shortcuts, "Raccourcis"),
             (AboutTab::History, "Historique"),
+            (AboutTab::Updates, "Mise à jour"),
         ]
         .into_iter()
         .enumerate()
         {
-            let x = 40 + index * 120;
+            let x = 40 + index * 96;
             let selected = candidate == tab;
             let pressed = self.button_down(x, 65);
-            self.metal_face(x, 65, 120, 25, true, selected || pressed);
+            self.metal_face(x, 65, 96, 25, true, selected || pressed);
             let offset = usize::from(pressed);
             self.text(
-                x + (120 - label.chars().count() * 8) / 2 + offset,
+                x + (96 - label.chars().count() * 8) / 2 + offset,
                 74 + offset,
                 label,
                 0x242b40,
-                14,
+                11,
             );
             if selected {
-                self.rect(x + 4, 87, 112, 2, GOLD);
+                self.rect(x + 4, 87, 88, 2, GOLD);
             }
             if self.about_focus == index {
-                self.about_focus_ring(x + 4, 69, 112, 16);
+                self.about_focus_ring(x + 4, 69, 88, 16);
             }
         }
 
@@ -56,6 +57,7 @@ impl View {
             AboutTab::Credits => self.about_credits(),
             AboutTab::Shortcuts => self.about_shortcuts(),
             AboutTab::History => self.about_history(),
+            AboutTab::Updates => self.about_updates(),
         }
 
         let notice = self
@@ -68,9 +70,9 @@ impl View {
             self.text(48, 382, &notice, GOLD, 58);
         }
 
-        self.about_action(40, 186, "PROJET GITHUB", 4);
-        self.about_action(236, 174, "COPIER LES INFOS", 5);
-        self.about_action(420, 100, "FERMER", 6);
+        self.about_action(40, 186, "PROJET GITHUB", 5);
+        self.about_action(236, 174, "COPIER LES INFOS", 6);
+        self.about_action(420, 100, "FERMER", 7);
     }
 
     fn about_action(&mut self, x: usize, width: usize, label: &str, focus: usize) {
@@ -232,39 +234,45 @@ impl View {
     fn about_history(&mut self) {
         for (y, version, first, second) in [
             (
-                111,
+                109,
+                "ALPHA.6 / MISES À JOUR",
+                "Détection, téléchargement et installation.",
+                "Vérification du paquet puis redémarrage.",
+            ),
+            (
+                151,
                 "ALPHA.5 / À PROPOS",
                 "Version, crédits, raccourcis et historique.",
                 "Quatre onglets, accessibles aussi au clavier.",
             ),
             (
-                164,
+                193,
                 "ALPHA.4 / SKIN CLASSIQUE",
                 "Boutons métalliques et états enfoncés.",
                 "Clics courts fiables, focus et capture souris.",
             ),
             (
-                217,
+                235,
                 "ALPHA.3 / QUALITÉ AUDIO",
                 "Choix 96 / 160 / 320 kb/s, 320 par défaut.",
                 "Préférence mémorisée, au prochain chargement.",
             ),
             (
-                270,
+                277,
                 "ALPHA.2 / MOLETTE",
                 "Défilement précis et mouvements accumulés.",
                 "Correction des événements Windows et X11.",
             ),
             (
-                323,
+                319,
                 "ALPHA.1 / PREMIÈRE PRÉVERSION",
                 "Connexion Spotify, import de liens, file.",
                 "Lecture native et commandes audio locales.",
             ),
         ] {
             self.text(54, y, version, GOLD, 56);
-            self.text(54, y + 17, first, WHITE, 56);
-            self.text(54, y + 31, second, DIM, 56);
+            self.text(54, y + 14, first, WHITE, 56);
+            self.text(54, y + 25, second, DIM, 56);
         }
         self.text(
             54,
@@ -273,5 +281,132 @@ impl View {
             DIM,
             56,
         );
+    }
+
+    fn about_updates(&mut self) {
+        self.text(54, 111, "MISES À JOUR DE SPOTIAMP", GREEN, 56);
+        self.text(
+            54,
+            132,
+            concat!("Version actuelle : ", env!("CARGO_PKG_VERSION")),
+            WHITE,
+            56,
+        );
+        self.rect(54, 148, 452, 1, 0x303042);
+
+        let status = self.update.clone();
+        let (message, color) = match &status {
+            UpdateStatus::Disabled => {
+                ("Mises à jour indisponibles dans cette version.".into(), DIM)
+            }
+            UpdateStatus::Idle => ("Recherchez une nouvelle version du lecteur.".into(), WHITE),
+            UpdateStatus::Checking => ("Recherche d'une nouvelle version...".into(), GOLD),
+            UpdateStatus::Current => (
+                "Vous disposez de la dernière version compatible.".into(),
+                GREEN,
+            ),
+            UpdateStatus::Available { version } => {
+                (format!("Version disponible : {version}"), GREEN)
+            }
+            UpdateStatus::Downloading { percent } => (
+                format!("Téléchargement du paquet : {} %", (*percent).min(100)),
+                GOLD,
+            ),
+            UpdateStatus::Ready { version } => {
+                (format!("Version {version} prête à installer."), GREEN)
+            }
+            UpdateStatus::Installing => ("Installation en cours, puis redémarrage...".into(), GOLD),
+            UpdateStatus::Failed(_) => ("La mise à jour n'a pas abouti.".into(), GOLD),
+        };
+        self.text(54, 162, &message, color, 56);
+        if let UpdateStatus::Failed(error) = &status {
+            // Bound error text to the content area, including long server errors.
+            let chars: Vec<char> = error.chars().take(112).collect();
+            for (index, line) in chars.chunks(56).enumerate() {
+                self.text(
+                    54,
+                    180 + index * 14,
+                    &line.iter().collect::<String>(),
+                    WHITE,
+                    56,
+                );
+            }
+        }
+        if let UpdateStatus::Downloading { percent } = status {
+            self.bevel(64, 192, 432, 13, 0x171724, true);
+            self.rect(
+                67,
+                195,
+                426 * usize::from(percent.min(100)) / 100,
+                7,
+                0x69a23c,
+            );
+        }
+
+        self.text(
+            54,
+            228,
+            "La lecture continue pendant le téléchargement.",
+            WHITE,
+            56,
+        );
+        self.text(
+            54,
+            253,
+            "Installer redémarre le lecteur et interrompt",
+            WHITE,
+            56,
+        );
+        self.text(
+            54,
+            269,
+            "la lecture. La file n'est pas conservée.",
+            GOLD,
+            56,
+        );
+
+        self.update_button(64, "VÉRIFIER", 8, self.can_check_update());
+        let (label, enabled) = match status {
+            UpdateStatus::Available { .. } => ("TÉLÉCHARGER", true),
+            UpdateStatus::Ready { .. } => ("INSTALLER / REDÉMARRER", true),
+            UpdateStatus::Downloading { .. } => ("TÉLÉCHARGEMENT...", false),
+            UpdateStatus::Installing => ("INSTALLATION...", false),
+            _ => ("TÉLÉCHARGER", false),
+        };
+        self.update_button(286, label, 9, enabled);
+        self.text(
+            54,
+            354,
+            if env!("CARGO_PKG_VERSION").contains('-') {
+                "Canal préversion : préversions incluses."
+            } else {
+                "Versions stables uniquement."
+            },
+            DIM,
+            56,
+        );
+        self.text(
+            54,
+            370,
+            "Le paquet est vérifié avant son installation.",
+            DIM,
+            56,
+        );
+    }
+
+    fn update_button(&mut self, x: usize, label: &str, focus: usize, enabled: bool) {
+        let down = enabled && self.button_down(x, 315);
+        self.metal_face(x, 315, 208, 24, enabled, down);
+        let offset = usize::from(down);
+        self.text(
+            x + (208 - label.chars().count() * 8) / 2 + offset,
+            323 + offset,
+            label,
+            if enabled { 0x242b40 } else { 0x494d62 },
+            24,
+        );
+        if self.about_focus == focus {
+            self.about_focus_ring(x + 4, 319, 200, 16);
+        }
     }
 }

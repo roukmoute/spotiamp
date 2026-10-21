@@ -99,22 +99,22 @@ fn all_tabs_work_with_mouse_and_keyboard_and_focus_wraps() {
     let mut view = View::default();
     view.open_about();
     for (index, tab) in AboutTab::ALL.into_iter().enumerate() {
-        release(&mut view, 55 + index * 120, 76, &state);
+        release(&mut view, 55 + index * 96, 76, &state);
         assert_eq!(view.about, Some(tab));
         assert_eq!(view.about_focus, index);
     }
     view.about_key(Key::Right, false);
     assert_eq!(view.about, Some(AboutTab::Player));
     view.about_key(Key::Left, false);
-    assert_eq!(view.about, Some(AboutTab::History));
+    assert_eq!(view.about, Some(AboutTab::Updates));
     view.about_key(Key::F1, false);
     assert_eq!(view.about, Some(AboutTab::Shortcuts));
     view.open_about();
     view.about_key(Key::Tab, true);
-    assert_eq!(view.about_focus, 6);
+    assert_eq!(view.about_focus, 7);
     view.about_key(Key::Tab, false);
     assert_eq!(view.about_focus, 0);
-    for _ in 0..5 {
+    for _ in 0..6 {
         view.about_key(Key::Tab, false);
     }
     assert!(matches!(
