@@ -1,5 +1,24 @@
 # Changements
 
+## 0.1.0 — 22 octobre 2026
+
+- Installateur Windows x64 en français et en anglais, pour le compte courant,
+  sans droits administrateur. Installation par défaut dans
+  `%LOCALAPPDATA%\Programs\Spotiamp`, raccourci du menu Démarrer, raccourci Bureau
+  optionnel et lancement proposé à la fin de l'assistant.
+- Désinstallation depuis les paramètres Windows, avec conservation des réglages,
+  des identifiants mémorisés et des fichiers personnels à la racine du dossier.
+  Nettoyage des sous-dossiers appartenant au programme après les mises à jour.
+- Icône et métadonnées de version intégrées à l'exécutable Windows.
+- Mises à jour intégrées conservées pour les installations et les copies
+  portables. Les raccourcis et le désinstallateur restent en place ; la version
+  enregistrée dans Windows est synchronisée au lancement du lecteur installé.
+- Protection native contre les installations et désinstallations simultanées
+  au lecteur ou à ses processus temporaires de mise à jour.
+- Installateur construit à partir du ZIP Windows validé, avec le même binaire,
+  les mêmes licences et sources MPL. Aucun service ni processus résident ajouté.
+- Publication standard **0.1.0**, sans statut GitHub « pre-release ».
+
 ## 0.1.0-alpha.8 — 22 octobre 2026
 
 - Bibliothèque de vos playlists Spotify en lecture seule, ouverte avec

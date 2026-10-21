@@ -71,7 +71,7 @@ def project_files():
     for path in sorted(ROOT.iterdir()):
         if path.is_file() and (
             path.suffix in (".md", ".toml")
-            or path.name in ("Cargo.lock", "LICENSE", "LICENSE-MIT", "LICENSE-APACHE", ".gitignore", "preview.png")
+            or path.name in ("Cargo.lock", "LICENSE", "LICENSE-MIT", "LICENSE-APACHE", ".gitignore", "preview.png", "build.rs")
         ):
             yield path
     for directory in ("src", "scripts", ".github", "assets", "vendor", "benchmarks"):

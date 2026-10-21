@@ -235,51 +235,51 @@ impl View {
         for (y, version, first, second) in [
             (
                 109,
+                "0.1.0 / INSTALLATEUR WINDOWS",
+                "Installation par utilisateur et raccourcis.",
+                "Désinstallation et mises à jour intégrées.",
+            ),
+            (
+                142,
                 "ALPHA.8 / PLAYLISTS SPOTIFY",
                 "Bibliothèque native, playlists du compte.",
                 "Titres à la demande, lecture et ajout à la file.",
             ),
             (
-                142,
+                175,
                 "ALPHA.7 / FENÊTRE INTÉGRÉE",
                 "Bandeau déplaçable, boutons Réduire et Fermer.",
                 "Cadre système retiré, même interface légère.",
             ),
             (
-                175,
+                208,
                 "ALPHA.6 / MISES À JOUR",
                 "Détection, téléchargement et installation.",
                 "Vérification du paquet puis redémarrage.",
             ),
             (
-                208,
+                241,
                 "ALPHA.5 / À PROPOS",
                 "Version, crédits, raccourcis et historique.",
                 "Quatre onglets, accessibles aussi au clavier.",
             ),
             (
-                241,
+                274,
                 "ALPHA.4 / SKIN CLASSIQUE",
                 "Boutons métalliques et états enfoncés.",
                 "Clics courts fiables, focus et capture souris.",
             ),
             (
-                274,
+                307,
                 "ALPHA.3 / QUALITÉ AUDIO",
                 "Choix 96 / 160 / 320 kb/s, 320 par défaut.",
                 "Préférence mémorisée, au prochain chargement.",
             ),
             (
-                307,
+                340,
                 "ALPHA.2 / MOLETTE",
                 "Défilement précis et mouvements accumulés.",
                 "Correction des événements Windows et X11.",
-            ),
-            (
-                340,
-                "ALPHA.1 / PREMIÈRE PRÉVERSION",
-                "Connexion Spotify, import de liens, file.",
-                "Lecture native et commandes audio locales.",
             ),
         ] {
             self.text(54, y, version, GOLD, 56);

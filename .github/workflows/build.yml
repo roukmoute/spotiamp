@@ -71,6 +71,28 @@ jobs:
         env:
           SPOTIAMP_RELEASE_ARCHIVE: dist/spotiamp-${{ matrix.target }}.zip
         run: cargo test --locked --bin spotiamp --target ${{ matrix.target }} updater::package::tests::release_archive_passes_native_update_validation -- --exact --ignored --nocapture
+      - name: Build the per-user Windows installer from the validated ZIP
+        if: runner.os == 'Windows'
+        run: python scripts/build_windows_installer.py --archive dist/spotiamp-${{ matrix.target }}.zip --expected-commit "${{ github.sha }}" --output-dir dist
+      - name: Test native Windows install, upgrade, reinstall and uninstall
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $baseline = Join-Path $env:RUNNER_TEMP 'Spotiamp-alpha8-Windows-x64.zip'
+          Invoke-WebRequest -Uri 'https://github.com/roukmoute/spotiamp/releases/download/v0.1.0-alpha.8/Spotiamp-Windows-x64.zip' -OutFile $baseline
+          if ((Get-FileHash -LiteralPath $baseline -Algorithm SHA256).Hash.ToLowerInvariant() -ne '0798093954888d728a341617e108d5f6dfad58647e538fd7b33b685371e7f579') {
+            throw 'Published baseline archive SHA256 mismatch'
+          }
+          ./scripts/test_windows_installer.ps1 -SetupExe dist/Spotiamp-Setup-Windows-x64.exe -PortableZip dist/spotiamp-${{ matrix.target }}.zip -BaselineZip $baseline -ExpectedVersion (Get-Content Cargo.toml | Select-String '^version = "([^"]+)"' | ForEach-Object { $_.Matches.Groups[1].Value }) -OutputDirectory dist/installer-tests
+      - name: Upload Windows installer diagnostics
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: spotiamp-windows-installer-diagnostics
+          path: |
+            dist/Spotiamp-Setup-Windows-x64.build.json
+            dist/installer-tests/
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         # The action already retries transient HTTP errors (five attempts).
         # Exhausted retries must still fail the job so missing artifacts stay visible.
@@ -79,4 +101,5 @@ jobs:
           path: |
             dist/spotiamp-${{ matrix.target }}.zip
             dist/spotiamp-source.zip
+            dist/Spotiamp-Setup-Windows-x64.exe
           if-no-files-found: error

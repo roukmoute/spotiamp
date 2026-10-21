@@ -80,8 +80,54 @@ des artefacts CI sont publiées avec les noms suivants :
 | macOS ARM64 | `Spotiamp-macOS-arm64.zip` | `spotiamp` |
 | Sources | `Spotiamp-source.zip` | Sources sous `spotiamp/` |
 
-`Spotiamp-SHA256SUMS.txt` accompagne ces quatre ZIP et contient une ligne par
-archive : empreinte SHA-256, deux espaces, puis nom exact de l'asset. Calculez les
+L'installateur `Spotiamp-Setup-Windows-x64.exe` s'ajoute aux quatre ZIP.
+`Spotiamp-SHA256SUMS.txt` accompagne ces cinq fichiers et contient une ligne par
+fichier : empreinte SHA-256, deux espaces, puis nom exact de l'asset. Calculez les
 empreintes après les renommages et vérifiez les métadonnées avant de publier le
 brouillon complet. Les fichiers d'authentification et de configuration utilisateur
 ne font pas partie des archives.
+
+## Installateur Windows
+
+Avec Python 3.11+ et Inno Setup 6.3+ sous Windows, après le packaging :
+
+```powershell
+python scripts/build_windows_installer.py --archive dist/spotiamp-x86_64-pc-windows-msvc.zip --output-dir dist
+```
+
+Le script cherche `ISCC.exe` dans le PATH et dans les dossiers standards
+d'Inno Setup 6 ; `--iscc` permet de fournir son chemin. `--expected-commit` et
+`--expected-version` vérifient les métadonnées attendues. `--validate-only`
+valide le paquet sans compiler l'installateur et fonctionne aussi sous Linux.
+Le ZIP doit provenir d'un checkout propre, porter un commit Git et contenir le
+binaire MSVC x64 identifié par son empreinte dans `BUILD-INFO.json`.
+
+La recette `scripts/windows/installer.iss` installe tous les fichiers du ZIP
+validé, sans modification. Le rapport `Spotiamp-Setup-Windows-x64.build.json`
+relie les empreintes de l'installateur, de l'archive et du binaire au commit.
+L'icône est construite à partir de `assets/windows/spotiamp.svg` ; le fichier
+ICO multi-résolution est suivi dans Git et incorporé à la compilation Windows
+par `build.rs`. Aucun compilateur d'icône n'est requis pour reconstruire le projet.
+
+La CI Windows exécute `scripts/test_windows_installer.ps1` avec le nouvel
+installateur, son ZIP et le ZIP officiel alpha.8 vérifié par SHA-256. Ce test
+installe dans un dossier avec espaces et accent, vérifie les fichiers et les
+raccourcis, lance l'interface native, puis exerce le vrai helper de mise à jour
+alpha.8 vers le nouveau binaire. L'ancienne installation est une fixture : le
+contenu portable alpha.8 est superposé à une installation Inno courante. Ce
+test couvre la transaction locale, pas la découverte GitHub ni la lecture Spotify.
+Il vérifie ensuite la réinstallation et la désinstallation, avec des fichiers
+témoins personnels et des préférences conservées. Il exige un environnement CI
+Windows jetable et refuse une installation ou des raccourcis préexistants.
+Les rapports et logs sont téléversés même si ce test échoue.
+
+## Publication des versions
+
+Publier toutes les versions comme **releases définitives**, jamais avec le
+statut GitHub « pre-release ». Utiliser des numéros SemVer sans suffixe alpha
+pour les prochaines versions et désigner la plus récente comme **Latest**.
+Attendre la réussite complète des trois jobs CI du même commit, y compris les
+tests natifs, le packaging, le test de l'installateur et l'envoi des artefacts.
+Publier les fichiers issus de ces artefacts, sans recompilation locale, après
+vérification des commits, versions et empreintes. Conserver les noms des ZIP
+ci-dessus : la mise à jour intégrée les utilise, y compris sous Windows installé.

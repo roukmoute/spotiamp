@@ -11,10 +11,17 @@ lecture. Sa capture affiche 5,7 Mo de mémoire et 0,4 % de CPU à cet instant ;
 ce n'est pas une mesure de la mémoire totale ni un test de stabilité prolongé.
 Les résultats et leurs limites sont dans `PERFORMANCE.md`.
 
-**[Télécharger la préversion Windows et ses sources](https://github.com/roukmoute/spotiamp/releases).**
-Choisir l'archive `Spotiamp-Windows-x64.zip`, puis la décompresser.
+**[Installer Spotiamp pour Windows](https://github.com/roukmoute/spotiamp/releases/latest/download/Spotiamp-Setup-Windows-x64.exe).**
+Lancer `Spotiamp-Setup-Windows-x64.exe`, puis suivre l'assistant en français ou
+en anglais. L'installation concerne votre compte, sans droits administrateur.
+Le lecteur apparaît dans le menu Démarrer ; le raccourci sur le Bureau est optionnel.
+L'assistant propose de lancer Spotiamp à la fin.
 
-La préversion **0.1.0-alpha.8** ajoute une **bibliothèque de vos playlists Spotify**,
+La version **0.1.0** ajoute cet installateur et conserve l'archive portable
+`Spotiamp-Windows-x64.zip`, disponible avec les paquets Linux, macOS et les
+[sources dans les releases](https://github.com/roukmoute/spotiamp/releases/latest).
+
+La **bibliothèque de vos playlists Spotify** est accessible
 en lecture seule, dans une fenêtre au style classique. **BIBLIO. F3** ou **F3**
 l'ouvre : playlists et dossiers à gauche, titres de la playlist choisie à droite.
 Le catalogue est chargé à l'ouverture et les titres seulement à la sélection.
@@ -33,9 +40,9 @@ la molette d'un titre par cran.
 
 ![Interface de Spotiamp](preview.png)
 
-L'archive Windows fournie vise **Windows 10/11 x64** (processeur Intel/AMD
+L'installateur et l'archive Windows visent **Windows 10/11 x64** (processeur Intel/AMD
 64 bits), conformément au [socle de la cible Rust](https://doc.rust-lang.org/rustc/platform-support.html).
-Le binaire Windows publié en préversion est portable et non signé. La CI le
+Le binaire Windows et l'installateur ne sont pas signés. La CI le
 compile avec le runtime C statique. L'interface
 minifb utilise Win32/GDI et l'audio WASAPI. Aucun environnement Rust n'est requis
 pour lancer l'exécutable. Le premier essai Windows porte sur le prototype
@@ -43,7 +50,8 @@ précédemment nommé Spool ; le paquet Spotiamp est reconstruit après renommag
 
 ## Utilisation
 
-1. Décompresser l'archive Windows et lancer `spotiamp.exe`.
+1. Installer Spotiamp, puis le lancer depuis le menu Démarrer. Pour la version
+   portable, décompresser le ZIP et lancer `spotiamp.exe`.
 2. Cliquer sur **CONNEXION**. Autoriser Spotify dans le navigateur, puis revenir
    dans le lecteur. Aucun mot de passe n'est demandé dans Spotiamp.
 3. Copier un lien Spotify de titre, d'album ou de playlist. Dans Spotiamp :
@@ -108,8 +116,9 @@ le panneau. La lecture continue pendant sa consultation ; les commandes du
 lecteur restent bloquées derrière le panneau.
 
 Une recherche de mise à jour commence trois secondes après le lancement, une
-seule fois par session. Cette version alpha inclut les préversions dans sa
-recherche ; une future version stable ne proposera que les versions stables.
+seule fois par session. À partir de la version **0.1.0**, seules les versions
+stables sont proposées ; les releases du projet sont publiées sans le statut
+« pre-release ».
 La recherche ne propose qu'un paquet
 compatible avec le système et l'architecture du lecteur. Une notification
 persistante et un repère sur le bouton **À propos** signalent une version
@@ -124,6 +133,26 @@ mémorisés dans le coffre du système et la qualité préférée sont conservé
 Un échec s'affiche dans le panneau. Le dossier du programme doit être accessible
 en écriture pour l'installation. `--no-update-check` désactive la recherche
 automatique au démarrage ; **Vérifier** reste disponible.
+
+L'installateur utilise par défaut `%LOCALAPPDATA%\Programs\Spotiamp` : les mises
+à jour intégrées peuvent y remplacer les fichiers sans élévation. Il n'ajoute
+aucun service, lancement automatique ni processus résident. Une icône et les
+informations de version sont intégrées à l'exécutable. Les raccourcis continuent
+de fonctionner après une mise à jour ; la version dans les paramètres Windows
+est actualisée au lancement du lecteur installé.
+
+Pour désinstaller, utiliser **Paramètres Windows → Applications → Spotiamp →
+Désinstaller**. Fermer le lecteur avant une installation ou désinstallation.
+Les réglages dans `%APPDATA%\Spotiamp` et les identifiants du coffre Windows sont
+conservés ; **DECONNECTER** dans le lecteur permet d'effacer ces identifiants.
+Les fichiers personnels ajoutés à la racine du dossier d'installation sont
+conservés. Les sous-dossiers `licenses`, `mpl-source` et `scripts` appartiennent
+au programme et sont supprimés intégralement, y compris les fichiers apportés
+par les mises à jour ; ne pas y ranger de données personnelles.
+
+L'installation réutilise les réglages et la connexion mémorisée d'une ancienne
+copie portable. Elle ne supprime pas cette copie et ne migre pas une file de
+lecture en cours, qui n'est pas sauvegardée.
 
 Les boutons **96 / 160 / 320**, à côté de **KB/S** sous la liste, règlent la
 qualité demandée. Le choix est mémorisé et appliqué au prochain chargement de

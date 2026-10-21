@@ -19,6 +19,8 @@ mod settings;
 mod spotify_library;
 mod ui;
 mod updater;
+#[cfg(target_os = "windows")]
+mod windows_install;
 
 use minifb::{InputCallback, Key, KeyRepeat, MouseButton, MouseMode, Scale, Window, WindowOptions};
 use model::Command;
@@ -364,6 +366,25 @@ fn flush_library_close(pending: &mut bool, engine: &engine::Engine) {
 }
 
 fn main() {
+    #[cfg(target_os = "windows")]
+    let _installation_guard = {
+        let args: Vec<_> = std::env::args_os().collect();
+        let finishing_update = cfg!(feature = "updates")
+            && matches!(
+                args.get(1).and_then(|arg| arg.to_str()),
+                Some("--cleanup-update" | "--update-failed")
+            );
+        match windows_install::acquire_runtime(
+            args.iter().any(|arg| arg == "--wait-for-setup"),
+            finishing_update,
+        ) {
+            Ok(guard) => guard,
+            Err(error) => {
+                eprintln!("Spotiamp: {error}");
+                std::process::exit(1);
+            }
+        }
+    };
     #[cfg(target_os = "macos")]
     if std::env::args_os().any(|arg| arg == "--test-library-windows") {
         if let Err(error) = library_native_tests::smoke() {
@@ -390,6 +411,8 @@ fn main() {
         };
     #[cfg(not(feature = "updates"))]
     let initial_notice = None;
+    #[cfg(target_os = "windows")]
+    windows_install::sync_display_version();
     if let Err(e) = run(initial_notice) {
         eprintln!("Spotiamp: {e}");
         std::process::exit(1);
