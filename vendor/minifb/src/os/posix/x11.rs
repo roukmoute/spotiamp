@@ -309,6 +309,9 @@ pub struct Window {
     titlebar_dragging: bool,
     dock: Option<Rc<RefCell<DockPair>>>,
     wm_frame: xlib::Window,
+    normal_position: std::cell::Cell<(isize, isize)>,
+    iconic: bool,
+    last_docked: bool,
 
     should_close: bool, // received delete window message from X server
 
@@ -534,6 +537,9 @@ impl Window {
                 titlebar_dragging: false,
                 dock: None,
                 wm_frame: 0,
+                normal_position: std::cell::Cell::new((x as isize, y as isize)),
+                iconic: false,
+                last_docked: false,
                 key_handler: KeyHandler::new(),
                 update_rate: UpdateRate::new(),
                 menu_counter: MenuHandle(0),
@@ -626,7 +632,7 @@ impl Window {
         offset_x: isize,
         offset_y: isize,
     ) -> Result<()> {
-        self.detach_dock();
+        self.detach_dock(false);
         let Some(parent) = parent else {
             return Ok(());
         };
@@ -634,7 +640,7 @@ impl Window {
             return Err(Error::UpdateFailed("Cannot dock a closed window".into()));
         }
         // Docking is deliberately one pair, not an ownership tree.
-        parent.detach_dock();
+        parent.detach_dock(false);
         let origin = parent.get_position();
         let child_origin = (
             origin.0.saturating_add(offset_x),
@@ -711,6 +717,88 @@ impl Window {
         Ok(())
     }
 
+    pub fn get_restorable_placement(&self) -> Option<crate::RestorablePlacement> {
+        if !self.should_close && !self.iconic {
+            self.normal_position.set(self.get_position());
+        }
+        let docked = self
+            .dock
+            .as_ref()
+            .map(|shared| shared.borrow().attached)
+            .unwrap_or(self.last_docked);
+        Some(crate::RestorablePlacement {
+            position: self.normal_position.get(),
+            docked,
+        })
+    }
+
+    pub fn set_dock_attached(&mut self, attached: bool) -> Result<()> {
+        let Some(shared) = &self.dock else {
+            return Err(Error::UpdateFailed("Window has no magnetic pair".into()));
+        };
+        let mut pair = shared.borrow_mut();
+        if !pair.active || !pair.magnetic || self.should_close {
+            return Err(Error::UpdateFailed(
+                "Window has no active magnetic pair".into(),
+            ));
+        }
+        if attached {
+            if unsafe { self.window_iconic(pair.parent) || self.window_iconic(pair.child) } {
+                return Err(Error::UpdateFailed(
+                    "Cannot attach minimized windows".into(),
+                ));
+            }
+            let parent = self.native_dock_rect(pair.parent);
+            let child = self.native_dock_rect(pair.child);
+            pair.positions = [
+                (parent.x as isize, parent.y as isize),
+                (child.x as isize, child.y as isize),
+            ];
+            pair.offset = (
+                pair.positions[1].0 - pair.positions[0].0,
+                pair.positions[1].1 - pair.positions[0].1,
+            );
+        }
+        pair.attached = attached;
+        pair.pending = [None, None];
+        pair.gesture = None;
+        self.titlebar_dragging = false;
+        Ok(())
+    }
+
+    unsafe fn window_iconic(&self, handle: xlib::Window) -> bool {
+        let wm_state = (self.d.lib.XInternAtom)(
+            self.d.display,
+            b"WM_STATE\0".as_ptr() as *const c_char,
+            xlib::False,
+        );
+        let (mut actual_type, mut format, mut count, mut remaining) = (0, 0, 0, 0);
+        let mut data = std::ptr::null_mut();
+        let status = (self.d.lib.XGetWindowProperty)(
+            self.d.display,
+            handle,
+            wm_state,
+            0,
+            2,
+            xlib::False,
+            wm_state,
+            &mut actual_type,
+            &mut format,
+            &mut count,
+            &mut remaining,
+            &mut data,
+        );
+        let iconic = status == xlib::Success as i32
+            && format == 32
+            && count >= 1
+            && !data.is_null()
+            && *(data as *const c_ulong) == ICONIC_STATE;
+        if !data.is_null() {
+            (self.d.lib.XFree)(data as *mut c_void);
+        }
+        iconic
+    }
+
     fn native_dock_rect(&self, handle: xlib::Window) -> crate::magnet::Rect {
         unsafe {
             let (mut x, mut y, mut child) = (0, 0, 0);
@@ -735,9 +823,13 @@ impl Window {
         }
     }
 
-    fn detach_dock(&mut self) {
+    fn detach_dock(&mut self, preserve: bool) {
+        self.last_docked = preserve && self.get_restorable_placement().is_some_and(|p| p.docked);
         if let Some(shared) = self.dock.take() {
             let mut pair = shared.borrow_mut();
+            if !preserve {
+                pair.attached = false;
+            }
             if pair.active {
                 pair.active = false;
                 pair.gesture = None;
@@ -757,6 +849,11 @@ impl Window {
     // before sending its request, suppressing feedback from asynchronous WM
     // ConfigureNotify replies (including older replies already in the queue).
     fn follow_dock_move(&mut self, serial: c_ulong) {
+        if self.iconic {
+            return;
+        }
+        let position = self.get_position();
+        self.normal_position.set(position);
         let Some(shared) = self.dock.as_ref() else {
             return;
         };
@@ -765,7 +862,6 @@ impl Window {
             return;
         }
         let index = usize::from(self.handle == pair.child);
-        let position = self.get_position();
         self.follow_dock_position(&mut pair, index, position, serial);
     }
 
@@ -909,6 +1005,7 @@ impl Window {
     }
 
     pub fn minimize(&mut self) {
+        let _ = self.get_restorable_placement();
         let handle = self
             .dock
             .as_ref()
@@ -1115,12 +1212,18 @@ impl Window {
     }
 
     pub fn get_work_area(&self) -> Option<(isize, isize, usize, usize)> {
-        let mut area = (0isize, 0isize, self.d.screen_width, self.d.screen_height);
         let position = self.get_position();
-        let center = (
+        self.get_work_area_at(
             position.0 + self.width as isize / 2,
             position.1 + self.height as isize / 2,
-        );
+        )
+    }
+
+    pub fn get_work_area_at(&self, x: isize, y: isize) -> Option<(isize, isize, usize, usize)> {
+        i32::try_from(x).ok()?;
+        i32::try_from(y).ok()?;
+        let mut area = (0isize, 0isize, self.d.screen_width, self.d.screen_height);
+        let center = (x, y);
         unsafe {
             // Optional runtime library, already exposed by x11-dl. Fall back to
             // the root screen when Xinerama is absent (no added dependency).
@@ -1602,7 +1705,7 @@ impl Window {
                 if ev.client_message.format == 32 /* i.e. longs */ &&
                    ev.client_message.data.get_long(0) as xlib::Atom == self.d.wm_delete_window
                 {
-                    self.detach_dock();
+                    self.detach_dock(true);
                     self.should_close = true;
                     return ProcessEventResult::Termination;
                 }
@@ -1696,37 +1799,14 @@ impl Window {
             }
             xlib::PropertyNotify => {
                 let wm_state = self.d.intern_atom(b"WM_STATE\0", false);
-                if ev.property.atom == wm_state
-                    && self.dock.as_ref().is_some_and(|shared| {
-                        let pair = shared.borrow();
-                        pair.active && pair.child == self.handle
-                    })
-                {
-                    let (mut actual_type, mut format, mut count, mut remaining) = (0, 0, 0, 0);
-                    let mut data = std::ptr::null_mut();
-                    let status = (self.d.lib.XGetWindowProperty)(
-                        self.d.display,
-                        self.handle,
-                        wm_state,
-                        0,
-                        2,
-                        xlib::False,
-                        wm_state,
-                        &mut actual_type,
-                        &mut format,
-                        &mut count,
-                        &mut remaining,
-                        &mut data,
-                    );
-                    let iconic = status == xlib::Success as i32
-                        && format == 32
-                        && count >= 1
-                        && !data.is_null()
-                        && *(data as *const c_ulong) == ICONIC_STATE;
-                    if !data.is_null() {
-                        (self.d.lib.XFree)(data as *mut c_void);
-                    }
-                    if iconic {
+                if ev.property.atom == wm_state {
+                    self.iconic = self.window_iconic(self.handle);
+                    if self.iconic
+                        && self.dock.as_ref().is_some_and(|shared| {
+                            let pair = shared.borrow();
+                            pair.active && pair.child == self.handle
+                        })
+                    {
                         self.minimize();
                     }
                 }
@@ -1993,7 +2073,7 @@ impl Window {
 
 impl Drop for Window {
     fn drop(&mut self) {
-        self.detach_dock();
+        self.detach_dock(true);
         unsafe {
             self.free_image();
 

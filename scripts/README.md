@@ -139,6 +139,23 @@ témoins personnels et des préférences conservées. Il exige un environnement 
 Windows jetable et refuse une installation ou des raccourcis préexistants.
 Les rapports et logs sont téléversés même si ce test échoue.
 
+## Disposition des fenêtres au redémarrage
+
+Sous Linux, après compilation, avec Xvfb, Openbox, xdotool et xprop :
+
+```sh
+LC_ALL=C XMODIFIERS=@im=none xvfb-run -a -s "-screen 0 1920x1080x24 -noreset" python scripts/test_window_layout.py --executable target/release/spotiamp
+```
+
+La CI exécute ce test avec le binaire de distribution. Il déplace les vraies
+fenêtres puis ferme et relance le processus : positions exactes, aimantation et
+détachement, bibliothèque fermée et réouverture par F3, options de visibilité
+temporaires, fermeture pendant une réduction, récupération d'un écran disparu.
+Il utilise les deux skins et vérifie qu'une disposition inchangée n'est pas
+réécrite. Les préférences sont isolées dans un dossier temporaire et aucune
+connexion Spotify n'est nécessaire. Le test refuse un écran où un gestionnaire
+de fenêtres est déjà actif ; utiliser un nouveau `xvfb-run`.
+
 ## Publication des versions
 
 Publier toutes les versions comme **releases définitives**, jamais avec le

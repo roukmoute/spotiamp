@@ -26,6 +26,8 @@ mod spotify_library;
 mod ui;
 mod updater;
 mod window_layout;
+mod window_memory;
+mod window_settings;
 #[cfg(target_os = "windows")]
 mod windows_icon;
 #[cfg(target_os = "windows")]
@@ -451,8 +453,15 @@ fn toggle_library(
     parent: &mut Window,
     engine: &engine::Engine,
     view: &mut ui::View,
+    layout: &mut window_memory::LayoutMemory,
+    remember_visibility: bool,
 ) {
-    if library.take().is_some() {
+    if let Some(companion) = library.as_ref() {
+        if remember_visibility {
+            layout.library_open = false;
+        }
+        layout.capture(parent.get_restorable_placement(), companion.placement());
+        *library = None;
         *close_pending = true;
         return;
     }
@@ -461,7 +470,12 @@ fn toggle_library(
         view.notice("Bibliotheque en cours de fermeture; reessayez dans un instant.");
         return;
     }
-    match library_window::LibraryWindow::new(scale, parent) {
+    let saved = if remember_visibility {
+        layout.reopening(parent)
+    } else {
+        layout.saved
+    };
+    match library_window::LibraryWindow::new_with_layout(scale, parent, saved) {
         Ok(mut window) => {
             window.set_skin(view.skin);
             if let Err(error) = engine
@@ -471,6 +485,9 @@ fn toggle_library(
                 view.notice(&error.to_string());
             } else {
                 *library = Some(window);
+                if remember_visibility {
+                    layout.library_open = true;
+                }
             }
         }
         Err(_) => view.notice("Impossible d'ouvrir la bibliotheque Spotify."),
@@ -556,7 +573,7 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
         println!(concat!(
             "Spotiamp ",
             env!("CARGO_PKG_VERSION"),
-            " experimental\n--scale 2        double-size bitmap UI\n--skin classic|modern   override the saved skin for this run\n--library        open the Spotify playlist library (default)\n--no-library     start with the player only; F3 opens the library\n--about [player|credits|shortcuts|history|updates]   open the About dialog\n--screenshot FILE.ppm   render the disconnected UI without opening a window\n--no-update-check       skip the automatic startup update check\n--quit-after SECONDS    automatic exit for reproducible idle measurements\nSpace: play/pause; Ctrl+V: paste URL; Enter: add/play; Delete: remove; F1: help; F2: About; F3: playlist library; F4: switch skin"
+            " experimental\n--scale 2        double-size bitmap UI\n--skin classic|modern   override the saved skin for this run\n--library        open the playlist library for this run (overrides saved layout)\n--no-library     start with the player only for this run; F3 opens the library\n--about [player|credits|shortcuts|history|updates]   open the About dialog\n--screenshot FILE.ppm   render the disconnected UI without opening a window\n--no-update-check       skip the automatic startup update check\n--quit-after SECONDS    automatic exit for reproducible idle measurements\nSpace: play/pause; Ctrl+V: paste URL; Enter: add/play; Delete: remove; F1: help; F2: About; F3: playlist library; F4: switch skin"
         ));
         return Ok(());
     }
@@ -617,10 +634,23 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
         held: [false; 512],
         modifiers: 0,
     }));
+    let mut layout = window_memory::LayoutMemory::new(
+        window_settings::load(),
+        if matches!(scale, Scale::X2) { 2 } else { 1 },
+        &window,
+    );
+    if let Some(saved) = layout.saved {
+        window.set_position(saved.player.0, saved.player.1);
+    }
     let engine = engine::Engine::spawn();
     let mut library = None;
     let mut library_close_pending = false;
-    if !args.iter().any(|arg| arg == "--no-library") {
+    let show_library = if args.iter().any(|arg| arg == "--no-library") {
+        false
+    } else {
+        args.iter().any(|arg| arg == "--library") || layout.library_open
+    };
+    if show_library {
         toggle_library(
             &mut library,
             &mut library_close_pending,
@@ -628,6 +658,8 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
             &mut window,
             &engine,
             &mut view,
+            &mut layout,
+            false,
         );
     }
     let mut clipboard = None;
@@ -712,6 +744,8 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
                         &mut window,
                         &engine,
                         &mut view,
+                        &mut layout,
+                        true,
                     );
                     None
                 }
@@ -816,12 +850,27 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
             None => false,
         };
         if close_library {
+            // Closing the player can also close its native companion. Preserve
+            // visibility in that case, rather than saving an accidental F3 close.
+            if window.is_open() {
+                layout.library_open = false;
+            }
+            layout.capture(
+                window.get_restorable_placement(),
+                library.as_ref().and_then(|library| library.placement()),
+            );
             library = None;
             library_close_pending = true;
         }
         flush_library_close(&mut library_close_pending, &engine);
     }
+    layout.capture(
+        window.get_restorable_placement(),
+        library.as_ref().and_then(|library| library.placement()),
+    );
+    let saved = layout.save();
     let _ = engine.tx.try_send(Command::Shutdown);
+    saved?;
     Ok(())
 }
 

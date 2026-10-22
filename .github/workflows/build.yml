@@ -62,10 +62,13 @@ jobs:
       - name: Test native X11 window controls, pointer and wheel events
         if: runner.os == 'Linux'
         run: |
-          LC_ALL=C XMODIFIERS=@im=none xvfb-run -a cargo test --locked --bin spotiamp --target ${{ matrix.target }} x11_ -- --ignored --test-threads=1
+          LC_ALL=C XMODIFIERS=@im=none xvfb-run -a -s "-screen 0 1280x1024x24 -noreset" cargo test --locked --bin spotiamp --target ${{ matrix.target }} x11_ -- --ignored --test-threads=1
           LC_ALL=C XMODIFIERS=@im=none xvfb-run -a -s "-screen 0 1280x1024x24 -noreset" cargo test --locked -p minifb --lib --target ${{ matrix.target }} x11_ -- --ignored --test-threads=1
       - name: Build release
         run: cargo build --release --locked --target ${{ matrix.target }} --bin spotiamp
+      - name: Test saved window layout across real Linux process restarts
+        if: runner.os == 'Linux'
+        run: LC_ALL=C XMODIFIERS=@im=none xvfb-run -a -s "-screen 0 1920x1080x24 -noreset" python scripts/test_window_layout.py --executable target/${{ matrix.target }}/release/spotiamp
       - name: Compare Windows size, startup and idle memory against 0.1.5
         if: runner.os == 'Windows'
         shell: pwsh

@@ -14,6 +14,9 @@ pub(crate) static WINDOWS: Mutex<()> = Mutex::new(());
 #[path = "magnetic_native_windows_tests.rs"]
 mod magnetic_tests;
 
+#[path = "restorable_native_windows_tests.rs"]
+mod restorable_tests;
+
 type Hwnd = *mut c_void;
 #[repr(C)]
 #[derive(Default)]

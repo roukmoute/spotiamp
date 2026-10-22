@@ -4,6 +4,7 @@
 #include <Carbon/Carbon.h>
 #include <MetalKit/MetalKit.h>
 #include <unistd.h>
+#include <math.h>
 
 extern id<MTLCommandQueue> g_command_queue;
 extern id<MTLLibrary> g_library;
@@ -295,6 +296,7 @@ void* mfb_open(const char* name, int width, int height, uint32_t flags, int scal
     [window setMovableByWindowBackground:NO];
 
     [window center];
+    [window rememberPlacement];
 
     // Must be wrapped for menus to work without reselecting window
     // See https://github.com/emoon/rust_minifb/issues/334
@@ -582,18 +584,31 @@ void mfb_set_titlebar_drag_region(void* window, bool enabled, double x, double y
     win->titlebar_drag_enabled = enabled && width > 0 && height > 0;
 }
 
+// Explicit configuration differs from a native close: it intentionally clears
+// the old remembered relationship for every endpoint that it disconnects.
+static void clear_dock_configuration(OSXWindow* window) {
+    OSXWindow* parent = window->docked_parent;
+    OSXWindow* child = window->docked_child;
+    [window detachDock];
+    window->restorable_docked = false;
+    if (parent) parent->restorable_docked = false;
+    if (child) child->restorable_docked = false;
+}
+
 bool mfb_set_docked_parent(void* window, void* parent, double offset_x, double offset_y) {
     OSXWindow* child = (OSXWindow*)window;
     OSXWindow* owner = (OSXWindow*)parent;
     if (!child || child == owner || child->should_close || (owner && owner->should_close)) return false;
-    [child detachDock];
+    clear_dock_configuration(child);
     if (owner) {
-        [owner detachDock];
+        clear_dock_configuration(owner);
         child->docked_parent = owner;
         owner->docked_child = child;
         child->dock_offset = NSMakePoint(offset_x, offset_y);
         child->dock_attached = true;
         [owner syncDockPosition];
+        [owner rememberPlacement];
+        [child rememberPlacement];
         if ([owner isMiniaturized]) {
             owner->dock_child_hidden = true;
             [child orderOut:nil];
@@ -619,6 +634,43 @@ bool mfb_set_dock_magnetic(void* window, bool enabled) {
         owner->dock_drag_active = false;
     }
     child->dock_magnetic = enabled;
+    [child rememberPlacement];
+    [child->docked_parent rememberPlacement];
+    return true;
+}
+
+bool mfb_set_dock_attached(void* window, bool attached) {
+    OSXWindow* win = (OSXWindow*)window;
+    if (!win || win->should_close) return false;
+    OSXWindow* child = win->docked_parent ? win : win->docked_child;
+    if (!child || child->should_close || !child->dock_magnetic) return false;
+    OSXWindow* owner = child->docked_parent;
+    if (!owner || owner->should_close) return false;
+    [owner rememberPlacement];
+    [child rememberPlacement];
+    if (!owner->restorable_valid || !child->restorable_valid) return false;
+    if (attached) {
+        const NSRect parentFrame = owner->restorable_frame;
+        const NSRect childFrame = child->restorable_frame;
+        child->dock_offset = NSMakePoint(childFrame.origin.x - parentFrame.origin.x,
+                                        NSMaxY(parentFrame) - NSMaxY(childFrame));
+    }
+    child->dock_attached = attached;
+    owner->dock_drag_active = false;
+    child->dock_drag_active = false;
+    owner->restorable_docked = attached;
+    child->restorable_docked = attached;
+    return true;
+}
+
+bool mfb_get_restorable_placement(void* window, double* x, double* y, bool* docked) {
+    OSXWindow* win = (OSXWindow*)window;
+    if (!win) return false;
+    [win rememberPlacement];
+    if (!win->restorable_valid) return false;
+    *x = win->restorable_frame.origin.x;
+    *y = CGDisplayBounds(CGMainDisplayID()).size.height - NSMaxY(win->restorable_frame);
+    *docked = win->restorable_docked;
     return true;
 }
 
@@ -633,6 +685,36 @@ bool mfb_get_work_area(const void* window, double* x, double* y, double* width, 
     *width = frame.size.width;
     *height = frame.size.height;
     return true;
+}
+
+bool mfb_get_work_area_at(double point_x, double point_y,
+                          double* x, double* y, double* width, double* height) {
+    if (!isfinite(point_x) || !isfinite(point_y)) return false;
+    const double desktopTop = CGDisplayBounds(CGMainDisplayID()).size.height;
+    const NSPoint point = NSMakePoint(point_x, desktopTop - point_y);
+    NSScreen* closest = nil;
+    double best = INFINITY;
+    for (NSScreen* screen in [NSScreen screens]) {
+        const NSRect frame = [screen frame];
+        if (NSPointInRect(point, frame)) {
+            closest = screen;
+            break;
+        }
+        const double dx = fmax(fmax(NSMinX(frame) - point.x, point.x - NSMaxX(frame)), 0);
+        const double dy = fmax(fmax(NSMinY(frame) - point.y, point.y - NSMaxY(frame)), 0);
+        const double distance = dx * dx + dy * dy;
+        if (distance < best) {
+            closest = screen;
+            best = distance;
+        }
+    }
+    if (!closest) return false;
+    const NSRect visible = [closest visibleFrame];
+    *x = visible.origin.x;
+    *y = desktopTop - NSMaxY(visible);
+    *width = visible.size.width;
+    *height = visible.size.height;
+    return visible.size.width > 0 && visible.size.height > 0;
 }
 
 void mfb_minimize(void* window) {

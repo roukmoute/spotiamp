@@ -1,5 +1,23 @@
 # Changements
 
+## 0.2.7 — 22 octobre 2026
+
+- La fermeture normale mémorise les positions du lecteur et de la bibliothèque,
+  leur état attaché ou libre, ainsi que la bibliothèque ouverte ou fermée.
+  F3 rouvre la bibliothèque à sa position mémorisée ; si elle était attachée,
+  elle suit le déplacement du lecteur effectué pendant sa fermeture.
+- Les positions accessibles restent inchangées, y compris sur plusieurs écrans
+  et avec des coordonnées négatives. Si un écran a disparu, les fenêtres sont
+  replacées pour garder leurs bandeaux accessibles ; le groupe conserve son
+  orientation quand c'est possible. Le décalage des fenêtres attachées s'adapte
+  à un changement d'échelle.
+- `--library` et `--no-library` imposent la visibilité pour ce lancement sans
+  remplacer le choix enregistré. Les ouvertures et fermetures explicites par
+  l'utilisateur restent mémorisées. Un petit fichier `Spotiamp/window-layout`,
+  borné et remplacé atomiquement, conserve la disposition séparément des skins,
+  de la qualité audio et de la session Spotify. Aucun enregistrement périodique,
+  nouveau thread ou dépendance.
+
 ## 0.2.6 — 22 octobre 2026
 
 - Fenêtres aimantées : le bandeau de la bibliothèque permet de la détacher,

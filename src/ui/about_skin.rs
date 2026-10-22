@@ -236,39 +236,39 @@ impl View {
         for (y, version, first, second) in [
             (
                 109,
+                "0.2.7 / DISPOSITION MÉMORISÉE",
+                "Positions et fenêtres attachées ou libres mémorisées.",
+                "Bibliothèque ouverte ou fermée retrouvée au lancement.",
+            ),
+            (
+                154,
                 "0.2.6 / FENÊTRES AIMANTÉES",
                 "Glisser la bibliothèque pour la détacher.",
                 "Rapprocher les bords et relâcher pour les recoller.",
             ),
             (
-                154,
+                199,
                 "0.2.5 / NAVIGATION AU CLAVIER",
                 "Un appui bref sur une flèche déplace une seule ligne.",
                 "Maintenir la touche conserve la répétition.",
             ),
             (
-                199,
+                244,
                 "0.2.4 / CHANGEMENTS RAPIDES DE TITRE",
                 "Dernier choix chargé après 200 ms sans nouveau clic.",
                 "Anciens chargements annulés ; clics conservés.",
             ),
             (
-                244,
+                289,
                 "0.2.3 / DÉFILEMENT PLUS SOUPLE",
                 "Molette sur la fenêtre survolée, même inactive.",
                 "Avance automatique : petit décalage si nécessaire.",
             ),
             (
-                289,
+                334,
                 "0.2.2 / BOUTONS MODERN",
                 "Contours mieux lissés et relief cohérent.",
                 "Au repos comme pendant l'appui.",
-            ),
-            (
-                334,
-                "0.2.1 / TITRE COURANT CENTRÉ",
-                "Le titre lancé est centré, dans les limites de la file.",
-                "Puis le défilement manuel reste libre.",
             ),
         ] {
             self.text(54, y, version, GOLD, 56);

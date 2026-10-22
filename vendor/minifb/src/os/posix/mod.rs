@@ -140,6 +140,41 @@ impl Window {
         }
     }
 
+    pub fn get_restorable_placement(&self) -> Option<crate::RestorablePlacement> {
+        match self {
+            #[cfg(feature = "x11")]
+            Window::X11(window) => window.get_restorable_placement(),
+            #[cfg(feature = "wayland")]
+            Window::Wayland(_) => None,
+        }
+    }
+
+    pub fn set_dock_attached(&mut self, attached: bool) -> Result<()> {
+        match self {
+            #[cfg(feature = "x11")]
+            Window::X11(window) => window.set_dock_attached(attached),
+            #[cfg(feature = "wayland")]
+            Window::Wayland(_) => {
+                let _ = attached;
+                Err(crate::Error::UpdateFailed(
+                    "Window layout restoration is not supported on Wayland".into(),
+                ))
+            }
+        }
+    }
+
+    pub fn get_work_area_at(&self, x: isize, y: isize) -> Option<(isize, isize, usize, usize)> {
+        match self {
+            #[cfg(feature = "x11")]
+            Window::X11(window) => window.get_work_area_at(x, y),
+            #[cfg(feature = "wayland")]
+            Window::Wayland(_) => {
+                let _ = (x, y);
+                None
+            }
+        }
+    }
+
     pub fn get_work_area(&self) -> Option<(isize, isize, usize, usize)> {
         match self {
             #[cfg(feature = "x11")]

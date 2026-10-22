@@ -68,6 +68,12 @@ void build_submenu(NSMenu* menu, MenuDesc* desc);
     @public bool dock_drag_active;
     @public bool dock_drag_moved;
     @public NSPoint dock_drag_origin;
+    // Normal placement survives miniaturization and native Close until Rust
+    // consumes it. No disk I/O or per-frame snapshot work is involved.
+    @public NSRect restorable_frame;
+    @public bool restorable_valid;
+    @public bool restorable_docked;
+    @public bool placement_minimized;
     @public int active_menu_id;
     @public int prev_cursor;
     @public MenuData* menu_data;
@@ -78,6 +84,7 @@ void build_submenu(NSMenu* menu, MenuDesc* desc);
     @public id view_controller;
     @public id keyUpMonitor;
 }
+- (void)rememberPlacement;
 - (void)detachDock;
 - (void)syncDockPosition;
 - (void)beginDockDrag;

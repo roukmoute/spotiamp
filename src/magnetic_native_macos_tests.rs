@@ -83,6 +83,14 @@ fn offset(a: &Window, b: &Window) -> (isize, isize) {
     (b.0 - a.0, b.1 - a.1)
 }
 
+type SavedPlacement = ((isize, isize), bool);
+fn saved(window: &Window) -> Result<SavedPlacement, String> {
+    window
+        .get_restorable_placement()
+        .map(|state| (state.position, state.docked))
+        .ok_or_else(|| "Cocoa magnetic: missing restorable placement".into())
+}
+
 fn start_drag(window: &mut Window, position: (isize, isize)) {
     // The production title-strip handler calls this exact native method before
     // handing motion to AppKit. Real NSWindowDidMove notifications then run.
@@ -134,6 +142,25 @@ pub fn smoke() -> Result<(), String> {
         a.set_position(-60, 100);
         b.set_docked_parent(Some(&mut a), width, 0)
             .map_err(|e| e.to_string())?;
+        expect(
+            b.set_dock_attached(false).is_err(),
+            "attachment restore accepted a nonmagnetic pair",
+        )?;
+        let area = a.get_work_area().ok_or("Cocoa missing work area")?;
+        expect(
+            a.get_work_area_at(
+                area.0 + (area.2 / 2) as isize,
+                area.1 + (area.3 / 2) as isize,
+            ) == Some(area),
+            "screen-point lookup differs from the containing screen",
+        )?;
+        let nearest = a
+            .get_work_area_at(-100_000, -100_000)
+            .ok_or("Cocoa missing nearest screen")?;
+        expect(
+            nearest.2 > 0 && nearest.3 > 0,
+            "off-screen point has no usable nearest screen",
+        )?;
 
         // Opt-in preserves the existing rigid API and a simple title click.
         start_drag(&mut b, (300, 180));
@@ -260,10 +287,19 @@ pub fn smoke() -> Result<(), String> {
 
         free_child(&mut a, &mut b)?;
         let before = (a.get_position(), b.get_position());
+        let saved_before = (saved(&a)?, saved(&b)?);
+        expect(
+            !saved_before.0.1 && !saved_before.1.1,
+            "free pair persisted as attached",
+        )?;
         b.minimize();
         wait(&mut a, &mut b, |a, b| {
             flag(a, c"isMiniaturized") && !flag(b, c"isVisible")
         })?;
+        expect(
+            (saved(&a)?, saved(&b)?) == saved_before,
+            "minimization replaced normal placement",
+        )?;
         restore(&a);
         wait(&mut a, &mut b, |a, b| {
             !flag(a, c"isMiniaturized") && flag(b, c"isVisible")
@@ -271,6 +307,25 @@ pub fn smoke() -> Result<(), String> {
         expect(
             (a.get_position(), b.get_position()) == before,
             "free restore changed either position",
+        )?;
+
+        // Restore the saved attachment flag without moving either endpoint;
+        // attaching adopts the current offset, including a freely moved pair.
+        b.set_dock_attached(true).map_err(|e| e.to_string())?;
+        expect(
+            (a.get_position(), b.get_position()) == before && saved(&a)?.1 && saved(&b)?.1,
+            "restoring attachment moved a window or lost its state",
+        )?;
+        a.set_position(before.0.0 + 10, before.0.1 + 10);
+        expect(
+            b.get_position() == (before.1.0 + 10, before.1.1 + 10),
+            "restored attachment failed to adopt the current offset",
+        )?;
+        a.set_position(before.0.0, before.0.1);
+        b.set_dock_attached(false).map_err(|e| e.to_string())?;
+        expect(
+            (saved(&a)?, saved(&b)?) == saved_before,
+            "free placement round-trip differs",
         )?;
 
         // Explicitly disabling magnetism locks the current offset without jump.
@@ -293,18 +348,52 @@ pub fn smoke() -> Result<(), String> {
             "explicit detach retained a magnetic pair",
         )?;
         drop(b);
-        for _ in 0..3 {
+        for cycle in 0..3 {
             let mut child = window(scale)?;
             child
                 .set_docked_parent(Some(&mut a), width, 0)
                 .map_err(|e| e.to_string())?;
             child.set_dock_magnetic(true).map_err(|e| e.to_string())?;
             free_child(&mut a, &mut child)?;
+            if cycle == 0 {
+                child.set_dock_attached(true).map_err(|e| e.to_string())?;
+            }
+            let before_close = (saved(&a)?, saved(&child)?);
             action(&child, c"close");
+            expect(
+                (saved(&a)?, saved(&child)?) == before_close,
+                "native companion close lost an endpoint's restorable placement",
+            )?;
             drop(child);
             a.update();
             expect(a.is_open(), "closing a free companion closed the player")?;
+            a.set_docked_parent(None, 0, 0).map_err(|e| e.to_string())?;
+            expect(
+                !saved(&a)?.1,
+                "explicit detach kept the old docked snapshot",
+            )?;
         }
+        let mut survivor = window(scale)?;
+        survivor
+            .set_docked_parent(Some(&mut a), width, 0)
+            .map_err(|e| e.to_string())?;
+        survivor
+            .set_dock_magnetic(true)
+            .map_err(|e| e.to_string())?;
+        let before_close = (saved(&a)?, saved(&survivor)?);
+        a.minimize();
+        wait(&mut a, &mut survivor, |a, b| {
+            flag(a, c"isMiniaturized") && !flag(b, c"isVisible")
+        })?;
+        expect(
+            (saved(&a)?, saved(&survivor)?) == before_close,
+            "attached minimization changed restorable placement",
+        )?;
+        action(&a, c"close");
+        expect(
+            !a.is_open() && survivor.is_open() && (saved(&a)?, saved(&survivor)?) == before_close,
+            "native parent close lost placement or closed the companion",
+        )?;
     }
     Ok(())
 }

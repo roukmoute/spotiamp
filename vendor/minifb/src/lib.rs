@@ -223,6 +223,14 @@ pub trait InputCallback {
 /// the widow is set as non-resizable.
 pub struct Window(imp::Window);
 
+/// Last normal screen position and magnetic relationship, retained across a
+/// native close so applications can save a layout without polling every frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RestorablePlacement {
+    pub position: (isize, isize),
+    pub docked: bool,
+}
+
 impl fmt::Debug for Window {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_tuple("Window").field(&format_args!("..")).finish()
@@ -637,6 +645,99 @@ impl Window {
             Err(Error::UpdateFailed(
                 "Magnetic window docking is not supported".into(),
             ))
+        }
+    }
+
+    /// Read normal placement, excluding minimized coordinates. Native close retains
+    /// the last position and relationship; explicit unlinking clears `docked`.
+    pub fn get_restorable_placement(&self) -> Option<RestorablePlacement> {
+        #[cfg(any(
+            target_os = "windows",
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "dragonfly",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        ))]
+        {
+            self.0.get_restorable_placement()
+        }
+        #[cfg(not(any(
+            target_os = "windows",
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "dragonfly",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        )))]
+        {
+            None
+        }
+    }
+
+    /// Restore the attached/free state of an existing magnetic pair without moving
+    /// either endpoint. Attaching adopts the current offset; ownership survives
+    /// separation. This does not perform edge snapping.
+    pub fn set_dock_attached(&mut self, attached: bool) -> Result<()> {
+        #[cfg(any(
+            target_os = "windows",
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "dragonfly",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        ))]
+        {
+            self.0.set_dock_attached(attached)
+        }
+        #[cfg(not(any(
+            target_os = "windows",
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "dragonfly",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        )))]
+        {
+            let _ = attached;
+            Err(Error::UpdateFailed(
+                "Window layout restoration is not supported".into(),
+            ))
+        }
+    }
+
+    /// Usable area of the monitor containing the signed screen point, or the
+    /// nearest monitor when that screen was disconnected. Called during layout
+    /// restoration, not during the idle event loop.
+    pub fn get_work_area_at(&self, x: isize, y: isize) -> Option<(isize, isize, usize, usize)> {
+        #[cfg(any(
+            target_os = "windows",
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "dragonfly",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        ))]
+        {
+            self.0.get_work_area_at(x, y)
+        }
+        #[cfg(not(any(
+            target_os = "windows",
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "dragonfly",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        )))]
+        {
+            let _ = (x, y);
+            None
         }
     }
 

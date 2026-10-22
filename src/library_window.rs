@@ -58,7 +58,11 @@ pub(super) fn inside(x: f32, y: f32) -> Option<(usize, usize)> {
 }
 
 impl LibraryWindow {
-    pub fn new(scale: Scale, parent: &mut Window) -> Result<Self, minifb::Error> {
+    pub fn new_with_layout(
+        scale: Scale,
+        parent: &mut Window,
+        saved: Option<crate::window_settings::SavedLayout>,
+    ) -> Result<Self, minifb::Error> {
         let mut window = Window::new(
             "Spotiamp — Bibliothèque Spotify",
             library_ui::WIDTH,
@@ -76,17 +80,35 @@ impl LibraryWindow {
         window.set_titlebar_drag_region(Some(library_ui::TITLEBAR_DRAG_REGION));
         // The player already paces the shared UI loop at 30 Hz.
         window.set_target_fps(0);
-        let placement = crate::window_layout::place(
-            parent.get_position(),
-            parent.get_size(),
-            window.get_size(),
-            parent.get_work_area(),
-        );
-        if parent.get_position() != placement.player {
-            parent.set_position(placement.player.0, placement.player.1);
+        if let Some(saved) = saved {
+            window.set_docked_parent(
+                Some(parent),
+                saved.library.0 - saved.player.0,
+                saved.library.1 - saved.player.1,
+            )?;
+            window.set_dock_magnetic(true)?;
+            if !saved.attached {
+                window.set_dock_attached(false)?;
+            }
+            // Attach/free first, then move. This also handles asynchronous X11
+            // placement replies without accidentally pulling a separated peer.
+            parent.set_position(saved.player.0, saved.player.1);
+            if !saved.attached {
+                window.set_position(saved.library.0, saved.library.1);
+            }
+        } else {
+            let placement = crate::window_layout::place(
+                parent.get_position(),
+                parent.get_size(),
+                window.get_size(),
+                parent.get_work_area(),
+            );
+            if parent.get_position() != placement.player {
+                parent.set_position(placement.player.0, placement.player.1);
+            }
+            window.set_docked_parent(Some(parent), placement.offset.0, placement.offset.1)?;
+            window.set_dock_magnetic(true)?;
         }
-        window.set_docked_parent(Some(parent), placement.offset.0, placement.offset.1)?;
-        window.set_dock_magnetic(true)?;
         let chars = Rc::new(RefCell::new(Vec::new()));
         let keys = Rc::new(RefCell::new(Vec::new()));
         let mouse = Rc::new(RefCell::new(Vec::with_capacity(16)));
@@ -108,6 +130,10 @@ impl LibraryWindow {
             mouse,
             actions: Vec::with_capacity(8),
         })
+    }
+
+    pub fn placement(&self) -> Option<minifb::RestorablePlacement> {
+        self.window.get_restorable_placement()
     }
 
     pub fn set_skin(&mut self, skin: crate::appearance::Skin) {

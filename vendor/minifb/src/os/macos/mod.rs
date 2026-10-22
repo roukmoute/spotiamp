@@ -184,6 +184,21 @@ extern "C" {
         offset_y: f64,
     ) -> bool;
     fn mfb_set_dock_magnetic(window: *mut c_void, enabled: bool) -> bool;
+    fn mfb_set_dock_attached(window: *mut c_void, attached: bool) -> bool;
+    fn mfb_get_restorable_placement(
+        window: *mut c_void,
+        x: *mut f64,
+        y: *mut f64,
+        docked: *mut bool,
+    ) -> bool;
+    fn mfb_get_work_area_at(
+        point_x: f64,
+        point_y: f64,
+        x: *mut f64,
+        y: *mut f64,
+        width: *mut f64,
+        height: *mut f64,
+    ) -> bool;
     fn mfb_get_work_area(
         window: *const c_void,
         x: *mut f64,
@@ -479,6 +494,51 @@ impl Window {
             Err(Error::UpdateFailed(
                 "Magnetic docking requires an open window pair".into(),
             ))
+        }
+    }
+
+    pub fn set_dock_attached(&mut self, attached: bool) -> Result<()> {
+        if unsafe { mfb_set_dock_attached(self.window_handle, attached) } {
+            Ok(())
+        } else {
+            Err(Error::UpdateFailed(
+                "Restoring attachment requires an open magnetic window pair".into(),
+            ))
+        }
+    }
+
+    pub fn get_restorable_placement(&self) -> Option<crate::RestorablePlacement> {
+        let (mut x, mut y, mut docked) = (0.0, 0.0, false);
+        if unsafe { mfb_get_restorable_placement(self.window_handle, &mut x, &mut y, &mut docked) }
+            && x.is_finite()
+            && y.is_finite()
+        {
+            Some(crate::RestorablePlacement {
+                position: (x as isize, y as isize),
+                docked,
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn get_work_area_at(&self, x: isize, y: isize) -> Option<(isize, isize, usize, usize)> {
+        let (mut left, mut top, mut width, mut height) = (0.0, 0.0, 0.0, 0.0);
+        if unsafe {
+            mfb_get_work_area_at(
+                x as f64,
+                y as f64,
+                &mut left,
+                &mut top,
+                &mut width,
+                &mut height,
+            )
+        } && width > 0.0
+            && height > 0.0
+        {
+            Some((left as isize, top as isize, width as usize, height as usize))
+        } else {
+            None
         }
     }
 

@@ -1,6 +1,6 @@
 //! One native window pair. HWND properties hold only handles/integers, never
 //! Rust pointers, so synchronous move messages do not borrow another WindowState.
-use crate::{Error, Result};
+use crate::{Error, RestorablePlacement, Result};
 use std::{convert::TryFrom, mem, ptr};
 use winapi::{shared::windef, um::winuser};
 
@@ -14,6 +14,9 @@ const MAGNETIC: &[u16] = &[109, 102, 98, 46, 100, 111, 99, 107, 46, 103, 0];
 const ATTACHED: &[u16] = &[109, 102, 98, 46, 100, 111, 99, 107, 46, 97, 0];
 const DISTANCE: &[u16] = &[109, 102, 98, 46, 100, 111, 99, 107, 46, 100, 0];
 const DRAGGED: &[u16] = &[109, 102, 98, 46, 100, 111, 99, 107, 46, 114, 0];
+// Kept after a native peer closure: 1 = separate, 2 = attached. Native window
+// destruction frees the property; no heap pointer or cross-window Rust borrow.
+const LAST_DOCKED: &[u16] = &[109, 102, 98, 46, 100, 111, 99, 107, 46, 108, 0];
 
 fn get(window: windef::HWND, key: &[u16]) -> isize {
     unsafe { winuser::GetPropW(window, key.as_ptr()) as isize }
@@ -44,10 +47,17 @@ fn pair(window: windef::HWND) -> Option<(windef::HWND, windef::HWND)> {
 }
 
 /// Clear the reciprocal links before native calls that could re-enter WndProc.
-pub(super) fn detach(window: windef::HWND) {
+pub(super) fn detach(window: windef::HWND, preserve_placement: bool) {
+    if let Some((owner, child)) = pair(window) {
+        let docked = preserve_placement && get(child, ATTACHED) != 0;
+        set(owner, LAST_DOCKED, 1 + isize::from(docked));
+        set(child, LAST_DOCKED, 1 + isize::from(docked));
+    } else if !preserve_placement {
+        set(window, LAST_DOCKED, 1);
+    }
     let child = get(window, CHILD) as windef::HWND;
     if !child.is_null() && get(child, PARENT) == window as isize {
-        detach(child);
+        detach(child, preserve_placement);
     }
     let owner = get(window, PARENT) as windef::HWND;
     let was_attached = !owner.is_null();
@@ -85,7 +95,7 @@ pub(super) fn attach(
     offset_y: isize,
 ) -> Result<()> {
     let Some(owner) = owner else {
-        detach(window);
+        detach(window, false);
         return Ok(());
     };
     if window == owner || unsafe { winuser::IsWindow(window) == 0 || winuser::IsWindow(owner) == 0 }
@@ -104,7 +114,7 @@ pub(super) fn attach(
             "Only one docked window pair is supported".into(),
         ));
     }
-    detach(window);
+    detach(window, false);
     let previous = unsafe { winuser::GetWindow(window, winuser::GW_OWNER) };
     // Native properties remain bounded to this one pair. Zero-valued offsets
     // and guards are valid property values; PARENT/CHILD identify the relation.
@@ -117,7 +127,7 @@ pub(super) fn attach(
         && set(window, PARENT, owner as isize)
         && set(owner, CHILD, window as isize);
     if !installed {
-        detach(window);
+        detach(window, false);
         remove(owner, MOVING);
         return Err(Error::UpdateFailed("Cannot attach native windows".into()));
     }
@@ -127,7 +137,7 @@ pub(super) fn attach(
         set_owner(window, owner as isize);
     }
     if unsafe { winuser::GetWindow(window, winuser::GW_OWNER) } != owner {
-        detach(window);
+        detach(window, false);
         return Err(Error::UpdateFailed(
             "Cannot set the native window owner".into(),
         ));
@@ -163,6 +173,51 @@ pub(super) fn magnetic(window: windef::HWND, enabled: bool, distance: i32) -> Re
     remove(owner, DRAGGED);
     remove(child, DRAGGED);
     Ok(())
+}
+
+pub(super) fn set_attached(window: windef::HWND, attached: bool) -> Result<()> {
+    let (owner, child) = pair(window)
+        .filter(|(_, child)| get(*child, MAGNETIC) != 0)
+        .ok_or_else(|| Error::UpdateFailed("A magnetic window pair is required".into()))?;
+    if attached {
+        if unsafe { winuser::IsIconic(owner) != 0 || winuser::IsIconic(child) != 0 } {
+            return Err(Error::UpdateFailed(
+                "Cannot attach windows while minimized".into(),
+            ));
+        }
+        if !remember_offset(owner, child) {
+            return Err(Error::UpdateFailed("Cannot read the dock offset".into()));
+        }
+    }
+    if !set(child, ATTACHED, isize::from(attached)) {
+        return Err(Error::UpdateFailed(
+            "Cannot restore window attachment".into(),
+        ));
+    }
+    remove(owner, DRAGGED);
+    remove(child, DRAGGED);
+    Ok(())
+}
+
+fn restorable_docked(window: windef::HWND) -> bool {
+    pair(window)
+        .map(|(_, child)| get(child, ATTACHED) != 0)
+        .unwrap_or_else(|| get(window, LAST_DOCKED) == 2)
+}
+
+pub(super) fn placement(
+    window: windef::HWND,
+    cached: Option<RestorablePlacement>,
+) -> Option<RestorablePlacement> {
+    let current = (unsafe { winuser::IsIconic(window) } == 0)
+        .then(|| rect(window))
+        .flatten()
+        .map(|rect| (rect.left as isize, rect.top as isize))
+        .filter(|position| *position != (-32000, -32000));
+    Some(RestorablePlacement {
+        position: current.or_else(|| cached.map(|placement| placement.position))?,
+        docked: restorable_docked(window),
+    })
 }
 
 fn rect(window: windef::HWND) -> Option<windef::RECT> {
@@ -333,8 +388,21 @@ pub(super) fn follow(window: windef::HWND, proposed: Option<&windef::RECT>) {
 }
 
 pub(super) fn work_area(window: windef::HWND) -> Option<(isize, isize, usize, usize)> {
+    let monitor = unsafe { winuser::MonitorFromWindow(window, winuser::MONITOR_DEFAULTTONEAREST) };
+    monitor_work_area(monitor)
+}
+
+pub(super) fn work_area_at(x: isize, y: isize) -> Option<(isize, isize, usize, usize)> {
+    let point = windef::POINT {
+        x: i32::try_from(x).ok()?,
+        y: i32::try_from(y).ok()?,
+    };
+    let monitor = unsafe { winuser::MonitorFromPoint(point, winuser::MONITOR_DEFAULTTONEAREST) };
+    monitor_work_area(monitor)
+}
+
+fn monitor_work_area(monitor: windef::HMONITOR) -> Option<(isize, isize, usize, usize)> {
     unsafe {
-        let monitor = winuser::MonitorFromWindow(window, winuser::MONITOR_DEFAULTTONEAREST);
         let mut info: winuser::MONITORINFO = mem::zeroed();
         info.cbSize = mem::size_of::<winuser::MONITORINFO>() as u32;
         if monitor.is_null() || winuser::GetMonitorInfoW(monitor, &mut info) == 0 {

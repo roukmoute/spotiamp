@@ -100,7 +100,7 @@ impl App {
             held: [false; 512],
             modifiers: 0,
         }));
-        let mut library = LibraryWindow::new(Scale::X1, &mut player).unwrap();
+        let mut library = LibraryWindow::new_with_layout(Scale::X1, &mut player, None).unwrap();
         library.set_skin(skin);
         let mut view = ui::View::default();
         view.set_skin(skin);

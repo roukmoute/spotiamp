@@ -275,6 +275,11 @@ unsafe extern "system" fn wnd_proc(
             // move completes. That is not a move initiated by the companion:
             // following its old coordinates would undo the owner's new move.
             if position.flags & winuser::SWP_NOMOVE == 0 {
+                // Cache only native movement events, never per-frame. Hidden
+                // owned windows retain their position; minimized HWNDs do not.
+                if wnd.is_open {
+                    wnd.last_placement = docking::placement(window, wnd.last_placement);
+                }
                 docking::follow(window, None);
             }
             // DefWindowProc must still emit WM_SIZE/WM_MOVE.
@@ -289,7 +294,11 @@ unsafe extern "system" fn wnd_proc(
         }
 
         winuser::WM_NCDESTROY => {
-            docking::detach(window);
+            if wnd.is_open {
+                wnd.last_placement = docking::placement(window, wnd.last_placement);
+                wnd.is_open = false;
+            }
+            docking::detach(window, true);
             return winuser::DefWindowProcW(window, msg, wparam, lparam);
         }
 
@@ -463,8 +472,9 @@ unsafe extern "system" fn wnd_proc(
         }
 
         winuser::WM_CLOSE => {
+            wnd.last_placement = docking::placement(window, wnd.last_placement);
             wnd.is_open = false;
-            docking::detach(window);
+            docking::detach(window, true);
             return winuser::DefWindowProcW(window, msg, wparam, lparam);
         }
 
@@ -725,6 +735,7 @@ pub struct WindowState {
     scale_factor: i32,
     frameless: bool,
     fixed_frame_size: (i32, i32),
+    last_placement: Option<crate::RestorablePlacement>,
     titlebar_drag_region: Option<(usize, usize, usize, usize)>,
     width: i32,
     height: i32,
@@ -896,6 +907,7 @@ impl Window {
                         (width * scale_factor as usize) as i32,
                         (height * scale_factor as usize) as i32,
                     ),
+                    last_placement: docking::placement(window_handle, None),
                     titlebar_drag_region: None,
                     width: (width * scale_factor as usize) as i32,
                     height: (height * scale_factor as usize) as i32,
@@ -1057,6 +1069,23 @@ impl Window {
 
     pub fn get_work_area(&self) -> Option<(isize, isize, usize, usize)> {
         docking::work_area(self.hwnd)
+    }
+
+    pub fn get_work_area_at(&self, x: isize, y: isize) -> Option<(isize, isize, usize, usize)> {
+        docking::work_area_at(x, y)
+    }
+
+    pub fn get_restorable_placement(&self) -> Option<crate::RestorablePlacement> {
+        if self.is_open {
+            docking::placement(self.hwnd, self.last_placement)
+        } else {
+            // The handle can already be destroyed or reused by another window.
+            self.last_placement
+        }
+    }
+
+    pub fn set_dock_attached(&mut self, attached: bool) -> Result<()> {
+        docking::set_attached(self.hwnd, attached)
     }
 
     pub fn set_dock_magnetic(&mut self, enabled: bool) -> Result<()> {
@@ -1762,7 +1791,7 @@ impl Menu {
 impl Drop for Window {
     fn drop(&mut self) {
         unsafe {
-            docking::detach(self.hwnd);
+            docking::detach(self.hwnd, true);
             // Clear the user-data pointer before destroying the window so any
             // message dispatched during teardown (e.g. WM_DESTROY) falls through
             // to `DefWindowProcW` instead of dereferencing freed state.

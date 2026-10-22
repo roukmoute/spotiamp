@@ -274,11 +274,27 @@ extern bool mfb_snap_dock_rect(double mx, double my, double mw, double mh,
     }
 }
 
+- (void)rememberPlacement {
+    if (should_close) return;
+    OSXWindow* child = docked_parent ? self : docked_child;
+    if (child) restorable_docked = child->dock_attached;
+    // A surviving endpoint keeps its last docked flag after its peer closes.
+    // Only a new explicit configuration changes that remembered relationship.
+    if (placement_minimized || [self isMiniaturized] ||
+        (docked_parent && (docked_parent->placement_minimized ||
+                          [docked_parent isMiniaturized]))) return;
+    restorable_frame = [self frame];
+    restorable_valid = restorable_frame.size.width > 0 && restorable_frame.size.height > 0;
+}
+
 - (void)miniaturize:(id)sender {
     if (docked_parent) {
         [docked_parent miniaturize:sender];
         return;
     }
+    [self rememberPlacement];
+    if (docked_child) [docked_child rememberPlacement];
+    placement_minimized = true;
     if (docked_child && [docked_child isVisible]) {
         dock_child_hidden = true;
         [docked_child orderOut:nil];
@@ -288,6 +304,7 @@ extern bool mfb_snap_dock_rect(double mx, double my, double mw, double mh,
 
 - (void)dockWindowRestored:(NSNotification*)notification {
     (void)notification;
+    placement_minimized = false;
     if (dock_child_hidden && docked_child && !docked_child->should_close) {
         dock_child_hidden = false;
         [self syncDockPosition];
@@ -296,6 +313,9 @@ extern bool mfb_snap_dock_rect(double mx, double my, double mw, double mh,
 }
 
 - (void)detachDock {
+    [self rememberPlacement];
+    if (docked_parent) [docked_parent rememberPlacement];
+    if (docked_child) [docked_child rememberPlacement];
     dock_drag_active = false;
     dock_drag_moved = false;
     if (docked_parent) {
@@ -323,12 +343,14 @@ extern bool mfb_snap_dock_rect(double mx, double my, double mw, double mh,
 
 - (void)windowWillClose:(NSNotification *)notification {
     (void)notification;
+    [self rememberPlacement];
     should_close = true;
 }
 
 // NSWindow does not call delegate methods implemented only by its subclass.
 // Track both the native close action and an explicit close without a delegate.
 - (void)close {
+    [self rememberPlacement];
     should_close = true;
     [self detachDock];
     [super close];
@@ -338,6 +360,7 @@ extern bool mfb_snap_dock_rect(double mx, double my, double mw, double mh,
 
 - (BOOL)windowShouldClose:(id)sender {
     (void)sender;
+    [self rememberPlacement];
     should_close = true;
     return TRUE;
 }

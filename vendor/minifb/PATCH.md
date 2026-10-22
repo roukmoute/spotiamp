@@ -295,6 +295,28 @@ X11 tests send pointer gestures through Openbox under an isolated Xvfb display.
 Additional X11 event-order tests cover stale pointer samples, successive gestures
 on opposite windows, and wheel/content clicks after a WM-consumed release.
 
+## Restorable window placement
+
+`get_restorable_placement()` returns `RestorablePlacement { position, docked }`
+in native screen units. It excludes minimized sentinel positions and retains
+the last normal position and attachment across native closure, allowing the
+application to save once on shutdown rather than polling placement every frame.
+Explicitly unlinking the pair clears the retained attachment. Native move/close
+handling maintains the small cache; no extra event loop or timer is added.
+
+`set_dock_attached(bool)` restores the state of an existing magnetic pair without
+moving either window. Attaching adopts the current offset; separation preserves
+the native pair's lifetime and grouped minimization. This method does not snap
+edges: the application validates and repairs saved geometry before restoring it.
+
+`get_work_area_at(x, y)` returns the usable area of the monitor containing a
+signed screen point, or the nearest current monitor when the saved screen is
+missing. Windows uses monitor queries, macOS uses screen visible frames and X11
+uses optional Xinerama intersected with the EWMH work area. The application calls
+this during layout restoration, including for title bars on different monitors;
+it does not add monitor polling while idle. Unsupported backends expose no
+placement and report unsupported attachment rather than fabricating coordinates.
+
 ## Wheel input over an inactive companion
 
 Windows routes `WM_MOUSEWHEEL` using the message's signed screen coordinates and

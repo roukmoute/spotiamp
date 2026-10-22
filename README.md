@@ -79,15 +79,17 @@ La différence avec Spotifast se situe aussi dans ce choix d'affichage :
 tandis que Spotiamp utilise le rendu logiciel et GDI sous Windows.
 Les [détails techniques et les mesures](PERFORMANCE.md) expliquent cette approche.
 
-La **bibliothèque de vos playlists Spotify** s'ouvre automatiquement avec le
-lecteur, dans une fenêtre utilisant le même skin **collée à sa droite**. Faire
+Au premier lancement, la **bibliothèque de vos playlists Spotify** s'ouvre avec
+le lecteur, dans une fenêtre utilisant le même skin **collée à sa droite**. Faire
 glisser le bandeau du lecteur déplace les deux fenêtres lorsqu'elles sont
 attachées. Faire glisser le bandeau de la bibliothèque permet de la détacher.
 Pour les recoller, rapprocher leurs bords puis relâcher la souris : elles
 s'aimantent à droite, à gauche, au-dessus ou en dessous. Une fois séparées,
 l'une ou l'autre peut être déplacée pour les réunir. Elles se réduisent toujours
 ensemble. Sur un écran trop étroit, la bibliothèque se place initialement
-juste en dessous. **BIBLIO. F3** ou **F3** la ferme ou la rouvre : playlists
+juste en dessous. Les lancements suivants retrouvent les positions mémorisées,
+l'état attaché ou libre et la bibliothèque ouverte ou fermée.
+**BIBLIO. F3** ou **F3** la ferme ou la rouvre : playlists
 et dossiers à gauche, titres de la playlist choisie à droite, en lecture seule.
 Le catalogue est chargé à l'ouverture et les titres seulement à la sélection.
 La découverte de bibliothèque reste à vérifier avec un compte Spotify réel ;
@@ -150,9 +152,10 @@ ordre est préparé à chaque tour. Sans Repeat, la lecture s'arrête à la fin.
 Avec un seul titre et Repeat activé, ce titre joue en boucle.
 Les deux modes sont désactivés au lancement et n'altèrent pas vos playlists Spotify.
 
-Pour retrouver vos playlists sans copier de lien, connectez Spotify : la
-bibliothèque déjà ouverte affiche les playlists enregistrées ou suivies de votre
-compte, avec leur dossier en sous-titre. Un **simple clic sur une playlist**
+Pour retrouver vos playlists sans copier de lien, connectez Spotify et ouvrez
+la bibliothèque avec **BIBLIO. F3** si elle est fermée. Elle affiche les playlists
+enregistrées ou suivies de votre compte, avec leur dossier en sous-titre.
+Un **simple clic sur une playlist**
 affiche ses titres sans modifier la file ni la lecture en cours. Un
 **double-clic sur la playlist** charge ses titres, remplace la file après
 chargement réussi et lance le premier titre. **Actualiser** ou **F5** recharge
@@ -195,9 +198,24 @@ Dans la bibliothèque, **Tab** ou **Gauche/Droite** change de panneau ;
 déplace d'une ligne par cran le panneau survolé. **F3**, **Échap** ou la croix
 ferme cette fenêtre. La lecture du lecteur continue ; les données de bibliothèque
 et son buffer graphique sont relâchés à la fermeture.
-**F3** depuis le lecteur la rouvre accolée à celui-ci. Pour démarrer avec le
-lecteur seul, utilisez `--no-library` ; `--library` reste accepté pour les
-raccourcis existants. Fermer le lecteur ferme également la bibliothèque.
+**F3** depuis le lecteur la rouvre à sa position mémorisée, attachée ou libre.
+Si elle était attachée, son emplacement suit les déplacements du lecteur
+effectués pendant sa fermeture. Fermer le lecteur ferme également la bibliothèque.
+
+À la fermeture normale de Spotiamp, les positions et l'état ouvert ou fermé de
+la bibliothèque sont conservés dans `Spotiamp/window-layout`, à côté des autres
+préférences. Ce fichier est petit, borné et remplacé atomiquement ; il ne modifie
+ni le skin, ni la qualité audio, ni la session Spotify. Une préférence absente
+ou invalide utilise le placement initial. Aucun enregistrement périodique n'est ajouté.
+Les positions restent identiques tant que les bandeaux sont accessibles, même
+sur plusieurs écrans. Si un écran est débranché, les fenêtres sont replacées
+dans une zone accessible. Lors d'un changement d'échelle, le décalage des fenêtres
+attachées est adapté ; les fenêtres libres gardent leurs positions absolues
+tant qu'elles restent accessibles.
+
+Pour ce lancement uniquement, `--no-library` démarre avec le lecteur seul et
+`--library` ouvre la bibliothèque, sans changer la préférence de visibilité.
+Une ouverture ou fermeture explicite avec F3, Échap ou la croix est mémorisée.
 Comme celui du lecteur, le bandeau de la bibliothèque s'atténue lorsqu'elle
 n'est pas active et retrouve ses couleurs lorsqu'elle redevient active.
 Les touches **Ctrl**, **F3** et les **flèches** sont réinitialisées aux changements
