@@ -158,10 +158,14 @@ pub fn smoke() -> Result<(), String> {
         a.update();
 
         // Each native side and its top/left alignment use the same Rust snap
-        // geometry as Windows/X11. Negative x and both explicit scales remain.
+        // geometry as Windows/X11. Keep the above-side case below the menu bar
+        // at both scales: y=100 previously requested y=14/X1 and y=-72/X2,
+        // mixing docking with menu-bar/off-screen placement instead of
+        // isolating snapping.
+        // Negative x remains covered here; negative y has pure geometry tests.
         for side in 0..4 {
             free_child(&mut a, &mut b)?;
-            a.set_position(-60, 100);
+            a.set_position(-60, 400);
             let p = a.get_position();
             let near = match side {
                 0 => (p.0 + width + 6 * factor, p.1 + 4 * factor),
@@ -176,20 +180,41 @@ pub fn smoke() -> Result<(), String> {
                 _ => (0, -height),
             };
             start_drag(&mut b, near);
-            expect(
-                a.get_position() == p && b.get_position() == near,
-                "snap ran before release",
-            )?;
+            let actual_parent = a.get_position();
+            let actual_child = b.get_position();
+            let snapped = (p.0 + expected.0, p.1 + expected.1);
+            if actual_parent != p || actual_child != near {
+                return Err(format!(
+                    "Cocoa magnetic: unexpected native position before release: \
+                     scale={scale:?} factor={factor} side={side} size=({width},{height}) \
+                     parent_expected={p:?} child_requested={near:?} \
+                     parent_actual={actual_parent:?} child_actual={actual_child:?} \
+                     snapped_position={snapped:?} work_area={:?}",
+                    a.get_work_area(),
+                ));
+            }
             b.update();
-            expect(
-                offset(&a, &b) == expected,
-                "release did not snap to the expected side/alignment",
-            )?;
+            let actual_offset = offset(&a, &b);
+            if actual_offset != expected {
+                return Err(format!(
+                    "Cocoa magnetic: release did not snap: scale={scale:?} side={side} \
+                     expected_offset={expected:?} actual_offset={actual_offset:?} \
+                     parent={:?} child={:?}",
+                    a.get_position(),
+                    b.get_position(),
+                ));
+            }
             a.set_position(p.0 + 30, p.1 + 20);
-            expect(
-                offset(&a, &b) == expected,
-                "snapped pair failed to follow parent",
-            )?;
+            let actual_offset = offset(&a, &b);
+            if actual_offset != expected {
+                return Err(format!(
+                    "Cocoa magnetic: snapped pair failed to follow parent: \
+                     scale={scale:?} side={side} expected_offset={expected:?} \
+                     actual_offset={actual_offset:?} parent={:?} child={:?}",
+                    a.get_position(),
+                    b.get_position(),
+                ));
+            }
         }
 
         // A free player can also be the moving side of a new attachment.
