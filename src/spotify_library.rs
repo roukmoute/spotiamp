@@ -6,7 +6,10 @@ use librespot_core::{Session, SpotifyId};
 use librespot_protocol::playlist4_external::SelectedListContent;
 use protobuf::Message;
 
-use crate::model::{PlaylistEntry, PlaylistId};
+use crate::{
+    localized_text::LocalizedText,
+    model::{PlaylistEntry, PlaylistId},
+};
 
 const PAGE_SIZE: usize = 120;
 const MAX_PLAYLISTS: usize = 1000;
@@ -18,7 +21,7 @@ const PLAYLIST_NAME_MAX_CHARS: usize = 100;
 const PAGE_TIMEOUT: Duration = Duration::from_secs(20);
 const TOTAL_TIMEOUT: Duration = Duration::from_secs(60);
 
-pub async fn fetch(session: Session) -> Result<Vec<PlaylistEntry>, String> {
+pub async fn fetch(session: Session) -> Result<Vec<PlaylistEntry>, LocalizedText> {
     tokio::time::timeout(TOTAL_TIMEOUT, async {
         let mut catalogue = Catalogue::default();
         loop {
@@ -29,15 +32,15 @@ pub async fn fetch(session: Session) -> Result<Vec<PlaylistEntry>, String> {
                     .get_rootlist(catalogue.offset, Some(PAGE_SIZE)),
             )
             .await
-            .map_err(|_| "Spotify ne repond pas au chargement des playlists".to_owned())?
-            .map_err(|_| "Impossible de recuperer vos playlists Spotify".to_owned())?;
+            .map_err(|_| LocalizedText::from("Spotify ne repond pas au chargement des playlists"))?
+            .map_err(|_| LocalizedText::from("Impossible de recuperer vos playlists Spotify"))?;
             if catalogue.push_bytes(&bytes)? {
                 return Ok(catalogue.entries);
             }
         }
     })
     .await
-    .map_err(|_| "Le chargement des playlists Spotify a depasse une minute".to_owned())?
+    .map_err(|_| LocalizedText::from("Le chargement des playlists Spotify a depasse une minute"))?
 }
 
 #[derive(Default)]
@@ -52,14 +55,14 @@ struct Catalogue {
 
 impl Catalogue {
     /// Returns true only when the complete advertised list has been consumed.
-    fn push_bytes(&mut self, bytes: &[u8]) -> Result<bool, String> {
+    fn push_bytes(&mut self, bytes: &[u8]) -> Result<bool, LocalizedText> {
         // SpClient already buffered the HTTP body. This bounds decoding and
         // retained data, not the transport's peak allocation for a bad response.
         if bytes.len() > MAX_PAGE_BYTES {
             return Err("Reponse Spotify trop volumineuse pour la bibliotheque".into());
         }
         let page = SelectedListContent::parse_from_bytes(bytes)
-            .map_err(|_| "Reponse de bibliotheque Spotify illisible".to_owned())?;
+            .map_err(|_| LocalizedText::from("Reponse de bibliotheque Spotify illisible"))?;
         let revision = page.revision();
         if let Some(expected) = &self.revision {
             if revision != expected {
@@ -71,7 +74,7 @@ impl Catalogue {
 
         if page.has_length() {
             let length = usize::try_from(page.length())
-                .map_err(|_| "Longueur de bibliotheque Spotify invalide".to_owned())?;
+                .map_err(|_| LocalizedText::from("Longueur de bibliotheque Spotify invalide"))?;
             if self.length.is_some_and(|previous| previous != length) {
                 return Err("Vos playlists ont change pendant le chargement; actualisez".into());
             }
@@ -128,11 +131,8 @@ impl Catalogue {
                     );
                 }
                 let name = display_text(&decode_folder_name(name), PLAYLIST_NAME_MAX_CHARS);
-                self.folders.push(if name.is_empty() {
-                    "Dossier sans nom".into()
-                } else {
-                    name
-                });
+                self.folders
+                    .push(if name.is_empty() { "(?)".into() } else { name });
                 continue;
             }
             if uri.starts_with("spotify:end-group:") {
@@ -174,7 +174,7 @@ impl Catalogue {
     }
 }
 
-fn canonical_playlist_uri(uri: &str) -> Result<Option<String>, String> {
+fn canonical_playlist_uri(uri: &str) -> Result<Option<String>, LocalizedText> {
     let id = if let Some(id) = uri.strip_prefix("spotify:playlist:") {
         id
     } else if let Some(named) = uri.strip_prefix("spotify:user:") {
@@ -195,7 +195,7 @@ fn canonical_playlist_uri(uri: &str) -> Result<Option<String>, String> {
         return Err("Identifiant de playlist Spotify invalide".into());
     }
     SpotifyId::from_base62(id)
-        .map_err(|_| "Identifiant de playlist Spotify invalide".to_owned())?;
+        .map_err(|_| LocalizedText::from("Identifiant de playlist Spotify invalide"))?;
     Ok(Some(format!("spotify:playlist:{id}")))
 }
 
@@ -275,7 +275,7 @@ mod tests {
         page
     }
 
-    fn push(catalogue: &mut Catalogue, page: &SelectedListContent) -> Result<bool, String> {
+    fn push(catalogue: &mut Catalogue, page: &SelectedListContent) -> Result<bool, LocalizedText> {
         // Exercise the production protobuf decoder, including required fields.
         catalogue.push_bytes(&page.write_to_bytes().unwrap())
     }

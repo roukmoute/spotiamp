@@ -56,9 +56,10 @@ public static class SpotiampPerformanceWindow {
             if (owner != processId || !IsWindowVisible(window)) return true;
             var text = new StringBuilder(256); GetWindowText(window, text, text.Capacity);
             var title = text.ToString();
-            bool matches = library ? title == "Spotiamp — Bibliothèque Spotify"
+            bool matches = library ? (title == "Spotiamp — Bibliothèque Spotify" || title == "Spotiamp — Spotify Library")
                 : title.StartsWith("Spotiamp ", StringComparison.Ordinal)
-                    && (title.EndsWith(" — lecteur Spotify", StringComparison.Ordinal)
+                    && (title.EndsWith(" — Spotify player", StringComparison.Ordinal)
+                        || title.EndsWith(" — lecteur Spotify", StringComparison.Ordinal)
                         || title.EndsWith(" — lecteur Spotify expérimental", StringComparison.Ordinal));
             if (matches) {
                 matchesCount++;
@@ -231,14 +232,14 @@ $report = [ordered]@{
     skin_comparison = @()
 }
 function Assert-CandidateTitle([IntPtr]$Window) {
-    if ([SpotiampPerformanceWindow]::WindowTitle($Window) -cne $candidateTitle) {
-        throw "Unexpected candidate reader title; expected '$candidateTitle'"
+    if (@($candidateTitles | Where-Object { $_ -ceq [SpotiampPerformanceWindow]::WindowTitle($Window) }).Count -ne 1) {
+        throw "Unexpected candidate reader title; expected a supported localized title for $candidateVersion"
     }
 }
 try {
     $candidateVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($executables.candidate).ProductVersion
     if ([string]::IsNullOrWhiteSpace($candidateVersion)) { throw 'Candidate ProductVersion is missing' }
-    $candidateTitle = "Spotiamp $candidateVersion — lecteur Spotify"
+    $candidateTitles = @("Spotiamp $candidateVersion — lecteur Spotify", "Spotiamp $candidateVersion — Spotify player")
     foreach ($label in $executables.Keys) {
         $path = $executables[$label]
         $report.executables[$label] = @{

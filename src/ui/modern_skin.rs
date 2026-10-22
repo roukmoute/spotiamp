@@ -170,7 +170,7 @@ impl View {
         self.tiny_text(164, 72, "PCM", MUTED);
         self.modern_button(
             Button::Connection,
-            ConnectionAction::for_state(s).label(),
+            ConnectionAction::for_state(s).label(self.language),
             true,
         );
         self.rect(214, 36, 4, 4, if s.connected { 0x008faf } else { 0x8393a4 });
@@ -178,9 +178,10 @@ impl View {
             225,
             34,
             if s.connected {
-                "SPOTIFY / EN LIGNE"
+                self.language.text("SPOTIFY / EN LIGNE", "SPOTIFY / ONLINE")
             } else {
-                "SPOTIFY / HORS LIGNE"
+                self.language
+                    .text("SPOTIFY / HORS LIGNE", "SPOTIFY / OFFLINE")
             },
             INK,
             24,
@@ -190,8 +191,10 @@ impl View {
         self.text(
             219,
             62,
-            row.map(|r| r.title.as_str())
-                .unwrap_or("Votre musique. Tout simplement."),
+            row.map(|r| r.display_title(self.language)).unwrap_or(
+                self.language
+                    .text("Votre musique. Tout simplement.", "Your music. Simply."),
+            ),
             ICE,
             40,
         );
@@ -214,8 +217,14 @@ impl View {
             self.modern_grip((knob, 96, 22, 11), self.dragging == 1);
         }
         let notice = match self.update {
-            UpdateStatus::Available { .. } => Some("Mise à jour disponible - F2"),
-            UpdateStatus::Ready { .. } => Some("Mise à jour prête - F2"),
+            UpdateStatus::Available { .. } => Some(
+                self.language
+                    .text("Mise à jour disponible - F2", "Update available - F2"),
+            ),
+            UpdateStatus::Ready { .. } => Some(
+                self.language
+                    .text("Mise à jour prête - F2", "Update ready - F2"),
+            ),
             _ => None,
         };
         if let Some(notice) = notice {
@@ -272,14 +281,23 @@ impl View {
 
         self.rect(4, 142, WIDTH - 8, 1, 0x667e94);
         self.rect(4, 143, WIDTH - 8, 1, 0xf1f8fe);
-        self.modern_header(145, "LISTE DE LECTURE");
-        self.modern_button(Button::Library, "BIBLIO. F3", true);
+        self.modern_header(145, self.language.text("LISTE DE LECTURE", "PLAY QUEUE"));
+        self.modern_button(
+            Button::Library,
+            self.language.text("BIBLIO. F3", "LIBRARY F3"),
+            true,
+        );
         self.modern_panel((14, 171, 408, 23));
         if self.input_active {
             self.rect(16, 192, 404, 1, CYAN);
         }
         let input = if self.input.is_empty() {
-            "Coller un lien Spotify : titre, album...".to_owned()
+            self.language
+                .text(
+                    "Coller un lien Spotify : titre, album...",
+                    "Paste a Spotify link: track, album...",
+                )
+                .to_owned()
         } else {
             self.input
                 .chars()
@@ -300,8 +318,12 @@ impl View {
             if self.input.is_empty() { MUTED } else { ICE },
             49,
         );
-        self.modern_button(Button::Paste, "COL.", true);
-        self.modern_button(Button::Add, "+ AJ.", s.connected && !s.busy);
+        self.modern_button(Button::Paste, self.language.text("COL.", "PASTE"), true);
+        self.modern_button(
+            Button::Add,
+            self.language.text("+ AJ.", "+ ADD"),
+            s.connected && !s.busy,
+        );
         gradient(
             &mut self.pixels,
             WIDTH,
@@ -310,23 +332,62 @@ impl View {
             0x23435d,
         );
         self.rect(15, 203, 530, 1, 0x7b99b1);
-        self.tiny_text(19, 208, "TITRE / ARTISTE", ICE);
-        self.tiny_text(502, 208, "DUREE", ICE);
+        self.tiny_text(
+            19,
+            208,
+            self.language.text("TITRE / ARTISTE", "TITLE / ARTIST"),
+            ICE,
+        );
+        self.tiny_text(502, 208, self.language.text("DUREE", "TIME"), ICE);
         self.modern_panel((14, 219, 532, 195));
         self.offset = self.offset.min(s.queue.len().saturating_sub(ROWS));
         if self.selected.is_some_and(|i| i >= s.queue.len()) {
             self.selected = s.queue.len().checked_sub(1);
         }
         if s.queue.is_empty() {
-            self.text(78, 266, "LE PLAISIR D'UN PETIT LECTEUR.", CYAN, 49);
+            self.text(
+                78,
+                266,
+                self.language.text(
+                    "LE PLAISIR D'UN PETIT LECTEUR.",
+                    "THE JOY OF A SMALL PLAYER.",
+                ),
+                CYAN,
+                49,
+            );
             for (y, text) in [
-                (299, "1. Cliquez sur CONNEXION."),
-                (320, "2. Ouvrez vos playlists : BIBLIO. F3."),
-                (341, "3. Double-cliquez une playlist pour lire."),
+                (
+                    299,
+                    self.language
+                        .text("1. Cliquez sur CONNEXION.", "1. Click CONNECT."),
+                ),
+                (
+                    320,
+                    self.language.text(
+                        "2. Ouvrez vos playlists : BIBLIO. F3.",
+                        "2. Open your playlists: LIBRARY F3.",
+                    ),
+                ),
+                (
+                    341,
+                    self.language.text(
+                        "3. Double-cliquez une playlist pour lire.",
+                        "3. Double-click a playlist to play.",
+                    ),
+                ),
             ] {
                 self.text(57, y, text, ICE, 58);
             }
-            self.text(57, 378, "Compte Premium requis. Aide : F1", MUTED, 55);
+            self.text(
+                57,
+                378,
+                self.language.text(
+                    "Compte Premium requis. Aide : F1",
+                    "Premium account required. Help: F1",
+                ),
+                MUTED,
+                55,
+            );
         } else {
             for (display, (index, row)) in s
                 .queue
@@ -358,7 +419,7 @@ impl View {
                 self.text(
                     59,
                     y + 3,
-                    &row.title,
+                    row.display_title(self.language),
                     if current || selected { ICE } else { 0xc3e4f5 },
                     52,
                 );
@@ -378,11 +439,19 @@ impl View {
                 );
             }
         }
-        self.modern_button(Button::Remove, "SUPPRIMER", self.selected.is_some());
-        self.modern_button(Button::Clear, "VIDER", !s.queue.is_empty());
+        self.modern_button(
+            Button::Remove,
+            self.language.text("SUPPRIMER", "REMOVE"),
+            self.selected.is_some(),
+        );
+        self.modern_button(
+            Button::Clear,
+            self.language.text("VIDER", "CLEAR"),
+            !s.queue.is_empty(),
+        );
         self.modern_panel((197, 419, 83, 17));
         self.text(202, 424, &format!("{:03}", s.queue.len()), CYAN, 3);
-        self.tiny_text(232, 426, "TITRES", MUTED);
+        self.tiny_text(232, 426, self.language.text("TITRES", "TRACKS"), MUTED);
         self.tiny_text(300, 426, "KB/S", INK);
         for (control, quality) in [
             (Button::Quality96, AudioQuality::Kbps96),
@@ -429,8 +498,8 @@ impl View {
             .transient
             .as_ref()
             .filter(|(_, at)| at.elapsed() < Duration::from_secs(8))
-            .map(|(text, _)| text.as_str())
-            .unwrap_or(&s.status);
+            .map(|(text, _)| text.text(self.language))
+            .unwrap_or_else(|| s.status.text(self.language));
         let first: String = status.chars().take(66).collect();
         let second: String = status.chars().skip(66).take(66).collect();
         self.text(15, 450, &first, INK, 66);
@@ -441,17 +510,21 @@ impl View {
                 Some(Button::Shuffle) => Some((
                     225,
                     if s.shuffle {
-                        "Lecture aléatoire : activée"
+                        self.language
+                            .text("Lecture aléatoire : activée", "Shuffle: on")
                     } else {
-                        "Lecture aléatoire : désactivée"
+                        self.language
+                            .text("Lecture aléatoire : désactivée", "Shuffle: off")
                     },
                 )),
                 Some(Button::Repeat) => Some((
                     225,
                     if s.repeat {
-                        "Répéter la file : activé"
+                        self.language
+                            .text("Répéter la file : activé", "Repeat queue: on")
                     } else {
-                        "Répéter la file : désactivé"
+                        self.language
+                            .text("Répéter la file : désactivé", "Repeat queue: off")
                     },
                 )),
                 _ => None,

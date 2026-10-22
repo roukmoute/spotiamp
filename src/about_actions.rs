@@ -1,6 +1,6 @@
 //! Small About actions. Only a fixed project URL leaves the application; the
 //! copied diagnostic text is an explicit allowlist, never a snapshot dump.
-use crate::model::Snapshot;
+use crate::{locale::Language, localized_text::LocalizedText, model::Snapshot};
 use std::{
     process::{Command, Stdio},
     sync::mpsc::{self, Receiver, TryRecvError},
@@ -8,36 +8,73 @@ use std::{
 
 pub const PROJECT_URL: &str = "https://github.com/roukmoute/spotiamp";
 
+#[cfg(test)]
 pub fn diagnostic_info(snapshot: &Snapshot) -> String {
+    diagnostic_info_in(snapshot, Language::French)
+}
+
+pub fn diagnostic_info_in(snapshot: &Snapshot, language: Language) -> String {
     #[cfg(feature = "spotify")]
     let (features, engine) = (
-        "lecture Spotify",
+        language.text("lecture Spotify", "Spotify playback"),
         format!("librespot {}", librespot_core::version::SEMVER),
     );
     #[cfg(not(feature = "spotify"))]
-    let (features, engine) = ("interface seule", "aucun (interface seule)".to_owned());
+    let (features, engine) = (
+        language.text("interface seule", "UI only"),
+        language
+            .text("aucun (interface seule)", "none (UI only)")
+            .to_owned(),
+    );
 
+    let labels = match language {
+        Language::French => [
+            "Systeme",
+            "Architecture",
+            "Fonctionnalites",
+            "Moteur",
+            "Qualite preferee",
+            "Projet",
+        ],
+        Language::English => [
+            "System",
+            "Architecture",
+            "Features",
+            "Engine",
+            "Preferred quality",
+            "Project",
+        ],
+    };
     format!(
-        "Spotiamp {}\nSysteme : {}\nArchitecture : {}\nFonctionnalites : {}\nMoteur : {}\nQualite preferee : {} kbit/s\nProjet : {}\n",
+        "Spotiamp {}\n{} : {}\n{} : {}\n{} : {}\n{} : {}\n{} : {} kbit/s\n{} : {}\n",
         env!("CARGO_PKG_VERSION"),
+        labels[0],
         std::env::consts::OS,
+        labels[1],
         std::env::consts::ARCH,
+        labels[2],
         features,
+        labels[3],
         engine,
+        labels[4],
         snapshot.quality.kbps(),
+        labels[5],
         PROJECT_URL,
     )
 }
 
 #[derive(Default)]
 pub struct ProjectOpener {
-    pending: Option<Receiver<Result<(), &'static str>>>,
+    pending: Option<Receiver<Result<(), LocalizedText>>>,
 }
 
 impl ProjectOpener {
-    pub fn start(&mut self) -> Result<(), &'static str> {
+    pub fn start(&mut self) -> Result<(), LocalizedText> {
         if self.pending.is_some() {
-            return Err("Ouverture du projet deja en cours.");
+            return Err(LocalizedText::new(
+                "Ouverture du projet deja en cours.",
+                "The project page is already opening.",
+            ));
         }
         let (sender, receiver) = mpsc::channel();
         // Some desktop launchers wait for the browser. Keep that wait outside
@@ -48,27 +85,43 @@ impl ProjectOpener {
                 let result = project_command().and_then(|mut command| {
                     command
                         .status()
-                        .map_err(|_| "Impossible de lancer le navigateur.")
+                        .map_err(|_| {
+                            LocalizedText::new(
+                                "Impossible de lancer le navigateur.",
+                                "Cannot launch the browser.",
+                            )
+                        })
                         .and_then(|status| {
                             if status.success() {
                                 Ok(())
                             } else {
-                                Err("L'ouverture du projet dans le navigateur a echoue.")
+                                Err(LocalizedText::new(
+                                    "L'ouverture du projet dans le navigateur a echoue.",
+                                    "Could not open the project page in your browser.",
+                                ))
                             }
                         })
                 });
                 let _ = sender.send(result);
             })
-            .map_err(|_| "Impossible de demarrer l'ouverture du projet.")?;
+            .map_err(|_| {
+                LocalizedText::new(
+                    "Impossible de demarrer l'ouverture du projet.",
+                    "Cannot start opening the project page.",
+                )
+            })?;
         self.pending = Some(receiver);
         Ok(())
     }
 
-    pub fn poll(&mut self) -> Option<Result<(), &'static str>> {
+    pub fn poll(&mut self) -> Option<Result<(), LocalizedText>> {
         let result = match self.pending.as_ref()?.try_recv() {
             Ok(result) => result,
             Err(TryRecvError::Empty) => return None,
-            Err(TryRecvError::Disconnected) => Err("L'ouverture du projet s'est interrompue."),
+            Err(TryRecvError::Disconnected) => Err(LocalizedText::new(
+                "L'ouverture du projet s'est interrompue.",
+                "Opening the project page was interrupted.",
+            )),
         };
         self.pending = None;
         Some(result)
@@ -76,7 +129,7 @@ impl ProjectOpener {
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
-fn project_command() -> Result<Command, &'static str> {
+fn project_command() -> Result<Command, LocalizedText> {
     #[cfg(target_os = "windows")]
     let mut command = {
         use std::os::windows::process::CommandExt;
@@ -108,8 +161,11 @@ fn project_command() -> Result<Command, &'static str> {
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
-fn project_command() -> Result<Command, &'static str> {
-    Err("Ouverture du navigateur non prise en charge sur ce systeme.")
+fn project_command() -> Result<Command, LocalizedText> {
+    Err(LocalizedText::new(
+        "Ouverture du navigateur non prise en charge sur ce systeme.",
+        "Opening a browser is not supported on this system.",
+    ))
 }
 
 #[cfg(test)]

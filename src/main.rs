@@ -11,10 +11,13 @@ mod engine;
 #[cfg(not(feature = "spotify"))]
 #[path = "engine_stub.rs"]
 mod engine;
+mod language_settings;
 #[cfg(any(test, target_os = "macos"))]
 mod library_native_tests;
 mod library_ui;
 mod library_window;
+mod locale;
+mod localized_text;
 #[cfg(target_os = "macos")]
 mod magnetic_native_macos_tests;
 mod model;
@@ -33,6 +36,8 @@ mod windows_icon;
 #[cfg(target_os = "windows")]
 mod windows_install;
 
+use locale::{Language, LanguagePreference};
+use localized_text::LocalizedText;
 use minifb::{InputCallback, Key, KeyRepeat, MouseButton, MouseMode, Scale, Window, WindowOptions};
 use model::Command;
 use std::{
@@ -280,6 +285,7 @@ fn process_frame_input(
                     | ui::Action::CheckUpdates
                     | ui::Action::DownloadUpdate
                     | ui::Action::InstallUpdate
+                    | ui::Action::SetLanguage(_)
                     | ui::Action::Minimize
                     | ui::Action::Close
             )
@@ -446,6 +452,24 @@ fn requested_skin(args: &[String]) -> Result<Option<appearance::Skin>, &'static 
         .ok_or("--skin expects classic or modern")
 }
 
+fn requested_language(args: &[String]) -> Result<Option<LanguagePreference>, &'static str> {
+    let Some(index) = args.iter().position(|arg| arg == "--language") else {
+        return Ok(None);
+    };
+    args.get(index + 1)
+        .and_then(|value| LanguagePreference::parse(value))
+        .map(Some)
+        .ok_or("--language expects auto, fr or en")
+}
+
+fn player_title(language: Language) -> String {
+    format!(
+        "Spotiamp {} — {}",
+        env!("CARGO_PKG_VERSION"),
+        language.text("lecteur Spotify", "Spotify player")
+    )
+}
+
 fn toggle_library(
     library: &mut Option<library_window::LibraryWindow>,
     close_pending: &mut bool,
@@ -467,7 +491,10 @@ fn toggle_library(
     }
     flush_library_close(close_pending, engine);
     if *close_pending {
-        view.notice("Bibliotheque en cours de fermeture; reessayez dans un instant.");
+        view.notice(LocalizedText::new(
+            "Bibliotheque en cours de fermeture; reessayez dans un instant.",
+            "Library is closing; try again in a moment.",
+        ));
         return;
     }
     let saved = if remember_visibility {
@@ -478,11 +505,12 @@ fn toggle_library(
     match library_window::LibraryWindow::new_with_layout(scale, parent, saved) {
         Ok(mut window) => {
             window.set_skin(view.skin);
+            window.set_language(view.language);
             if let Err(error) = engine
                 .tx
                 .try_send(Command::Library(model::LibraryCommand::Open))
             {
-                view.notice(&error.to_string());
+                view.notice(engine::command_error(&error));
             } else {
                 *library = Some(window);
                 if remember_visibility {
@@ -490,7 +518,10 @@ fn toggle_library(
                 }
             }
         }
-        Err(_) => view.notice("Impossible d'ouvrir la bibliotheque Spotify."),
+        Err(_) => view.notice(LocalizedText::new(
+            "Impossible d'ouvrir la bibliotheque Spotify.",
+            "Cannot open the Spotify library.",
+        )),
     }
 }
 
@@ -550,7 +581,7 @@ fn main() {
                 return;
             }
             updater::install::Dispatch::Continue(result) => Some(match result {
-                Ok(()) => "Mise a jour installee.".to_owned(),
+                Ok(()) => LocalizedText::new("Mise a jour installee.", "Update installed."),
                 Err(error) => error,
             }),
         };
@@ -564,7 +595,7 @@ fn main() {
     }
 }
 
-fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
+fn run(initial_notice: Option<LocalizedText>) -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args_os()
         .skip(1)
         .map(|arg| arg.to_string_lossy().into_owned())
@@ -573,11 +604,13 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
         println!(concat!(
             "Spotiamp ",
             env!("CARGO_PKG_VERSION"),
-            "\n--scale 2        double-size bitmap UI\n--skin classic|modern   override the saved skin for this run\n--library        open the playlist library for this run (overrides saved layout)\n--no-library     start with the player only for this run; F3 opens the library\n--about [player|credits|shortcuts|history|updates]   open the About dialog\n--screenshot FILE.ppm   render the disconnected UI without opening a window\n--no-update-check       skip the automatic startup update check\n--quit-after SECONDS    automatic exit for reproducible idle measurements\nSpace: play/pause; Ctrl+V: paste URL; Enter: add/play; Delete: remove; F1: help; F2: About; F3: playlist library; F4: switch skin"
+            "\n--scale 2        double-size bitmap UI\n--skin classic|modern   override the saved skin for this run\n--language auto|fr|en   override the saved language for this run\n--library        open the playlist library for this run (overrides saved layout)\n--no-library     start with the player only for this run; F3 opens the library\n--about [player|credits|shortcuts|history|updates]   open the About dialog\n--screenshot FILE.ppm   render the disconnected UI without opening a window\n--no-update-check       skip the automatic startup update check\n--quit-after SECONDS    automatic exit for reproducible idle measurements\nSpace: play/pause; Ctrl+V: paste URL; Enter: add/play; Delete: remove; F1: help; F2: About; F3: playlist library; F4: switch skin"
         ));
         return Ok(());
     }
     let mut view = ui::View::default();
+    let language_preference = requested_language(&args)?.unwrap_or_else(language_settings::load);
+    view.set_language(language_preference, language_preference.resolve());
     view.set_skin(requested_skin(&args)?.unwrap_or_else(skin_settings::load));
     if let Some(notice) = initial_notice {
         view.notice(&notice);
@@ -605,7 +638,7 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
         Scale::X1
     };
     let mut window = Window::new(
-        &format!("Spotiamp {} — lecteur Spotify", env!("CARGO_PKG_VERSION")),
+        &player_title(view.language),
         ui::WIDTH,
         ui::HEIGHT,
         WindowOptions {
@@ -639,7 +672,8 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
     if let Some(saved) = layout.saved {
         window.set_position(saved.player.0, saved.player.1);
     }
-    let engine = engine::Engine::spawn();
+    let engine = engine::Engine::spawn_with_language(view.language);
+    let mut pending_language = None;
     let mut library = None;
     let mut library_close_pending = false;
     let show_library = if args.iter().any(|arg| arg == "--no-library") {
@@ -671,6 +705,11 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
         if quit_after.is_some_and(|s| start.elapsed() >= Duration::from_secs(s)) {
             break;
         }
+        if let Some(language) = pending_language
+            && engine.sync_language(language)
+        {
+            pending_language = None;
+        }
         {
             let shared = engine.state.lock().unwrap_or_else(|e| e.into_inner());
             if *shared != snapshot {
@@ -688,7 +727,10 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
         }
         if let Some(result) = project_opener.poll() {
             view.notice(match result {
-                Ok(()) => "Projet transmis au navigateur.",
+                Ok(()) => LocalizedText::new(
+                    "Projet transmis au navigateur.",
+                    "Project page sent to the browser.",
+                ),
                 Err(message) => message,
             });
         }
@@ -758,6 +800,30 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
                     }
                     None
                 }
+                ui::Action::SetLanguage(preference) => {
+                    let language = preference.resolve();
+                    view.set_language(preference, language);
+                    window.set_title(&player_title(language));
+                    if let Some(library) = &mut library {
+                        library.set_language(language);
+                    }
+                    if let Err(error) = language_settings::save(preference) {
+                        view.notice(match error {
+                            language_settings::SaveError::MissingDirectory => LocalizedText::new(
+                                "Langue appliquee mais non memorisee : dossier indisponible.",
+                                "Language applied but not saved: settings folder unavailable.",
+                            ),
+                            language_settings::SaveError::WriteFailed => LocalizedText::new(
+                                "Langue appliquee mais non memorisee : ecriture impossible.",
+                                "Language applied but not saved: cannot write settings.",
+                            ),
+                        });
+                    }
+                    // Keep only the latest choice if the bounded command queue
+                    // is briefly full; retry through the existing event loop.
+                    pending_language = (!engine.sync_language(language)).then_some(language);
+                    None
+                }
                 ui::Action::Submit => {
                     let text = view.input.trim().to_owned();
                     if text.is_empty() {
@@ -776,7 +842,10 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
                             view.input_active = true;
                             view.select_all = true;
                         }
-                        None => view.notice("Presse-papiers texte indisponible."),
+                        None => view.notice(LocalizedText::new(
+                            "Presse-papiers texte indisponible.",
+                            "Text clipboard unavailable.",
+                        )),
                     }
                     None
                 }
@@ -786,13 +855,19 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
                     }
                     let result = clipboard.as_mut().and_then(|clipboard| {
                         clipboard
-                            .set_text(about_actions::diagnostic_info(&snapshot))
+                            .set_text(about_actions::diagnostic_info_in(&snapshot, view.language))
                             .ok()
                     });
                     view.notice(if result.is_some() {
-                        "Informations techniques copiees."
+                        LocalizedText::new(
+                            "Informations techniques copiees.",
+                            "Technical information copied.",
+                        )
                     } else {
-                        "Copie impossible : presse-papiers indisponible."
+                        LocalizedText::new(
+                            "Copie impossible : presse-papiers indisponible.",
+                            "Cannot copy: clipboard unavailable.",
+                        )
                     });
                     None
                 }
@@ -810,7 +885,10 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
                 }
                 ui::Action::OpenProject => {
                     view.notice(match project_opener.start() {
-                        Ok(()) => "Ouverture du projet dans le navigateur...",
+                        Ok(()) => LocalizedText::new(
+                            "Ouverture du projet dans le navigateur...",
+                            "Opening the project page in your browser...",
+                        ),
                         Err(message) => message,
                     });
                     None
@@ -818,7 +896,7 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
             };
             if let Some(c) = command {
                 if let Err(e) = engine.tx.try_send(c) {
-                    view.notice(&e.to_string());
+                    view.notice(engine::command_error(&e));
                 } else {
                     view.input_active = false;
                 }
@@ -839,9 +917,10 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
         let close_library = match library.as_mut().map(|library| library.frame(&engine)) {
             Some(Ok(open)) => !open,
             Some(Err(_)) => {
-                view.notice(
+                view.notice(LocalizedText::new(
                     "La fenetre de bibliotheque a ete fermee apres une erreur d'affichage.",
-                );
+                    "The library window closed after a display error.",
+                ));
                 true
             }
             None => false,
@@ -882,6 +961,9 @@ mod library_input_tests;
 
 #[cfg(test)]
 mod skin_input_tests;
+
+#[cfg(test)]
+mod language_input_tests;
 
 #[cfg(test)]
 mod playback_follow_input_tests;

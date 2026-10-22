@@ -155,9 +155,10 @@ function Wait-ReaderWindow([Diagnostics.Process]$Process, [switch]$Library) {
         if ($Process.HasExited) { throw "Reader exited before showing $description`: $($Process.ExitCode)" }
         $matches = @([SpotiampInstallerWindow]::VisibleWindows($Process.Id) | Where-Object {
             $title = [SpotiampInstallerWindow]::WindowTitle($_)
-            if ($Library) { $title -eq 'Spotiamp — Bibliothèque Spotify' }
+            if ($Library) { $title -ceq 'Spotiamp — Bibliothèque Spotify' -or $title -ceq 'Spotiamp — Spotify Library' }
             else {
                 $title.StartsWith('Spotiamp ', [StringComparison]::Ordinal) -and (
+                    $title.EndsWith(' — Spotify player', [StringComparison]::Ordinal) -or
                     $title.EndsWith(' — lecteur Spotify', [StringComparison]::Ordinal) -or
                     $title.EndsWith(' — lecteur Spotify expérimental', [StringComparison]::Ordinal))
             }
@@ -291,7 +292,8 @@ function Assert-NativeWindowIcons([IntPtr]$Window, [string]$Label) {
 }
 function Assert-ReaderWindowIcons([Diagnostics.Process]$Process, [string]$Label) {
     $player = Wait-ReaderWindow $Process
-    Assert-That ([SpotiampInstallerWindow]::WindowTitle($player) -ceq "Spotiamp $ExpectedVersion — lecteur Spotify") 'Unexpected installed reader window title'
+    $title = [SpotiampInstallerWindow]::WindowTitle($player)
+    Assert-That ($title -ceq "Spotiamp $ExpectedVersion — lecteur Spotify" -or $title -ceq "Spotiamp $ExpectedVersion — Spotify player") 'Unexpected installed reader window title'
     # Both windows now open by default. Process.MainWindowHandle may identify
     # either one; select by PID/title and do not toggle F3 before checking it.
     $library = Wait-ReaderWindow $Process -Library

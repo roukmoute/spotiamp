@@ -28,7 +28,9 @@ use tokio::{
 pub use crate::model::{Command, Snapshot, TrackRow};
 use crate::{
     credentials,
-    model::{AudioQuality, LibrarySnapshot, PlaybackOrigin},
+    locale::Language,
+    localized_text::LocalizedText,
+    model::{AudioQuality, LibrarySnapshot, PlaybackOrigin, TrackTitleKind},
     settings,
 };
 
@@ -84,8 +86,37 @@ pub struct Engine {
     pub library: Arc<Mutex<LibrarySnapshot>>,
 }
 
+/// Localized command-channel errors without formatting a command payload.
+pub fn command_error(error: &mpsc::error::TrySendError<Command>) -> LocalizedText {
+    match error {
+        mpsc::error::TrySendError::Full(_) => LocalizedText::new(
+            "Le lecteur est occupe; reessayez dans un instant.",
+            "The player is busy; try again in a moment.",
+        ),
+        mpsc::error::TrySendError::Closed(_) => LocalizedText::new(
+            "Le moteur audio est arrete; redemarrez Spotiamp.",
+            "The audio engine has stopped; restart Spotiamp.",
+        ),
+    }
+}
+
 impl Engine {
+    /// A full queue defers this cosmetic setting to the existing UI loop.
+    /// A closed engine cannot consume it, so it must not cause endless retries.
+    pub fn sync_language(&self, language: Language) -> bool {
+        !matches!(
+            self.tx.try_send(Command::SetLanguage(language)),
+            Err(mpsc::error::TrySendError::Full(_))
+        )
+    }
+
+    // Convenience entry point used by the standalone diagnostic probe.
+    #[allow(dead_code)]
     pub fn spawn() -> Self {
+        Self::spawn_with_language(Language::French)
+    }
+
+    pub fn spawn_with_language(language: Language) -> Self {
         let state = Arc::new(Mutex::new(Snapshot {
             volume: 45_875,
             quality: settings::load(),
@@ -106,6 +137,7 @@ impl Engine {
                 match runtime {
                     Ok(runtime) => {
                         let mut worker = Worker::new(shared);
+                        worker.language = language;
                         worker.library.shared = shared_library;
                         runtime.block_on(worker.run(rx));
                         // A browser callback may still be winding down. Never hold up
@@ -158,12 +190,12 @@ enum Update {
     },
     Connected {
         generation: u64,
-        result: Result<auth::Connected, String>,
+        result: Result<auth::Connected, LocalizedText>,
     },
     Rows {
         generation: u64,
         rows: Vec<TrackRow>,
-        notice: String,
+        notice: LocalizedText,
     },
     Metadata {
         generation: u64,
@@ -171,7 +203,7 @@ enum Update {
     },
     Finished {
         generation: u64,
-        result: Result<(), String>,
+        result: Result<(), LocalizedText>,
     },
 }
 
@@ -183,6 +215,7 @@ struct DeferredLoad {
 }
 
 struct Worker {
+    language: Language,
     state: Arc<Mutex<Snapshot>>,
     library: library::State,
     session: Option<Session>,
@@ -210,7 +243,7 @@ struct Worker {
     // The preference can change during playback. Keep the last load's request
     // separate; a subsequent Playing event must not claim the new preference.
     load_quality: AudioQuality,
-    audio_error: Arc<Mutex<Option<String>>>,
+    audio_error: Arc<Mutex<Option<LocalizedText>>>,
 }
 
 impl Worker {
@@ -218,6 +251,7 @@ impl Worker {
         let load_quality = state.lock().map(|s| s.quality).unwrap_or_default();
         let wants_playback = state.lock().is_ok_and(|s| s.playing);
         let mut worker = Self {
+            language: Language::French,
             state,
             library: library::State::default(),
             session: None,
@@ -327,9 +361,11 @@ impl Worker {
             (mode == auth::Mode::Manual).then(|| Arc::new(credentials::LoginAttempt::default()));
         self.login_attempt = attempt.clone();
         let backend = self.auth_backend.clone();
+        let language = self.language;
         let updates = updates.clone();
         self.connect_task = Some(tokio::spawn(async move {
-            let result = auth::connect(backend.as_ref(), mode, attempt, epoch, generation).await;
+            let result =
+                auth::connect(backend.as_ref(), mode, attempt, epoch, generation, language).await;
             // Connected owns the session until Worker accepts it. A closed
             // update channel or cancelled/stale result safely shuts it down.
             let _ = updates.send(Update::Connected { generation, result }).await;
@@ -473,6 +509,7 @@ impl Worker {
                 }
                 edit(&self.state, |s| s.volume = volume);
             }
+            Command::SetLanguage(language) => self.language = language,
             Command::SetQuality(quality) => {
                 self.set_quality(quality);
                 if let Err(message) = settings::save(quality) {
@@ -628,7 +665,10 @@ impl Worker {
         // still-loading track retains its original requested stream quality.
         edit(&self.state, |s| {
             s.quality = quality;
-            s.status = format!("Prochain chargement : {} kb/s demandes", quality.kbps());
+            s.status = LocalizedText::new(
+                format!("Prochain chargement : {} kb/s demandes", quality.kbps()),
+                format!("Next load: {} kb/s requested", quality.kbps()),
+            );
         });
     }
 
@@ -862,9 +902,15 @@ impl Worker {
                 edit(&self.state, |s| {
                     s.playing = true;
                     s.position_ms = position_ms;
-                    s.status = format!(
-                        "Lecture - qualite demandee {} kb/s",
-                        self.load_quality.kbps()
+                    s.status = LocalizedText::new(
+                        format!(
+                            "Lecture - qualite demandee {} kb/s",
+                            self.load_quality.kbps()
+                        ),
+                        format!(
+                            "Playing - requested quality {} kb/s",
+                            self.load_quality.kbps()
+                        ),
                     );
                 });
             }
@@ -914,6 +960,7 @@ impl Worker {
                     s.duration_ms = audio_item.duration_ms;
                     if let Some(row) = s.current.and_then(|i| s.queue.get_mut(i)) {
                         row.title = audio_item.name;
+                        row.title_kind = TrackTitleKind::Metadata;
                         row.duration_ms = audio_item.duration_ms;
                         if let librespot_metadata::audio::item::UniqueFields::Track {
                             artists,
@@ -1006,11 +1053,11 @@ async fn wait_for_load(deadline: Option<tokio::time::Instant>) {
 /// The device opens on Play, and its resources are released on Stop/Pause.
 pub(crate) struct NativeSink {
     output: Option<(rodio::Sink, rodio::OutputStream)>,
-    error: Arc<Mutex<Option<String>>>,
+    error: Arc<Mutex<Option<LocalizedText>>>,
 }
 
 impl NativeSink {
-    pub(crate) fn new(error: Arc<Mutex<Option<String>>>) -> Self {
+    pub(crate) fn new(error: Arc<Mutex<Option<LocalizedText>>>) -> Self {
         Self {
             output: None,
             error,
@@ -1023,11 +1070,14 @@ impl Sink for NativeSink {
         if self.output.is_none() {
             let mut stream =
                 rodio::OutputStreamBuilder::open_default_stream().map_err(|error| {
-                    let message = format!("Sortie audio indisponible : {error}");
+                    let message = LocalizedText::new(
+                        format!("Sortie audio indisponible : {error}"),
+                        format!("Audio output unavailable: {error}"),
+                    );
                     if let Ok(mut shared) = self.error.lock() {
                         *shared = Some(message.clone());
                     }
-                    SinkError::ConnectionRefused(message)
+                    SinkError::ConnectionRefused(message.to_string())
                 })?;
             stream.log_on_drop(false);
             let sink = rodio::Sink::connect_new(stream.mixer());
@@ -1144,7 +1194,7 @@ async fn resolve_ids(
     session: &Session,
     uri: &SpotifyUri,
     capacity: usize,
-) -> Result<(Vec<SpotifyUri>, bool), String> {
+) -> Result<(Vec<SpotifyUri>, bool), LocalizedText> {
     tokio::time::timeout(NETWORK_TIMEOUT, async {
         match uri {
             SpotifyUri::Track { .. } => Ok((vec![uri.clone()], false)),
@@ -1169,9 +1219,9 @@ async fn resolve_ids(
         }
     })
     .await
-    .map_err(|_| "Spotify ne repond pas; reessayez".to_owned())?
+    .map_err(|_| LocalizedText::from("Spotify ne repond pas; reessayez"))?
     .map_err(|_: librespot_core::Error| {
-        "Impossible de lire ce lien Spotify; verifiez son acces".to_owned()
+        LocalizedText::from("Impossible de lire ce lien Spotify; verifiez son acces")
     })
 }
 
@@ -1180,6 +1230,7 @@ async fn track_metadata(session: &Session, uri: &SpotifyUri) -> TrackRow {
     let uri = uri.to_uri().unwrap_or_default();
     match result {
         Ok(Ok(track)) => TrackRow {
+            title_kind: TrackTitleKind::Metadata,
             uri,
             title: track.name,
             artist: track
@@ -1191,7 +1242,7 @@ async fn track_metadata(session: &Session, uri: &SpotifyUri) -> TrackRow {
             duration_ms: track.duration.max(0) as u32,
         },
         _ => TrackRow {
-            title: "Titre Spotify (metadonnees indisponibles)".into(),
+            title_kind: TrackTitleKind::Unavailable,
             uri,
             ..TrackRow::default()
         },
@@ -1204,7 +1255,7 @@ async fn import(
     capacity: usize,
     generation: u64,
     updates: &mpsc::Sender<Update>,
-) -> Result<(), String> {
+) -> Result<(), LocalizedText> {
     let (ids, truncated) = resolve_ids(&session, &uri, capacity).await?;
     if ids.is_empty() {
         return Err("Aucun titre musical accessible dans ce lien".into());
@@ -1213,7 +1264,7 @@ async fn import(
         .iter()
         .filter_map(|id| {
             id.to_uri().ok().map(|uri| TrackRow {
-                title: "Chargement du titre...".into(),
+                title_kind: TrackTitleKind::Loading,
                 uri,
                 ..TrackRow::default()
             })
@@ -1221,9 +1272,15 @@ async fn import(
         .collect();
     let count = rows.len();
     let notice = if truncated {
-        format!("{count} titres ajoutes; liste limitee a {MAX_QUEUE} ou tronquee par Spotify")
+        LocalizedText::new(
+            format!("{count} titres ajoutes; liste limitee a {MAX_QUEUE} ou tronquee par Spotify"),
+            format!("{count} tracks added; list limited to {MAX_QUEUE} or truncated by Spotify"),
+        )
     } else {
-        format!("{count} titre(s) ajoute(s). Double-cliquez pour lire.")
+        LocalizedText::new(
+            format!("{count} titre(s) ajoute(s). Double-cliquez pour lire."),
+            format!("{count} track(s) added. Double-click to play."),
+        )
     };
     updates
         .send(Update::Rows {
@@ -1264,6 +1321,30 @@ async fn import(
 mod tests {
     use super::*;
     const ID: &str = "4uLU6hMCjMI75M1A2tKUQC";
+
+    #[test]
+    fn language_delivery_retries_after_full_queue_and_stops_after_close() {
+        let (tx, mut rx) = mpsc::channel(1);
+        let state = Arc::new(Mutex::new(Snapshot::default()));
+        let engine = Engine {
+            tx,
+            state: state.clone(),
+            library: Arc::new(Mutex::new(LibrarySnapshot::default())),
+        };
+        let before = state.lock().unwrap().clone();
+        engine.tx.try_send(Command::Next).unwrap();
+        assert!(!engine.sync_language(Language::English));
+        assert!(matches!(rx.try_recv(), Ok(Command::Next)));
+        assert!(engine.sync_language(Language::English));
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(Command::SetLanguage(Language::English))
+        ));
+        assert!(rx.try_recv().is_err());
+        assert_eq!(*state.lock().unwrap(), before);
+        drop(rx);
+        assert!(engine.sync_language(Language::French));
+    }
 
     #[test]
     fn quality_preferences_map_to_requested_stream_bitrates() {

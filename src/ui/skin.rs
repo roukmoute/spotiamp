@@ -369,15 +369,22 @@ impl View {
         }
         self.tiny_text(164, 72, "PCM", DIM);
 
-        self.button(421, 29, 125, ConnectionAction::for_state(s).label(), true);
+        self.button(
+            421,
+            29,
+            125,
+            ConnectionAction::for_state(s).label(self.language),
+            true,
+        );
         self.rect(214, 36, 4, 4, if s.connected { GREEN } else { 0x56515a });
         self.text(
             225,
             34,
             if s.connected {
-                "SPOTIFY / EN LIGNE"
+                self.language.text("SPOTIFY / EN LIGNE", "SPOTIFY / ONLINE")
             } else {
-                "SPOTIFY / HORS LIGNE"
+                self.language
+                    .text("SPOTIFY / HORS LIGNE", "SPOTIFY / OFFLINE")
             },
             if s.connected { GREEN } else { DIM },
             24,
@@ -387,16 +394,20 @@ impl View {
         self.text(
             219,
             62,
-            row.map(|r| r.title.as_str())
-                .unwrap_or("Votre musique. Tout simplement."),
+            row.map(|r| r.display_title(self.language)).unwrap_or(
+                self.language
+                    .text("Votre musique. Tout simplement.", "Your music. Simply."),
+            ),
             GREEN,
             40,
         );
         self.text(
             219,
             76,
-            row.map(|r| r.artist.as_str())
-                .unwrap_or("LECTEUR SPOTIFY NATIF"),
+            row.map(|r| r.artist.as_str()).unwrap_or(
+                self.language
+                    .text("LECTEUR SPOTIFY NATIF", "NATIVE SPOTIFY PLAYER"),
+            ),
             DIM,
             40,
         );
@@ -415,8 +426,14 @@ impl View {
             }
         }
         let update_notice = match self.update {
-            UpdateStatus::Available { .. } => Some("Mise à jour disponible - F2"),
-            UpdateStatus::Ready { .. } => Some("Mise à jour prête - F2"),
+            UpdateStatus::Available { .. } => Some(
+                self.language
+                    .text("Mise à jour disponible - F2", "Update available - F2"),
+            ),
+            UpdateStatus::Ready { .. } => Some(
+                self.language
+                    .text("Mise à jour prête - F2", "Update ready - F2"),
+            ),
             _ => None,
         };
         if let Some(notice) = update_notice {
@@ -469,11 +486,17 @@ impl View {
 
         self.rect(5, 142, WIDTH - 10, 1, 0x11121d);
         self.rect(5, 143, WIDTH - 10, 1, 0x656174);
-        self.header(145, "LISTE DE LECTURE");
+        self.header(145, self.language.text("LISTE DE LECTURE", "PLAY QUEUE"));
         let library_down = self.button_down(448, 145);
         self.metal_face(448, 145, 100, 16, true, library_down);
         let offset = usize::from(library_down);
-        self.text(458 + offset, 150 + offset, "BIBLIO. F3", 0x242b40, 10);
+        self.text(
+            458 + offset,
+            150 + offset,
+            self.language.text("BIBLIO. F3", "LIBRARY F3"),
+            0x242b40,
+            10,
+        );
         self.bevel(
             14,
             171,
@@ -483,7 +506,12 @@ impl View {
             true,
         );
         let text = if self.input.is_empty() {
-            "Coller un lien Spotify : titre, album...".to_owned()
+            self.language
+                .text(
+                    "Coller un lien Spotify : titre, album...",
+                    "Paste a Spotify link: track, album...",
+                )
+                .to_owned()
         } else {
             self.input
                 .chars()
@@ -504,30 +532,78 @@ impl View {
             if self.input.is_empty() { DIM } else { GREEN },
             49,
         );
-        self.button(430, 171, 48, "COL.", true);
-        self.button(484, 171, 62, "+ AJ.", s.connected && !s.busy);
+        self.button(430, 171, 48, self.language.text("COL.", "PASTE"), true);
+        self.button(
+            484,
+            171,
+            62,
+            self.language.text("+ AJ.", "+ ADD"),
+            s.connected && !s.busy,
+        );
         self.rect(15, 203, 530, 14, 0x343247);
         self.rect(15, 203, 530, 1, 0x555367);
         self.rect(15, 216, 530, 1, 0x141420);
-        self.tiny_text(19, 208, "TITRE / ARTISTE", WHITE);
-        self.tiny_text(502, 208, "DUREE", WHITE);
+        self.tiny_text(
+            19,
+            208,
+            self.language.text("TITRE / ARTISTE", "TITLE / ARTIST"),
+            WHITE,
+        );
+        self.tiny_text(502, 208, self.language.text("DUREE", "TIME"), WHITE);
         self.bevel(14, 219, 532, 195, BLACK, true);
         self.offset = self.offset.min(s.queue.len().saturating_sub(ROWS));
         if self.selected.is_some_and(|i| i >= s.queue.len()) {
             self.selected = s.queue.len().checked_sub(1);
         }
         if s.queue.is_empty() {
-            self.text(78, 266, "LE PLAISIR D'UN PETIT LECTEUR.", GREEN, 49);
-            self.text(57, 299, "1. Cliquez sur CONNEXION.", WHITE, 56);
-            self.text(57, 320, "2. Collez un lien Spotify (Ctrl+V).", WHITE, 56);
+            self.text(
+                78,
+                266,
+                self.language.text(
+                    "LE PLAISIR D'UN PETIT LECTEUR.",
+                    "THE JOY OF A SMALL PLAYER.",
+                ),
+                GREEN,
+                49,
+            );
+            self.text(
+                57,
+                299,
+                self.language
+                    .text("1. Cliquez sur CONNEXION.", "1. Click CONNECT."),
+                WHITE,
+                56,
+            );
+            self.text(
+                57,
+                320,
+                self.language.text(
+                    "2. Collez un lien Spotify (Ctrl+V).",
+                    "2. Paste a Spotify link (Ctrl+V).",
+                ),
+                WHITE,
+                56,
+            );
             self.text(
                 57,
                 341,
-                "3. AJOUTER, puis double-clic pour lire.",
+                self.language.text(
+                    "3. AJOUTER, puis double-clic pour lire.",
+                    "3. ADD, then double-click to play.",
+                ),
                 WHITE,
                 58,
             );
-            self.text(57, 378, "Compte Premium requis. Aide : F1", DIM, 55);
+            self.text(
+                57,
+                378,
+                self.language.text(
+                    "Compte Premium requis. Aide : F1",
+                    "Premium account required. Help: F1",
+                ),
+                DIM,
+                55,
+            );
         } else {
             for (display, (index, row)) in s
                 .queue
@@ -551,7 +627,7 @@ impl View {
                 self.text(
                     59,
                     y + 3,
-                    &row.title,
+                    row.display_title(self.language),
                     if current || selected { WHITE } else { GREEN },
                     52,
                 );
@@ -567,11 +643,23 @@ impl View {
             }
         }
 
-        self.button(14, 417, 98, "SUPPRIMER", self.selected.is_some());
-        self.button(118, 417, 74, "VIDER", !s.queue.is_empty());
+        self.button(
+            14,
+            417,
+            98,
+            self.language.text("SUPPRIMER", "REMOVE"),
+            self.selected.is_some(),
+        );
+        self.button(
+            118,
+            417,
+            74,
+            self.language.text("VIDER", "CLEAR"),
+            !s.queue.is_empty(),
+        );
         self.bevel(197, 419, 83, 17, BLACK, true);
         self.text(202, 424, &format!("{:03}", s.queue.len()), GREEN, 3);
-        self.tiny_text(232, 426, "TITRES", DIM);
+        self.tiny_text(232, 426, self.language.text("TITRES", "TRACKS"), DIM);
         self.rect(285, 420, 1, 16, 0x171722);
         self.rect(286, 420, 1, 16, 0x57536b);
         self.tiny_text(300, 426, "KB/S", WHITE);
@@ -610,12 +698,12 @@ impl View {
 
         self.rect(13, 443, 534, 1, 0x171722);
         self.rect(13, 444, 534, 1, 0x656174);
-        let notice = self
+        let status = self
             .transient
             .as_ref()
             .filter(|(_, at)| at.elapsed() < Duration::from_secs(8))
-            .map(|(t, _)| t.clone());
-        let status = notice.unwrap_or_else(|| s.status.clone());
+            .map(|(text, _)| text.text(self.language))
+            .unwrap_or_else(|| s.status.text(self.language));
         let chars: Vec<char> = status.chars().collect();
         self.text(
             15,
@@ -637,17 +725,21 @@ impl View {
                 Some(Button::Shuffle) => Some((
                     225,
                     if s.shuffle {
-                        "Lecture aléatoire : activée"
+                        self.language
+                            .text("Lecture aléatoire : activée", "Shuffle: on")
                     } else {
-                        "Lecture aléatoire : désactivée"
+                        self.language
+                            .text("Lecture aléatoire : désactivée", "Shuffle: off")
                     },
                 )),
                 Some(Button::Repeat) => Some((
                     225,
                     if s.repeat {
-                        "Répéter la file : activé"
+                        self.language
+                            .text("Répéter la file : activé", "Repeat queue: on")
                     } else {
-                        "Répéter la file : désactivé"
+                        self.language
+                            .text("Répéter la file : désactivé", "Repeat queue: off")
                     },
                 )),
                 _ => None,
@@ -683,30 +775,103 @@ impl View {
     fn render_help(&mut self) {
         self.bevel(24, 24, 512, 416, BG, false);
         self.rect(28, 28, 504, 29, 0x171724);
-        self.text(42, 43, "SPOTIAMP / MODE D'EMPLOI", GREEN, 58);
+        self.text(
+            42,
+            43,
+            self.language
+                .text("SPOTIAMP / MODE D'EMPLOI", "SPOTIAMP / HELP"),
+            GREEN,
+            58,
+        );
         for (i, line) in [
-            "CONNEXION ouvre votre navigateur pour Spotify.",
-            "La musique est lue directement par ce lecteur.",
-            "Le client Spotify officiel peut rester ferme.",
-            "F3 : ouvrir vos playlists Spotify",
-            "Ajoutez un lien de titre, d'album ou de playlist.",
-            "Exemple : https://open.spotify.com/track/...",
-            "Double-clic : lire. Liste limitee a 500 titres.",
-            "Qualite KB/S : 96 / 160 / 320 (defaut, memorise).",
-            "Ctrl+V / Cmd+V : coller un lien",
-            "Entree : ajouter le lien ou lire la selection",
-            "Espace : lecture / pause (hors saisie)",
-            "Fleches : selection / molette : defilement",
-            "Suppr : retirer un titre ; Tab : champ de lien",
-            "Barres : position de lecture et volume",
-            "F2 : À propos, crédits et raccourcis",
-            "Qualite modifiee : au prochain chargement audio.",
-            "Identifiants gardes dans le coffre du systeme.",
-            "Sans coffre disponible : connexion non memorisee.",
-            "DECONNECTER oublie la session enregistree.",
-            "Le moteur peut choisir un debit de repli.",
-            "Recherche et egaliseur non inclus.",
-            "F1, Echap ou clic : fermer cette aide.",
+            self.language.text(
+                "CONNEXION ouvre votre navigateur pour Spotify.",
+                "CONNECT opens your browser to sign in to Spotify.",
+            ),
+            self.language.text(
+                "La musique est lue directement par ce lecteur.",
+                "Music plays directly in this player.",
+            ),
+            self.language.text(
+                "Le client Spotify officiel peut rester ferme.",
+                "The official Spotify app can stay closed.",
+            ),
+            self.language.text(
+                "F3 : ouvrir vos playlists Spotify",
+                "F3: open your Spotify playlists",
+            ),
+            self.language.text(
+                "Ajoutez un lien de titre, d'album ou de playlist.",
+                "Add a link to a track, album or playlist.",
+            ),
+            self.language.text(
+                "Exemple : https://open.spotify.com/track/...",
+                "Example: https://open.spotify.com/track/...",
+            ),
+            self.language.text(
+                "Double-clic : lire. Liste limitee a 500 titres.",
+                "Double-click to play. Queue limited to 500 tracks.",
+            ),
+            self.language.text(
+                "Qualite KB/S : 96 / 160 / 320 (defaut, memorise).",
+                "Quality KB/S: 96 / 160 / 320 (default, remembered).",
+            ),
+            self.language.text(
+                "Ctrl+V / Cmd+V : coller un lien",
+                "Ctrl+V / Cmd+V: paste a link",
+            ),
+            self.language.text(
+                "Entree : ajouter le lien ou lire la selection",
+                "Enter: add the link or play the selected track",
+            ),
+            self.language.text(
+                "Espace : lecture / pause (hors saisie)",
+                "Space: play / pause (outside the text field)",
+            ),
+            self.language.text(
+                "Fleches : selection / molette : defilement",
+                "Arrows: select / mouse wheel: scroll",
+            ),
+            self.language.text(
+                "Suppr : retirer un titre ; Tab : champ de lien",
+                "Delete: remove a track; Tab: link field",
+            ),
+            self.language.text(
+                "Barres : position de lecture et volume",
+                "Sliders: playback position and volume",
+            ),
+            self.language.text(
+                "F2 : À propos, langue, crédits et raccourcis",
+                "F2: About, language, credits and shortcuts",
+            ),
+            self.language.text(
+                "Qualite modifiee : au prochain chargement audio.",
+                "Quality changes apply on the next audio load.",
+            ),
+            self.language.text(
+                "Identifiants gardes dans le coffre du systeme.",
+                "Credentials are kept in the system keyring.",
+            ),
+            self.language.text(
+                "Sans coffre disponible : connexion non memorisee.",
+                "Without a keyring, sign-in cannot be remembered.",
+            ),
+            self.language.text(
+                "DECONNECTER oublie la session enregistree.",
+                "DISCONNECT removes the saved session.",
+            ),
+            self.language.text(
+                "Le moteur peut choisir un debit de repli.",
+                "The engine may fall back to a lower bitrate.",
+            ),
+            self.language.text(
+                "Recherche et egaliseur non inclus.",
+                "Search and equalizer are not included.",
+            ),
+            self.language.text(
+                "F1, Echap ou clic : fermer cette aide.",
+                "F1, Esc or click: close this help.",
+            ),
         ]
         .iter()
         .enumerate()

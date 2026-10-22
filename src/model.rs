@@ -1,3 +1,5 @@
+use crate::{locale::Language, localized_text::LocalizedText};
+
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Hash)]
 pub enum AudioQuality {
     Kbps96,
@@ -34,6 +36,7 @@ pub enum Command {
     Seek(u32),
     Volume(u16),
     SetQuality(AudioQuality),
+    SetLanguage(Language),
     Remove(usize),
     Clear,
     Library(LibraryCommand),
@@ -81,17 +84,40 @@ pub struct LibrarySnapshot {
     pub tracks: std::sync::Arc<Vec<TrackRow>>,
     pub loading: bool,
     pub busy: bool,
-    pub status: String,
+    pub status: LocalizedText,
     pub connected: bool,
     pub queue_len: usize,
 }
 
 #[derive(Clone, Default, Debug, PartialEq, Eq, Hash)]
 pub struct TrackRow {
+    pub title_kind: TrackTitleKind,
     pub uri: String,
     pub title: String,
     pub artist: String,
     pub duration_ms: u32,
+}
+
+/// Identifies only application placeholders; real Spotify names are never translated.
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Hash)]
+pub enum TrackTitleKind {
+    #[default]
+    Metadata,
+    Loading,
+    Unavailable,
+}
+
+impl TrackRow {
+    pub fn display_title(&self, language: Language) -> &str {
+        match self.title_kind {
+            TrackTitleKind::Metadata => &self.title,
+            TrackTitleKind::Loading => language.text("Chargement du titre...", "Loading track..."),
+            TrackTitleKind::Unavailable => language.text(
+                "Titre Spotify (metadonnees indisponibles)",
+                "Spotify track (metadata unavailable)",
+            ),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Hash)]
@@ -106,7 +132,7 @@ pub struct Snapshot {
     pub connected: bool,
     pub busy: bool,
     pub playing: bool,
-    pub status: String,
+    pub status: LocalizedText,
     pub queue: Vec<TrackRow>,
     pub current: Option<usize>,
     /// Changes once per accepted load or explicit restart, including the same
@@ -140,5 +166,27 @@ impl Default for Snapshot {
             shuffle: false,
             repeat: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn placeholders_translate_but_identical_real_titles_do_not() {
+        let mut row = TrackRow {
+            title: "Chargement du titre...".into(),
+            artist: "French-named artist".into(),
+            ..TrackRow::default()
+        };
+        assert_eq!(row.display_title(Language::English), row.title);
+        row.title_kind = TrackTitleKind::Loading;
+        assert_eq!(row.display_title(Language::English), "Loading track...");
+        row.title_kind = TrackTitleKind::Unavailable;
+        assert_eq!(
+            row.display_title(Language::English),
+            "Spotify track (metadata unavailable)"
+        );
+        assert_eq!(row.artist, "French-named artist");
     }
 }

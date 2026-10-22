@@ -58,6 +58,14 @@ pub(super) fn inside(x: f32, y: f32) -> Option<(usize, usize)> {
 }
 
 impl LibraryWindow {
+    pub fn set_language(&mut self, language: crate::locale::Language) {
+        self.view.set_language(language);
+        self.window.set_title(language.text(
+            "Spotiamp — Bibliothèque Spotify",
+            "Spotiamp — Spotify Library",
+        ));
+    }
+
     pub fn new_with_layout(
         scale: Scale,
         parent: &mut Window,
@@ -224,7 +232,7 @@ impl LibraryWindow {
                 library_ui::Action::Command(command) => {
                     if let Err(error) = engine.tx.try_send(super::model::Command::Library(command))
                     {
-                        self.view.notice(&error.to_string());
+                        self.view.notice(engine::command_error(&error));
                     }
                 }
             }

@@ -78,7 +78,7 @@ impl Backend for Fake {
         &self,
         config: SessionConfig,
         credentials: Credentials,
-    ) -> Task<'_, Result<Connected, String>> {
+    ) -> Task<'_, Result<Connected, LocalizedText>> {
         Box::pin(async move {
             self.record(Call::Authenticate(credentials.clone()));
             assert_eq!(config.autoplay, Some(false));
@@ -100,7 +100,8 @@ impl Backend for Fake {
         &self,
         _: String,
         _: Arc<credentials::LoginAttempt>,
-    ) -> Task<'_, Result<Credentials, String>> {
+        _: Language,
+    ) -> Task<'_, Result<Credentials, LocalizedText>> {
         Box::pin(async {
             self.record(Call::Browser);
             Ok(Credentials::with_access_token("offline OAuth fixture"))
@@ -136,13 +137,14 @@ impl Backend for Fake {
     }
 }
 
-async fn attempt(backend: &Fake, mode: Mode) -> Result<Connected, String> {
+async fn attempt(backend: &Fake, mode: Mode) -> Result<Connected, LocalizedText> {
     connect(
         backend,
         mode,
         (mode == Mode::Manual).then(|| Arc::new(credentials::LoginAttempt::default())),
         Arc::new(AtomicU64::new(1)),
         1,
+        Language::French,
     )
     .await
 }
@@ -443,4 +445,23 @@ async fn native_store_wait_is_bounded_even_when_os_operation_continues() {
     // artificial OS operation. No real keyring is consulted by this test.
     let _ = release.send(());
     assert_eq!(result, Err(STORE_TIMED_OUT));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn nested_credential_errors_translate_without_losing_the_original_reason() {
+    let fake = Fake {
+        save_error: Some("Trousseau indisponible : connexion pour cette session uniquement"),
+        ..Fake::saved()
+    };
+    let connection = attempt(&fake, Mode::Automatic).await.unwrap();
+    let notice = connection.notice.as_ref().unwrap();
+    assert_eq!(
+        notice.text(Language::English),
+        "Connected; Credential store unavailable: signed in for this session only"
+    );
+    assert!(
+        notice
+            .text(Language::French)
+            .contains("Trousseau indisponible")
+    );
 }

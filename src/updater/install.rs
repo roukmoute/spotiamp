@@ -1,5 +1,7 @@
 //! Native, bounded handoff: the running application never overwrites itself.
 //! Only the files in a verified package are replaced; other files are untouched.
+use crate::locale::Language;
+use crate::localized_text::LocalizedText;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
@@ -36,8 +38,8 @@ pub struct Prepared {
 
 pub enum Dispatch {
     NotInternal,
-    Exit(Result<(), String>),
-    Continue(Result<(), String>),
+    Exit(Result<(), LocalizedText>),
+    Continue(Result<(), LocalizedText>),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -62,18 +64,32 @@ struct Entry {
 
 /// Called on the update worker. Success means the helper is ready and the UI
 /// must now close normally. The helper still waits for this process to exit.
-pub fn launch(prepared: Prepared, scale2: bool) -> Result<(), String> {
-    let exe = std::env::current_exe().map_err(|e| error("Executable introuvable", e))?;
-    let exe = exe
-        .canonicalize()
-        .map_err(|e| error("Executable inaccessible", e))?;
+pub fn launch(prepared: Prepared, scale2: bool) -> Result<(), LocalizedText> {
+    let exe = std::env::current_exe()
+        .map_err(|e| error("Executable introuvable", "Could not find the executable", e))?;
+    let exe = exe.canonicalize().map_err(|e| {
+        error(
+            "Executable inaccessible",
+            "The executable is inaccessible",
+            e,
+        )
+    })?;
     let stage = prepared.stage.path();
     check_stage(
         stage,
-        exe.parent().ok_or("Dossier du lecteur introuvable.")?,
+        exe.parent().ok_or(LocalizedText::new(
+            "Dossier du lecteur introuvable.",
+            "Could not locate the player directory.",
+        ))?,
     )?;
     let manifest = prepare_manifest(stage, &exe, prepared.files, scale2)?;
-    fs::copy(&exe, stage.join(HELPER)).map_err(|e| error("Copie de l'assistant impossible", e))?;
+    fs::copy(&exe, stage.join(HELPER)).map_err(|e| {
+        error(
+            "Copie de l'assistant impossible",
+            "Could not copy the helper",
+            e,
+        )
+    })?;
     write_new(
         stage,
         "manifest.json",
@@ -84,9 +100,13 @@ pub fn launch(prepared: Prepared, scale2: bool) -> Result<(), String> {
         .arg("--apply-update")
         .arg(stage)
         .arg(&manifest.nonce);
-    let mut helper = command
-        .spawn()
-        .map_err(|e| error("Lancement de l'assistant impossible", e))?;
+    let mut helper = command.spawn().map_err(|e| {
+        error(
+            "Lancement de l'assistant impossible",
+            "Could not start the helper",
+            e,
+        )
+    })?;
     let ready = wait_child_marker(
         stage,
         "ready",
@@ -96,7 +116,9 @@ pub fn launch(prepared: Prepared, scale2: bool) -> Result<(), String> {
     );
     if let Err(failure) = ready {
         stop_child(&mut helper);
-        return Err(read_small(&stage.join("helper-error.txt"), 4096).unwrap_or(failure));
+        return Err(read_small(&stage.join("helper-error.txt"), 4096)
+            .map(helper_failure)
+            .unwrap_or(failure));
     }
     // Keep the stage before granting permission: TempDir must never race the helper.
     let stage = prepared.stage.keep();
@@ -118,23 +140,41 @@ pub fn dispatch_internal(args: &[OsString]) -> Dispatch {
     }
     let mut startup_committed = false;
     let parsed = (|| {
-        let stage = args
-            .get(2)
-            .map(PathBuf::from)
-            .ok_or("Dossier de mise a jour absent.")?;
+        let stage = args.get(2).map(PathBuf::from).ok_or(LocalizedText::new(
+            "Dossier de mise a jour absent.",
+            "The update directory is missing.",
+        ))?;
         let nonce = args
             .get(3)
             .and_then(|s| s.to_str())
-            .ok_or("Confirmation de mise a jour absente.")?;
+            .ok_or(LocalizedText::new(
+                "Confirmation de mise a jour absente.",
+                "Update confirmation is missing.",
+            ))?;
         let exe = std::env::current_exe()
-            .map_err(|e| error("Executable introuvable", e))?
+            .map_err(|e| error("Executable introuvable", "Could not find the executable", e))?
             .canonicalize()
-            .map_err(|e| error("Executable inaccessible", e))?;
+            .map_err(|e| {
+                error(
+                    "Executable inaccessible",
+                    "The executable is inaccessible",
+                    e,
+                )
+            })?;
         let manifest = read_manifest(&stage, nonce)?;
         if mode == "--apply-update" {
-            check_stage(&stage, stage.parent().ok_or("Dossier invalide.")?)?;
+            check_stage(
+                &stage,
+                stage.parent().ok_or(LocalizedText::new(
+                    "Dossier invalide.",
+                    "Invalid directory.",
+                ))?,
+            )?;
             if exe != stage.join(HELPER) || hash_file(&exe)? != manifest.old_hash {
-                return Err("Assistant de mise a jour invalide.".into());
+                return Err(LocalizedText::new(
+                    "Assistant de mise a jour invalide.",
+                    "Invalid update helper.",
+                ));
             }
             let result = apply(&stage, &manifest);
             if let Err(failure) = &result {
@@ -146,11 +186,14 @@ pub fn dispatch_internal(args: &[OsString]) -> Dispatch {
             finish_startup(&stage, &manifest, &exe, failed)?;
             startup_committed = true;
             let notice = if failed {
-                Err(
-                    read_small(&stage.join("update-error.txt"), 4096).unwrap_or_else(|_| {
-                        "La mise a jour a echoue ; la version precedente a ete restauree.".into()
-                    }),
-                )
+                Err(read_small(&stage.join("update-error.txt"), 4096)
+                    .map(helper_failure)
+                    .unwrap_or_else(|_| {
+                        LocalizedText::new(
+                            "La mise a jour a echoue ; la version precedente a ete restauree.",
+                            "The update failed; the previous version was restored.",
+                        )
+                    }))
             } else {
                 Ok(())
             };
@@ -182,17 +225,29 @@ fn prepare_manifest(
     exe: &Path,
     files: Vec<PathBuf>,
     scale2: bool,
-) -> Result<Manifest, String> {
+) -> Result<Manifest, LocalizedText> {
     if files.is_empty() || files.len() > 10_000 {
-        return Err("Liste de fichiers invalide.".into());
+        return Err(LocalizedText::new(
+            "Liste de fichiers invalide.",
+            "Invalid file list.",
+        ));
     }
-    let target_name = PathBuf::from(exe.file_name().ok_or("Nom du lecteur introuvable.")?);
+    let target_name = PathBuf::from(exe.file_name().ok_or(LocalizedText::new(
+        "Nom du lecteur introuvable.",
+        "Could not find the player filename.",
+    ))?);
     validate_relative(&target_name)?;
     let token = tempfile::Builder::new()
         .prefix("nonce-")
         .rand_bytes(32)
         .tempfile_in(stage)
-        .map_err(|e| error("Preparation de la confirmation impossible", e))?;
+        .map_err(|e| {
+            error(
+                "Preparation de la confirmation impossible",
+                "Could not prepare confirmation",
+                e,
+            )
+        })?;
     let nonce = token
         .path()
         .file_name()
@@ -218,7 +273,10 @@ fn prepare_manifest(
     let new_hash = entries
         .iter()
         .find(|e| e.source == Path::new(BINARY))
-        .ok_or("Executable absent du paquet.")?
+        .ok_or(LocalizedText::new(
+            "Executable absent du paquet.",
+            "The package executable is missing.",
+        ))?
         .hash
         .clone();
     // Replace the executable last, minimizing the time it is absent.
@@ -238,12 +296,22 @@ fn prepare_manifest(
     Ok(manifest)
 }
 
-fn read_manifest(stage: &Path, nonce: &str) -> Result<Manifest, String> {
-    check_stage(stage, stage.parent().ok_or("Dossier invalide.")?)?;
+fn read_manifest(stage: &Path, nonce: &str) -> Result<Manifest, LocalizedText> {
+    check_stage(
+        stage,
+        stage.parent().ok_or(LocalizedText::new(
+            "Dossier invalide.",
+            "Invalid directory.",
+        ))?,
+    )?;
     check_regular(&stage.join("manifest.json"))?;
     let text = read_small(&stage.join("manifest.json"), MAX_MANIFEST)?;
-    let manifest: Manifest =
-        serde_json::from_str(&text).map_err(|_| "Manifeste de mise a jour invalide.")?;
+    let manifest: Manifest = serde_json::from_str(&text).map_err(|_| {
+        LocalizedText::new(
+            "Manifeste de mise a jour invalide.",
+            "Invalid update manifest.",
+        )
+    })?;
     if nonce != manifest.nonce
         || nonce.len() < 32
         || nonce.len() > 128
@@ -251,13 +319,16 @@ fn read_manifest(stage: &Path, nonce: &str) -> Result<Manifest, String> {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
     {
-        return Err("Confirmation de mise a jour invalide.".into());
+        return Err(LocalizedText::new(
+            "Confirmation de mise a jour invalide.",
+            "Invalid update confirmation.",
+        ));
     }
     validate_manifest(stage, &manifest)?;
     Ok(manifest)
 }
 
-fn validate_manifest(stage: &Path, manifest: &Manifest) -> Result<(), String> {
+fn validate_manifest(stage: &Path, manifest: &Manifest) -> Result<(), LocalizedText> {
     if manifest.schema != 1
         || manifest.parent_pid == 0
         || manifest.created > now() + 60
@@ -265,11 +336,17 @@ fn validate_manifest(stage: &Path, manifest: &Manifest) -> Result<(), String> {
         || manifest.files.is_empty()
         || manifest.files.len() > 10_000
     {
-        return Err("Manifeste de mise a jour expire ou invalide.".into());
+        return Err(LocalizedText::new(
+            "Manifeste de mise a jour expire ou invalide.",
+            "Expired or invalid update manifest.",
+        ));
     }
     validate_relative(&manifest.target_name)?;
     if manifest.target_name.components().count() != 1 {
-        return Err("Nom de lecteur invalide.".into());
+        return Err(LocalizedText::new(
+            "Nom de lecteur invalide.",
+            "Invalid player filename.",
+        ));
     }
     let mut seen = HashSet::new();
     for entry in &manifest.files {
@@ -282,7 +359,10 @@ fn validate_manifest(stage: &Path, manifest: &Manifest) -> Result<(), String> {
         };
         if &entry.target != expected || !seen.insert(entry.target.to_string_lossy().to_lowercase())
         {
-            return Err("Destination dupliquee ou invalide.".into());
+            return Err(LocalizedText::new(
+                "Destination dupliquee ou invalide.",
+                "Duplicate or invalid destination.",
+            ));
         }
     }
     for entry in &manifest.files {
@@ -293,7 +373,10 @@ fn validate_manifest(stage: &Path, manifest: &Manifest) -> Result<(), String> {
             .filter(|p| !p.as_os_str().is_empty())
         {
             if seen.contains(&ancestor.to_string_lossy().to_lowercase()) {
-                return Err("Conflit de destinations.".into());
+                return Err(LocalizedText::new(
+                    "Conflit de destinations.",
+                    "Conflicting destinations.",
+                ));
             }
         }
     }
@@ -302,13 +385,25 @@ fn validate_manifest(stage: &Path, manifest: &Manifest) -> Result<(), String> {
         .iter()
         .any(|entry| entry.source == Path::new(BINARY) && entry.hash == manifest.new_hash)
     {
-        return Err("Executable absent du manifeste.".into());
+        return Err(LocalizedText::new(
+            "Executable absent du manifeste.",
+            "The executable is missing from the manifest.",
+        ));
     }
-    check_stage(stage, stage.parent().ok_or("Dossier invalide.")?)
+    check_stage(
+        stage,
+        stage.parent().ok_or(LocalizedText::new(
+            "Dossier invalide.",
+            "Invalid directory.",
+        ))?,
+    )
 }
 
-fn apply(stage: &Path, manifest: &Manifest) -> Result<(), String> {
-    let target = stage.parent().ok_or("Dossier du lecteur introuvable.")?;
+fn apply(stage: &Path, manifest: &Manifest) -> Result<(), LocalizedText> {
+    let target = stage.parent().ok_or(LocalizedText::new(
+        "Dossier du lecteur introuvable.",
+        "Could not locate the player directory.",
+    ))?;
     let _lock = install_lock(target)?;
     // Preflight happens while the old UI is alive; permission/path failures keep it alive.
     validate_payload(stage, target, manifest)?;
@@ -330,8 +425,11 @@ fn install_and_restart(
     stage: &Path,
     manifest: &Manifest,
     command: CommandBuilder,
-) -> Result<(), String> {
-    let target = stage.parent().ok_or("Dossier du lecteur introuvable.")?;
+) -> Result<(), LocalizedText> {
+    let target = stage.parent().ok_or(LocalizedText::new(
+        "Dossier du lecteur introuvable.",
+        "Could not locate the player directory.",
+    ))?;
     let mut transaction = Transaction::new(stage, target);
     let result = validate_payload(stage, target, manifest)
         .and_then(|()| transaction.replace(&manifest.files))
@@ -340,29 +438,66 @@ fn install_and_restart(
         Ok(()) => Ok(()),
         Err(failure) => {
             if let Err(rollback) = transaction.rollback() {
-                let message = format!(
-                    "Mise a jour echouee : {failure}\nRestauration incomplete : {rollback}\nSauvegardes conservees dans {}",
-                    stage.display()
+                let message = LocalizedText::new(
+                    format!(
+                        "Mise a jour echouee : {}\nRestauration incomplete : {}\nSauvegardes conservees dans {}",
+                        failure.text(Language::French),
+                        rollback.text(Language::French),
+                        stage.display()
+                    ),
+                    format!(
+                        "Update failed: {}\nRollback incomplete: {}\nBackups retained in {}",
+                        failure.text(Language::English),
+                        rollback.text(Language::English),
+                        stage.display()
+                    ),
                 );
                 let _ = write_notice(stage, "update-error.txt", &message);
                 return Err(message);
             }
-            let message = format!("Mise a jour annulee ; version precedente restauree. {failure}");
+            let message = LocalizedText::new(
+                format!(
+                    "Mise a jour annulee ; version precedente restauree. {}",
+                    failure.text(Language::French)
+                ),
+                format!(
+                    "Update cancelled; previous version restored. {}",
+                    failure.text(Language::English)
+                ),
+            );
             write_notice(stage, "update-error.txt", &message)?;
-            restart(stage, manifest, true, command)
-                .map_err(|e| format!("{message}\nRelancement impossible : {e}"))
+            restart(stage, manifest, true, command).map_err(|e| {
+                LocalizedText::new(
+                    format!(
+                        "{}\nRelancement impossible : {}",
+                        message.text(Language::French),
+                        e.text(Language::French)
+                    ),
+                    format!(
+                        "{}\nCould not restart: {}",
+                        message.text(Language::English),
+                        e.text(Language::English)
+                    ),
+                )
+            })
         }
     }
 }
 
-fn validate_payload(stage: &Path, target: &Path, manifest: &Manifest) -> Result<(), String> {
+fn validate_payload(stage: &Path, target: &Path, manifest: &Manifest) -> Result<(), LocalizedText> {
     if hash_file(&target.join(&manifest.target_name))? != manifest.old_hash {
-        return Err("La version installee a change ; recommencez la mise a jour.".into());
+        return Err(LocalizedText::new(
+            "La version installee a change ; recommencez la mise a jour.",
+            "The installed version has changed; start the update again.",
+        ));
     }
     for entry in &manifest.files {
         check_path(&stage.join("package"), &entry.source, false)?;
         if hash_file(&stage.join("package").join(&entry.source))? != entry.hash {
-            return Err("Le paquet prepare a change.".into());
+            return Err(LocalizedText::new(
+                "Le paquet prepare a change.",
+                "The prepared package has changed.",
+            ));
         }
         check_path(target, &entry.target, true)?;
     }
@@ -390,9 +525,14 @@ impl<'a> Transaction<'a> {
             created_dirs: Vec::new(),
         }
     }
-    fn replace(&mut self, entries: &[Entry]) -> Result<(), String> {
-        fs::create_dir(self.stage.join("backup"))
-            .map_err(|e| error("Creation des sauvegardes impossible", e))?;
+    fn replace(&mut self, entries: &[Entry]) -> Result<(), LocalizedText> {
+        fs::create_dir(self.stage.join("backup")).map_err(|e| {
+            error(
+                "Creation des sauvegardes impossible",
+                "Could not create backups",
+                e,
+            )
+        })?;
         for entry in entries {
             check_path(self.target, &entry.target, true)?;
             let source = self.stage.join("package").join(&entry.source);
@@ -401,10 +541,20 @@ impl<'a> Transaction<'a> {
             create_parents(self.target, &entry.target, &mut self.created_dirs)?;
             let backup = if target.exists() {
                 let backup = self.stage.join("backup").join(&entry.target);
-                fs::create_dir_all(backup.parent().unwrap())
-                    .map_err(|e| error("Creation des sauvegardes impossible", e))?;
-                rename_file(&target, &backup)
-                    .map_err(|e| error("Sauvegarde du fichier impossible", e))?;
+                fs::create_dir_all(backup.parent().unwrap()).map_err(|e| {
+                    error(
+                        "Creation des sauvegardes impossible",
+                        "Could not create backups",
+                        e,
+                    )
+                })?;
+                rename_file(&target, &backup).map_err(|e| {
+                    error(
+                        "Sauvegarde du fichier impossible",
+                        "Could not back up the file",
+                        e,
+                    )
+                })?;
                 Some(backup)
             } else {
                 None
@@ -415,25 +565,38 @@ impl<'a> Transaction<'a> {
                 backup,
                 installed: false,
             });
-            rename_file(&source, &target)
-                .map_err(|e| error("Remplacement du fichier impossible", e))?;
+            rename_file(&source, &target).map_err(|e| {
+                error(
+                    "Remplacement du fichier impossible",
+                    "Could not replace the file",
+                    e,
+                )
+            })?;
             self.changes.last_mut().unwrap().installed = true;
         }
         Ok(())
     }
-    fn rollback(&mut self) -> Result<(), String> {
+    fn rollback(&mut self) -> Result<(), LocalizedText> {
         let mut errors = Vec::new();
         for change in self.changes.iter().rev() {
             if change.installed
                 && let Err(e) = rename_file(&change.target, &change.source)
             {
-                errors.push(error("Retrait du nouveau fichier impossible", e));
+                errors.push(error(
+                    "Retrait du nouveau fichier impossible",
+                    "Could not remove the new file",
+                    e,
+                ));
                 continue;
             }
             if let Some(backup) = &change.backup
                 && let Err(e) = rename_file(backup, &change.target)
             {
-                errors.push(error("Restauration du fichier impossible", e));
+                errors.push(error(
+                    "Restauration du fichier impossible",
+                    "Could not restore the file",
+                    e,
+                ));
             }
         }
         for directory in self.created_dirs.iter().rev() {
@@ -442,7 +605,18 @@ impl<'a> Transaction<'a> {
         if errors.is_empty() {
             Ok(())
         } else {
-            Err(errors.join(" ; "))
+            Err(LocalizedText::new(
+                errors
+                    .iter()
+                    .map(|e| e.text(Language::French))
+                    .collect::<Vec<_>>()
+                    .join(" ; "),
+                errors
+                    .iter()
+                    .map(|e| e.text(Language::English))
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            ))
         }
     }
 }
@@ -468,12 +642,18 @@ fn restart(
     manifest: &Manifest,
     failed: bool,
     command: impl FnOnce(&Path, &Path, &Manifest, bool) -> Command,
-) -> Result<(), String> {
+) -> Result<(), LocalizedText> {
     let exe = stage.parent().unwrap().join(&manifest.target_name);
     check_regular(&exe)?;
     let mut child = command(&exe, stage, manifest, failed)
         .spawn()
-        .map_err(|e| error("Relancement du lecteur impossible", e))?;
+        .map_err(|e| {
+            error(
+                "Relancement du lecteur impossible",
+                "Could not restart the player",
+                e,
+            )
+        })?;
     let prefix = if failed { "old" } else { "new" };
     let result = wait_child_marker(
         stage,
@@ -494,8 +674,11 @@ fn finish_startup(
     manifest: &Manifest,
     exe: &Path,
     failed: bool,
-) -> Result<(), String> {
-    let target = exe.parent().ok_or("Dossier du lecteur introuvable.")?;
+) -> Result<(), LocalizedText> {
+    let target = exe.parent().ok_or(LocalizedText::new(
+        "Dossier du lecteur introuvable.",
+        "Could not locate the player directory.",
+    ))?;
     check_stage(stage, target)?;
     if exe != target.join(&manifest.target_name)
         || &hash_file(exe)?
@@ -505,7 +688,10 @@ fn finish_startup(
                 &manifest.new_hash
             }
     {
-        return Err("Executable de redemarrage invalide.".into());
+        return Err(LocalizedText::new(
+            "Executable de redemarrage invalide.",
+            "Invalid restart executable.",
+        ));
     }
     let prefix = if failed { "old" } else { "new" };
     write_marker(stage, &format!("{prefix}-started"), &manifest.nonce)?;
@@ -517,9 +703,15 @@ fn finish_startup(
     )
 }
 
-fn cleanup(stage: &Path, nonce: &str, exe: &Path, failed: bool) -> Result<(), String> {
+fn cleanup(stage: &Path, nonce: &str, exe: &Path, failed: bool) -> Result<(), LocalizedText> {
     let manifest = read_manifest(stage, nonce)?;
-    check_stage(stage, exe.parent().ok_or("Dossier invalide.")?)?;
+    check_stage(
+        stage,
+        exe.parent().ok_or(LocalizedText::new(
+            "Dossier invalide.",
+            "Invalid directory.",
+        ))?,
+    )?;
     if exe != stage.parent().unwrap().join(&manifest.target_name)
         || &hash_file(exe)?
             != if failed {
@@ -533,13 +725,16 @@ fn cleanup(stage: &Path, nonce: &str, exe: &Path, failed: bool) -> Result<(), St
             nonce,
         )
     {
-        return Err("Nettoyage de mise a jour refuse.".into());
+        return Err(LocalizedText::new(
+            "Nettoyage de mise a jour refuse.",
+            "Update cleanup refused.",
+        ));
     }
     #[cfg(windows)]
     {
         let pid: u32 = read_small(&stage.join("helper-pid"), 32)?
             .parse()
-            .map_err(|_| "Assistant invalide.")?;
+            .map_err(|_| LocalizedText::new("Assistant invalide.", "Invalid helper."))?;
         if let Ok(helper) = ProcessWait::open(pid) {
             helper.wait(EXIT_TIMEOUT)?;
         }
@@ -548,15 +743,21 @@ fn cleanup(stage: &Path, nonce: &str, exe: &Path, failed: bool) -> Result<(), St
     // longer reads the stage; waiting for kill(pid, 0) would retain zombie PIDs.
     // Refuse links/reparse points throughout the dedicated stage before removal.
     check_tree(stage)?;
-    fs::remove_dir_all(stage).map_err(|e| error("Nettoyage de la mise a jour impossible", e))
+    fs::remove_dir_all(stage).map_err(|e| {
+        error(
+            "Nettoyage de la mise a jour impossible",
+            "Could not clean up the update",
+            e,
+        )
+    })
 }
 
-fn install_lock(target: &Path) -> Result<File, String> {
+fn install_lock(target: &Path) -> Result<File, LocalizedText> {
     let path = target.join(".spotiamp-update.lock");
     match fs::symlink_metadata(&path) {
         Ok(_) => check_regular(&path)?,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
-        Err(error) => return Err(error.to_string()),
+        Err(error) => return Err(error.to_string().into()),
     }
     let file = OpenOptions::new()
         .read(true)
@@ -564,14 +765,24 @@ fn install_lock(target: &Path) -> Result<File, String> {
         .create(true)
         .truncate(false)
         .open(&path)
-        .map_err(|e| error("Verrou de mise a jour inaccessible", e))?;
-    file.try_lock()
-        .map_err(|_| "Une autre mise a jour est deja en cours dans ce dossier.")?;
+        .map_err(|e| {
+            error(
+                "Verrou de mise a jour inaccessible",
+                "The update lock is inaccessible",
+                e,
+            )
+        })?;
+    file.try_lock().map_err(|_| {
+        LocalizedText::new(
+            "Une autre mise a jour est deja en cours dans ce dossier.",
+            "Another update is already running in this directory.",
+        )
+    })?;
     // Never unlink the lock: another process may already be waiting on its inode.
     Ok(file)
 }
 
-fn check_stage(stage: &Path, target: &Path) -> Result<(), String> {
+fn check_stage(stage: &Path, target: &Path) -> Result<(), LocalizedText> {
     if !stage.is_absolute()
         || stage.parent() != Some(target)
         || !stage
@@ -579,21 +790,27 @@ fn check_stage(stage: &Path, target: &Path) -> Result<(), String> {
             .and_then(|s| s.to_str())
             .is_some_and(|s| s.starts_with(STAGE_PREFIX) && s.len() > STAGE_PREFIX.len())
     {
-        return Err("Dossier de preparation invalide.".into());
+        return Err(LocalizedText::new(
+            "Dossier de preparation invalide.",
+            "Invalid staging directory.",
+        ));
     }
     check_directory(target)?;
     check_directory(stage)?;
     if stage
         .canonicalize()
-        .map_err(|e| error("Dossier inaccessible", e))?
+        .map_err(|e| error("Dossier inaccessible", "The directory is inaccessible", e))?
         != stage
     {
-        return Err("Lien de preparation refuse.".into());
+        return Err(LocalizedText::new(
+            "Lien de preparation refuse.",
+            "Staging link refused.",
+        ));
     }
     Ok(())
 }
 
-fn validate_relative(path: &Path) -> Result<(), String> {
+fn validate_relative(path: &Path) -> Result<(), LocalizedText> {
     if path.as_os_str().is_empty()
         || path
             .components()
@@ -604,47 +821,69 @@ fn validate_relative(path: &Path) -> Result<(), String> {
             })
         })
     {
-        return Err("Chemin de mise a jour invalide.".into());
+        return Err(LocalizedText::new(
+            "Chemin de mise a jour invalide.",
+            "Invalid update path.",
+        ));
     }
     Ok(())
 }
 
-fn metadata(path: &Path) -> Result<fs::Metadata, String> {
-    let metadata = fs::symlink_metadata(path).map_err(|e| error("Fichier inaccessible", e))?;
+fn metadata(path: &Path) -> Result<fs::Metadata, LocalizedText> {
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|e| error("Fichier inaccessible", "The file is inaccessible", e))?;
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
         if metadata.file_attributes() & 0x400 != 0 {
-            return Err("Point de reanalyse refuse.".into());
+            return Err(LocalizedText::new(
+                "Point de reanalyse refuse.",
+                "Reparse point refused.",
+            ));
         }
     }
     if metadata.file_type().is_symlink() {
-        return Err("Lien symbolique refuse.".into());
+        return Err(LocalizedText::new(
+            "Lien symbolique refuse.",
+            "Symbolic link refused.",
+        ));
     }
     Ok(metadata)
 }
-fn check_regular(path: &Path) -> Result<(), String> {
+fn check_regular(path: &Path) -> Result<(), LocalizedText> {
     if metadata(path)?.is_file() {
         Ok(())
     } else {
-        Err("Fichier ordinaire attendu.".into())
+        Err(LocalizedText::new(
+            "Fichier ordinaire attendu.",
+            "Expected a regular file.",
+        ))
     }
 }
-fn check_directory(path: &Path) -> Result<(), String> {
+fn check_directory(path: &Path) -> Result<(), LocalizedText> {
     if metadata(path)?.is_dir() {
         Ok(())
     } else {
-        Err("Dossier ordinaire attendu.".into())
+        Err(LocalizedText::new(
+            "Dossier ordinaire attendu.",
+            "Expected a regular directory.",
+        ))
     }
 }
-fn check_path(root: &Path, relative: &Path, allow_missing: bool) -> Result<(), String> {
+fn check_path(root: &Path, relative: &Path, allow_missing: bool) -> Result<(), LocalizedText> {
     check_directory(root)?;
     let mut path = root.to_path_buf();
     for (index, component) in relative.components().enumerate() {
         path.push(component);
         match fs::symlink_metadata(&path) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound && allow_missing => return Ok(()),
-            Err(e) => return Err(error("Destination inaccessible", e)),
+            Err(e) => {
+                return Err(error(
+                    "Destination inaccessible",
+                    "The destination is inaccessible",
+                    e,
+                ));
+            }
             Ok(_) => {
                 if index + 1 == relative.components().count() {
                     check_regular(&path)?;
@@ -656,38 +895,58 @@ fn check_path(root: &Path, relative: &Path, allow_missing: bool) -> Result<(), S
     }
     Ok(())
 }
-fn create_parents(root: &Path, relative: &Path, created: &mut Vec<PathBuf>) -> Result<(), String> {
+fn create_parents(
+    root: &Path,
+    relative: &Path,
+    created: &mut Vec<PathBuf>,
+) -> Result<(), LocalizedText> {
     let mut path = root.to_path_buf();
     for part in relative.parent().unwrap().components() {
         path.push(part);
         match fs::create_dir(&path) {
             Ok(()) => created.push(path.clone()),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => check_directory(&path)?,
-            Err(e) => return Err(error("Creation du dossier impossible", e)),
+            Err(e) => {
+                return Err(error(
+                    "Creation du dossier impossible",
+                    "Could not create the directory",
+                    e,
+                ));
+            }
         }
     }
     Ok(())
 }
-fn check_tree(path: &Path) -> Result<(), String> {
+fn check_tree(path: &Path) -> Result<(), LocalizedText> {
     let meta = metadata(path)?;
     if meta.is_dir() {
-        for child in fs::read_dir(path).map_err(|e| error("Dossier inaccessible", e))? {
-            check_tree(&child.map_err(|e| error("Dossier inaccessible", e))?.path())?;
+        for child in fs::read_dir(path)
+            .map_err(|e| error("Dossier inaccessible", "The directory is inaccessible", e))?
+        {
+            check_tree(
+                &child
+                    .map_err(|e| error("Dossier inaccessible", "The directory is inaccessible", e))?
+                    .path(),
+            )?;
         }
     } else if !meta.is_file() {
-        return Err("Type de fichier inattendu.".into());
+        return Err(LocalizedText::new(
+            "Type de fichier inattendu.",
+            "Unexpected file type.",
+        ));
     }
     Ok(())
 }
-fn hash_file(path: &Path) -> Result<String, String> {
+fn hash_file(path: &Path) -> Result<String, LocalizedText> {
     check_regular(path)?;
-    let mut file = File::open(path).map_err(|e| error("Fichier illisible", e))?;
+    let mut file =
+        File::open(path).map_err(|e| error("Fichier illisible", "The file is unreadable", e))?;
     let mut hash = Sha256::new();
     let mut buffer = [0_u8; 32 * 1024];
     loop {
         let count = file
             .read(&mut buffer)
-            .map_err(|e| error("Fichier illisible", e))?;
+            .map_err(|e| error("Fichier illisible", "The file is unreadable", e))?;
         if count == 0 {
             break;
         }
@@ -695,50 +954,84 @@ fn hash_file(path: &Path) -> Result<String, String> {
     }
     Ok(format!("{:x}", hash.finalize()))
 }
-fn read_small(path: &Path, limit: u64) -> Result<String, String> {
+fn read_small(path: &Path, limit: u64) -> Result<String, LocalizedText> {
     check_regular(path)?;
     let mut text = String::new();
     File::open(path)
-        .map_err(|e| error("Fichier illisible", e))?
+        .map_err(|e| error("Fichier illisible", "The file is unreadable", e))?
         .take(limit + 1)
         .read_to_string(&mut text)
-        .map_err(|e| error("Fichier illisible", e))?;
+        .map_err(|e| error("Fichier illisible", "The file is unreadable", e))?;
     if text.len() as u64 > limit {
-        Err("Fichier de confirmation trop volumineux.".into())
+        Err(LocalizedText::new(
+            "Fichier de confirmation trop volumineux.",
+            "The confirmation file is too large.",
+        ))
     } else {
         Ok(text)
     }
 }
-fn write_new(stage: &Path, name: &str, data: &[u8]) -> Result<(), String> {
+fn write_new(stage: &Path, name: &str, data: &[u8]) -> Result<(), LocalizedText> {
     let temporary = stage.join(format!("{name}.tmp"));
     let destination = stage.join(name);
     if destination.exists() {
-        return Err("Confirmation deja presente.".into());
+        return Err(LocalizedText::new(
+            "Confirmation deja presente.",
+            "Confirmation already exists.",
+        ));
     }
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&temporary)
-        .map_err(|e| error("Ecriture de confirmation impossible", e))?;
+        .map_err(|e| {
+            error(
+                "Ecriture de confirmation impossible",
+                "Could not write confirmation",
+                e,
+            )
+        })?;
     file.write_all(data)
         .and_then(|()| file.sync_all())
-        .map_err(|e| error("Enregistrement de confirmation impossible", e))?;
+        .map_err(|e| {
+            error(
+                "Enregistrement de confirmation impossible",
+                "Could not save confirmation",
+                e,
+            )
+        })?;
     drop(file);
-    rename_file(&temporary, &destination)
-        .map_err(|e| error("Validation de confirmation impossible", e))
+    rename_file(&temporary, &destination).map_err(|e| {
+        error(
+            "Validation de confirmation impossible",
+            "Could not validate confirmation",
+            e,
+        )
+    })
 }
-fn write_notice(stage: &Path, name: &str, message: &str) -> Result<(), String> {
+fn write_notice(stage: &Path, name: &str, message: &LocalizedText) -> Result<(), LocalizedText> {
     // At most 4096 UTF-8 bytes; truncation never splits a character.
-    let bounded = message.chars().take(1024).collect::<String>();
+    // Keep the helper protocol plain text and its diagnostics in English.
+    // The UI adds localized context when loading a notice after restart.
+    let bounded = message
+        .text(Language::English)
+        .chars()
+        .take(1024)
+        .collect::<String>();
     write_new(stage, name, bounded.as_bytes())
 }
-fn write_marker(stage: &Path, name: &str, nonce: &str) -> Result<(), String> {
+fn write_marker(stage: &Path, name: &str, nonce: &str) -> Result<(), LocalizedText> {
     write_new(stage, name, nonce.as_bytes())
 }
 fn marker_matches(stage: &Path, name: &str, nonce: &str) -> bool {
     read_small(&stage.join(name), 128).is_ok_and(|text| text == nonce)
 }
-fn wait_marker(stage: &Path, name: &str, nonce: &str, timeout: Duration) -> Result<(), String> {
+fn wait_marker(
+    stage: &Path,
+    name: &str,
+    nonce: &str,
+    timeout: Duration,
+) -> Result<(), LocalizedText> {
     let started = Instant::now();
     while started.elapsed() < timeout {
         if marker_matches(stage, name, nonce) {
@@ -746,7 +1039,10 @@ fn wait_marker(stage: &Path, name: &str, nonce: &str, timeout: Duration) -> Resu
         }
         thread::sleep(POLL);
     }
-    Err("Delai de confirmation de la mise a jour depasse.".into())
+    Err(LocalizedText::new(
+        "Delai de confirmation de la mise a jour depasse.",
+        "Update confirmation timed out.",
+    ))
 }
 fn wait_child_marker(
     stage: &Path,
@@ -754,22 +1050,34 @@ fn wait_child_marker(
     nonce: &str,
     child: &mut Child,
     timeout: Duration,
-) -> Result<(), String> {
+) -> Result<(), LocalizedText> {
     let started = Instant::now();
     while started.elapsed() < timeout {
         if child
             .try_wait()
-            .map_err(|e| error("Etat du processus inaccessible", e))?
+            .map_err(|e| {
+                error(
+                    "Etat du processus inaccessible",
+                    "Could not inspect the process",
+                    e,
+                )
+            })?
             .is_some()
         {
-            return Err("Le processus de mise a jour s'est arrete.".into());
+            return Err(LocalizedText::new(
+                "Le processus de mise a jour s'est arrete.",
+                "The update process stopped.",
+            ));
         }
         if marker_matches(stage, name, nonce) {
             return Ok(());
         }
         thread::sleep(POLL);
     }
-    Err("Le lecteur n'a pas confirme son demarrage.".into())
+    Err(LocalizedText::new(
+        "Le lecteur n'a pas confirme son demarrage.",
+        "The player did not confirm startup.",
+    ))
 }
 fn stop_child(child: &mut Child) {
     let _ = child.kill();
@@ -820,8 +1128,15 @@ fn now() -> u64 {
         .unwrap_or_default()
         .as_secs()
 }
-fn error(context: &str, error: impl std::fmt::Display) -> String {
-    format!("{context} : {error}")
+fn error(french: &str, english: &str, error: impl std::fmt::Display) -> LocalizedText {
+    LocalizedText::new(format!("{french} : {error}"), format!("{english}: {error}"))
+}
+
+fn helper_failure(diagnostic: String) -> LocalizedText {
+    LocalizedText::new(
+        format!("La mise a jour a echoue. Diagnostic : {diagnostic}"),
+        format!("The update failed. Diagnostic: {diagnostic}"),
+    )
 }
 
 #[cfg(unix)]
@@ -881,9 +1196,12 @@ fn mac_process_state(pid: u32) -> std::io::Result<Option<MacProcessStatus>> {
 }
 #[cfg(unix)]
 impl ProcessWait {
-    fn open(pid: u32) -> Result<Self, String> {
+    fn open(pid: u32) -> Result<Self, LocalizedText> {
         if pid == 0 || pid > i32::MAX as u32 {
-            Err("Processus invalide.".into())
+            Err(LocalizedText::new(
+                "Processus invalide.",
+                "Invalid process.",
+            ))
         } else {
             Ok(Self {
                 pid,
@@ -891,12 +1209,18 @@ impl ProcessWait {
                 start_time: linux_process_state(pid).map(|(_, started)| started),
                 #[cfg(target_os = "macos")]
                 start_time: mac_process_state(pid)
-                    .map_err(|e| error("Etat du processus inaccessible", e))?
+                    .map_err(|e| {
+                        error(
+                            "Etat du processus inaccessible",
+                            "Could not inspect the process",
+                            e,
+                        )
+                    })?
                     .map(|(_, started)| started),
             })
         }
     }
-    fn wait(&self, timeout: Duration) -> Result<(), String> {
+    fn wait(&self, timeout: Duration) -> Result<(), LocalizedText> {
         unsafe extern "C" {
             fn kill(pid: i32, signal: i32) -> i32;
         }
@@ -910,9 +1234,13 @@ impl ProcessWait {
                 return Ok(());
             }
             #[cfg(target_os = "macos")]
-            match mac_process_state(self.pid)
-                .map_err(|e| error("Etat du processus inaccessible", e))?
-            {
+            match mac_process_state(self.pid).map_err(|e| {
+                error(
+                    "Etat du processus inaccessible",
+                    "Could not inspect the process",
+                    e,
+                )
+            })? {
                 None => return Ok(()),
                 Some((state, started))
                     if state == libc::SZOMB
@@ -930,7 +1258,10 @@ impl ProcessWait {
             }
             thread::sleep(POLL);
         }
-        Err("Le lecteur ne s'est pas ferme a temps.".into())
+        Err(LocalizedText::new(
+            "Le lecteur ne s'est pas ferme a temps.",
+            "The player did not close in time.",
+        ))
     }
 }
 #[cfg(windows)]
@@ -944,24 +1275,28 @@ unsafe extern "system" {
 }
 #[cfg(windows)]
 impl ProcessWait {
-    fn open(pid: u32) -> Result<Self, String> {
+    fn open(pid: u32) -> Result<Self, LocalizedText> {
         let handle = unsafe { OpenProcess(0x00100000, 0, pid) };
         if handle.is_null() {
             Err(error(
                 "Ouverture du processus impossible",
+                "Could not open the process",
                 std::io::Error::last_os_error(),
             ))
         } else {
             Ok(Self(handle))
         }
     }
-    fn wait(&self, timeout: Duration) -> Result<(), String> {
+    fn wait(&self, timeout: Duration) -> Result<(), LocalizedText> {
         if unsafe { WaitForSingleObject(self.0, timeout.as_millis().min(u32::MAX as u128) as u32) }
             == 0
         {
             Ok(())
         } else {
-            Err("Le lecteur ne s'est pas ferme a temps.".into())
+            Err(LocalizedText::new(
+                "Le lecteur ne s'est pas ferme a temps.",
+                "The player did not close in time.",
+            ))
         }
     }
 }

@@ -67,7 +67,7 @@ class Fixture:
         result = {}
         for window in self.command("xdotool", "search", "--name", "^Spotiamp", check=False).splitlines():
             title = self.command("xdotool", "getwindowname", window, check=False)
-            if "Biblioth" in title:
+            if title in ("Spotiamp — Bibliothèque Spotify", "Spotiamp — Spotify Library"):
                 result["library"] = window
             elif title.startswith("Spotiamp "):
                 result["player"] = window

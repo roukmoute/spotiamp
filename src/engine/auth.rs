@@ -22,7 +22,7 @@ pub(super) enum Mode {
 // its session. Accepted connections explicitly transfer ownership to Worker.
 pub(super) struct Connected {
     session: Option<Session>,
-    pub notice: Option<String>,
+    pub notice: Option<LocalizedText>,
 }
 
 impl Connected {
@@ -63,12 +63,13 @@ pub(super) trait Backend: Send + Sync {
         &self,
         config: SessionConfig,
         credentials: Credentials,
-    ) -> Task<'_, Result<Connected, String>>;
+    ) -> Task<'_, Result<Connected, LocalizedText>>;
     fn browser(
         &self,
         client_id: String,
         attempt: Arc<credentials::LoginAttempt>,
-    ) -> Task<'_, Result<Credentials, String>>;
+        language: Language,
+    ) -> Task<'_, Result<Credentials, LocalizedText>>;
     fn save(
         &self,
         credentials: Credentials,
@@ -89,7 +90,7 @@ impl Backend for Native {
         &self,
         config: SessionConfig,
         credentials: Credentials,
-    ) -> Task<'_, Result<Connected, String>> {
+    ) -> Task<'_, Result<Connected, LocalizedText>> {
         Box::pin(async move {
             let connection = Connected::new(Session::new(config, None));
             connection
@@ -98,7 +99,7 @@ impl Backend for Native {
                 .expect("pending connection")
                 .connect(credentials, false)
                 .await
-                .map_err(|_| CONNECT_FAILED.to_owned())?;
+                .map_err(|_| LocalizedText::from(CONNECT_FAILED))?;
             Ok(connection)
         })
     }
@@ -107,8 +108,9 @@ impl Backend for Native {
         &self,
         client_id: String,
         attempt: Arc<credentials::LoginAttempt>,
-    ) -> Task<'_, Result<Credentials, String>> {
-        Box::pin(credentials::browser_login(client_id, attempt))
+        language: Language,
+    ) -> Task<'_, Result<Credentials, LocalizedText>> {
+        Box::pin(credentials::browser_login(client_id, attempt, language))
     }
 
     fn save(
@@ -164,7 +166,8 @@ pub(super) async fn connect(
     attempt: Option<Arc<credentials::LoginAttempt>>,
     epoch: Arc<AtomicU64>,
     generation: u64,
-) -> Result<Connected, String> {
+    language: Language,
+) -> Result<Connected, LocalizedText> {
     let config = SessionConfig {
         autoplay: Some(false),
         ..SessionConfig::default()
@@ -189,8 +192,13 @@ pub(super) async fn connect(
             return Err("Connectez Spotify Premium pour commencer".into());
         }
         Err(message) if mode == Mode::Automatic => {
-            return Err(format!(
-                "{message}. Cliquez sur Connecter pour vous connecter."
+            let message = LocalizedText::from(message);
+            return Err(LocalizedText::new(
+                format!("{message}. Cliquez sur Connecter pour vous connecter."),
+                format!(
+                    "{}. Click Connect to sign in.",
+                    message.text(Language::English)
+                ),
             ));
         }
         _ => None,
@@ -198,11 +206,13 @@ pub(super) async fn connect(
     if connected.is_none() {
         // Automatic mode has returned above on every unsuccessful store path.
         let attempt = attempt.ok_or("Connexion annulee")?;
-        let credentials = backend.browser(config.client_id.clone(), attempt).await?;
+        let credentials = backend
+            .browser(config.client_id.clone(), attempt, language)
+            .await?;
         connected = Some(
             tokio::time::timeout(NETWORK_TIMEOUT, backend.authenticate(config, credentials))
                 .await
-                .map_err(|_| CONNECT_FAILED.to_owned())??,
+                .map_err(|_| LocalizedText::from(CONNECT_FAILED))??,
         );
     }
     let mut connection = connected.expect("successful authentication");
@@ -213,7 +223,13 @@ pub(super) async fn connect(
         Ok(true) => None,
         Ok(false) => return Err("Connexion annulee".into()),
         Err(STORE_TIMED_OUT) => Some(SAVE_UNCONFIRMED.into()),
-        Err(message) => Some(format!("Connecte; {message}")),
+        Err(message) => {
+            let message = LocalizedText::from(message);
+            Some(LocalizedText::new(
+                format!("Connecte; {message}"),
+                format!("Connected; {}", message.text(Language::English)),
+            ))
+        }
     };
     Ok(connection)
 }

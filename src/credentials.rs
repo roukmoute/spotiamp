@@ -9,6 +9,7 @@ use std::{
     time::Duration,
 };
 
+use crate::{locale::Language, localized_text::LocalizedText};
 use keyring::{Entry, Error as KeyringError};
 use librespot_core::authentication::Credentials;
 use librespot_oauth::OAuthClientBuilder;
@@ -131,7 +132,8 @@ fn clear_entry(entry: &Entry) -> Result<(), &'static str> {
 pub async fn browser_login(
     client_id: String,
     attempt: Arc<LoginAttempt>,
-) -> Result<Credentials, String> {
+    language: Language,
+) -> Result<Credentials, LocalizedText> {
     let background_attempt = attempt.clone();
     let mut task = tokio::task::spawn_blocking(move || {
         if background_attempt.cancelled.load(Ordering::Acquire) {
@@ -146,6 +148,9 @@ pub async fn browser_login(
             return Err("L'autorisation precedente se termine; reessayez dans quelques instants");
         }
         let _guard = LoginGuard(background_attempt.clone());
+        let completed = LocalizedText::from(
+            "Connexion terminee. Vous pouvez fermer cet onglet et revenir dans Spotiamp.",
+        );
         let client = OAuthClientBuilder::new(
             &client_id,
             CALLBACK,
@@ -157,9 +162,7 @@ pub async fn browser_login(
             ],
         )
         .open_in_browser()
-        .with_custom_message(
-            "Connexion terminee. Vous pouvez fermer cet onglet et revenir dans Spotiamp.",
-        )
+        .with_custom_message(completed.text(language))
         .build()
         .map_err(|_| "Impossible de preparer la connexion Spotify")?;
         if background_attempt.cancelled.load(Ordering::Acquire) {
@@ -171,7 +174,7 @@ pub async fn browser_login(
             .map_err(|_| "Connexion annulee ou refusee. Fermez l'onglet puis reessayez; le port local 5588 doit etre libre.")
     });
     match tokio::time::timeout(Duration::from_secs(180), &mut task).await {
-        Ok(Ok(result)) => result.map_err(str::to_owned),
+        Ok(Ok(result)) => result.map_err(LocalizedText::from),
         Ok(Err(_)) => Err("Le service de connexion s'est arrete".into()),
         Err(_) => {
             attempt.cancel();

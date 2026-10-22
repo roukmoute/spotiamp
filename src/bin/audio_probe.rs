@@ -5,6 +5,10 @@
 mod credentials;
 #[path = "../engine.rs"]
 mod engine;
+#[path = "../locale.rs"]
+mod locale;
+#[path = "../localized_text.rs"]
+mod localized_text;
 #[path = "../model.rs"]
 mod model;
 #[path = "../settings.rs"]

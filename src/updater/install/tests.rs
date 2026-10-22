@@ -1,5 +1,42 @@
 use super::*;
 
+#[test]
+fn helper_notices_keep_raw_diagnostics_and_localized_context_across_restart() {
+    let stage = tempfile::tempdir().unwrap();
+    let failure = error("Fichier illisible", "The file is unreadable", "fixture-42");
+    write_notice(stage.path(), "helper-error.txt", &failure).unwrap();
+    let raw = read_small(&stage.path().join("helper-error.txt"), 4096).unwrap();
+    assert_eq!(raw, "The file is unreadable: fixture-42");
+    let recovered = helper_failure(raw);
+    assert!(
+        recovered
+            .text(Language::French)
+            .starts_with("La mise a jour a echoue.")
+    );
+    assert!(
+        recovered
+            .text(Language::English)
+            .starts_with("The update failed.")
+    );
+    assert!(recovered.text(Language::French).ends_with("fixture-42"));
+    assert!(recovered.text(Language::English).ends_with("fixture-42"));
+}
+
+#[test]
+fn helper_notices_bound_utf8_diagnostics_without_splitting_characters() {
+    let stage = tempfile::tempdir().unwrap();
+    let failure = LocalizedText::new("diagnostic", "\u{1f6ab}".repeat(2000));
+    write_notice(stage.path(), "helper-error.txt", &failure).unwrap();
+    let raw = read_small(&stage.path().join("helper-error.txt"), 4096).unwrap();
+    assert_eq!(raw.len(), 4096);
+    assert_eq!(raw.chars().count(), 1024);
+    assert!(raw.chars().all(|character| character == '\u{1f6ab}'));
+    let recovered = helper_failure(raw.clone());
+    for language in [Language::French, Language::English] {
+        assert!(recovered.text(language).ends_with(&raw));
+    }
+}
+
 struct Fixture {
     _root: tempfile::TempDir,
     root: PathBuf,
@@ -216,7 +253,7 @@ fn startup_process_fixture() {
         assert!(
             read_small(&stage.join("update-error.txt"), 4096)
                 .unwrap()
-                .contains("restauree")
+                .contains("restored")
         );
     }
 }

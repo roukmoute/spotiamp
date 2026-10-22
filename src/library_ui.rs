@@ -1,6 +1,8 @@
 //! A native bitmap library. The framebuffer exists only while its window is open.
 use crate::{
     appearance::Skin,
+    locale::Language,
+    localized_text::LocalizedText,
     model::{LibraryCommand, LibrarySnapshot, PlaylistEntry, PlaylistId},
 };
 mod modern;
@@ -60,6 +62,7 @@ enum Target {
 pub struct View {
     pub pixels: Vec<u32>,
     skin: Skin,
+    language: Language,
     selected_id: Option<PlaylistId>,
     pending_selection: Option<PlaylistId>,
     observed_id: Option<PlaylistId>,
@@ -76,7 +79,7 @@ pub struct View {
     press_revision: u64,
     pressed_playlist: Option<PlaylistId>,
     last_click: Option<(PlaylistId, Target, Instant)>,
-    notice: Option<(String, Instant)>,
+    notice: Option<(LocalizedText, Instant)>,
     ui_revision: u64,
     snapshot_revision: Option<u64>,
     rendered: Option<(u64, u64)>,
@@ -86,6 +89,7 @@ impl Default for View {
         Self {
             pixels: vec![BG; WIDTH * HEIGHT],
             skin: Skin::Classic,
+            language: Language::French,
             selected_id: None,
             pending_selection: None,
             observed_id: None,
@@ -123,7 +127,15 @@ impl View {
         self.last_click = None;
         self.dirty();
     }
-    pub fn notice(&mut self, text: &str) {
+    pub fn set_language(&mut self, language: Language) {
+        if self.language != language {
+            self.language = language;
+            self.cancel_pointer();
+            self.last_click = None;
+            self.dirty();
+        }
+    }
+    pub fn notice(&mut self, text: impl Into<LocalizedText>) {
         self.notice = Some((text.into(), Instant::now()));
         self.dirty();
     }
@@ -583,6 +595,7 @@ impl View {
         ];
         let pressed = self.pressed.filter(|p| Some(*p) == self.hovered);
         let palette = modern::Palette::new(self.skin, self.focused);
+        let language = self.language;
         let mut c = Canvas {
             pixels: &mut self.pixels,
             focused: self.focused,
@@ -600,7 +613,13 @@ impl View {
                 c.rect((480, y, 208, 1), palette.title_line);
             }
         }
-        c.text(232, 7, "SPOTIAMP  /  BIBLIOTHÈQUE", palette.title_text, 30);
+        c.text(
+            232,
+            7,
+            language.text("SPOTIAMP  /  BIBLIOTHÈQUE", "SPOTIAMP  /  LIBRARY"),
+            palette.title_text,
+            30,
+        );
         c.button(
             Button::Minimize,
             "_",
@@ -615,25 +634,37 @@ impl View {
         );
         c.button(
             Button::Refresh,
-            "ACTUALISER",
+            language.text("ACTUALISER", "REFRESH"),
             enabled[0],
             pressed == Some(Target::Button(Button::Refresh)),
         );
-        c.text(192, 37, "VOS PLAYLISTS SPOTIFY", palette.chrome_text, 36);
+        c.text(
+            192,
+            37,
+            language.text("VOS PLAYLISTS SPOTIFY", "YOUR SPOTIFY PLAYLISTS"),
+            palette.chrome_text,
+            36,
+        );
         c.text(
             574,
             37,
             if s.connected {
-                "LECTURE SEULE"
+                language.text("LECTURE SEULE", "READ ONLY")
             } else {
-                "HORS CONNEXION"
+                language.text("HORS CONNEXION", "OFFLINE")
             },
             palette.chrome_muted,
             21,
         );
         c.bevel((12, 60, 220, 377), palette.well, true);
         c.bevel((13, 61, 218, 23), palette.header, false);
-        c.text(23, 69, "MES PLAYLISTS", palette.bright, 24);
+        c.text(
+            23,
+            69,
+            language.text("MES PLAYLISTS", "MY PLAYLISTS"),
+            palette.bright,
+            24,
+        );
         if self.left_focus && self.focused {
             c.rect((16, 86, 212, 1), palette.accent);
         }
@@ -642,9 +673,9 @@ impl View {
                 25,
                 112,
                 if s.loading {
-                    "Chargement..."
+                    language.text("Chargement...", "Loading...")
                 } else {
-                    "Aucune playlist"
+                    language.text("Aucune playlist", "No playlists")
                 },
                 palette.primary,
                 23,
@@ -653,9 +684,9 @@ impl View {
                 25,
                 131,
                 if s.connected {
-                    "Actualiser avec F5"
+                    language.text("Actualiser avec F5", "Press F5 to refresh")
                 } else {
-                    "Connectez le lecteur"
+                    language.text("Connectez le lecteur", "Connect the player")
                 },
                 palette.muted,
                 23,
@@ -690,7 +721,7 @@ impl View {
                 24,
                 y + 16,
                 if !entry.available {
-                    "Indisponible"
+                    language.text("Indisponible", "Unavailable")
                 } else if entry.folder.is_empty() {
                     "Spotify"
                 } else {
@@ -706,44 +737,76 @@ impl View {
         c.text(
             252,
             68,
-            selected.map_or("Sélectionnez une playlist", |e| e.name.as_str()),
+            selected.map_or(
+                language.text("Sélectionnez une playlist", "Select a playlist"),
+                |e| e.name.as_str(),
+            ),
             palette.bright,
             60,
         );
         let mut summary = Label::new();
         if let Some(entry) = selected {
             if let Some(count) = entry.track_count {
-                let _ = write!(summary, "{count} titres");
+                let _ = write!(summary, "{count} {}", language.text("titres", "tracks"));
             } else {
-                let _ = write!(summary, "Nombre de titres inconnu");
+                let _ = write!(
+                    summary,
+                    "{}",
+                    language.text("Nombre de titres inconnu", "Track count unknown")
+                );
             }
             if let Some(duration) = entry.duration_ms {
                 let _ = write!(summary, "  /  {} min", duration / 60_000);
             }
         } else {
-            let _ = write!(summary, "Les titres sont chargés à l'ouverture.");
+            let _ = write!(
+                summary,
+                "{}",
+                language.text(
+                    "Les titres sont chargés à l'ouverture.",
+                    "Tracks load when a playlist is opened."
+                )
+            );
         }
         c.text(252, 83, summary.as_str(), palette.muted, 60);
         c.bevel((242, 100, 504, 17), palette.header, false);
-        c.text(252, 105, "N°", palette.bright, 3);
-        c.text(286, 105, "TITRE / ARTISTE", palette.bright, 38);
-        c.text(686, 105, "DURÉE", palette.bright, 7);
+        c.text(252, 105, language.text("N°", "No"), palette.bright, 3);
+        c.text(
+            286,
+            105,
+            language.text("TITRE / ARTISTE", "TITLE / ARTIST"),
+            palette.bright,
+            38,
+        );
+        c.text(
+            686,
+            105,
+            language.text("DURÉE", "LENGTH"),
+            palette.bright,
+            7,
+        );
         if !self.left_focus && self.focused {
             c.rect((245, 118, 497, 1), palette.accent);
         }
         if !ready || s.tracks.is_empty() {
             let message = if s.loading || self.pending_selection.is_some() {
-                "Chargement des titres..."
+                language.text("Chargement des titres...", "Loading tracks...")
             } else if selected.is_some() {
-                "Aucun titre chargé."
+                language.text("Aucun titre chargé.", "No tracks loaded.")
             } else {
-                "Choisissez une playlist dans la colonne de gauche."
+                language.text(
+                    "Choisissez une playlist dans la colonne de gauche.",
+                    "Choose a playlist in the left column.",
+                )
             };
             c.text(260, 151, message, palette.primary, 58);
             c.text(
                 260,
                 174,
-                "Entrée : lire    Ctrl+Entrée : ajouter à la file",
+                language.text(
+                    "Entrée : lire    Ctrl+Entrée : ajouter à la file",
+                    "Enter: play    Ctrl+Enter: add to queue",
+                ),
                 palette.muted,
                 58,
             );
@@ -766,7 +829,7 @@ impl View {
                 c.text(
                     286,
                     y + 3,
-                    &track.title,
+                    track.display_title(language),
                     if active {
                         palette.bright
                     } else {
@@ -784,26 +847,38 @@ impl View {
         }
         c.button(
             Button::Play,
-            "LIRE",
+            language.text("LIRE", "PLAY"),
             enabled[1],
             pressed == Some(Target::Button(Button::Play)),
         );
         c.button(
             Button::Append,
-            "À LA FILE",
+            language.text("À LA FILE", "QUEUE"),
             enabled[2],
             pressed == Some(Target::Button(Button::Append)),
         );
-        c.text(506, 416, "Double-clic : lire", palette.chrome_muted, 30);
+        c.text(
+            506,
+            416,
+            language.text("Double-clic : lire", "Double-click: play"),
+            palette.chrome_muted,
+            30,
+        );
         let mut queue = Label::new();
-        let _ = write!(queue, "FILE : {} TITRES", s.queue_len);
+        let _ = write!(
+            queue,
+            "{}: {} {}",
+            language.text("FILE", "QUEUE"),
+            s.queue_len,
+            language.text("TITRES", "TRACKS")
+        );
         c.text(506, 428, queue.as_str(), palette.chrome_muted, 30);
         c.rect((13, 443, 734, 1), palette.separator_shadow);
         c.rect((13, 444, 734, 1), palette.separator_highlight);
         let status = self
             .notice
             .as_ref()
-            .map_or(s.status.as_str(), |(text, _)| text.as_str());
+            .map_or(s.status.text(language), |(text, _)| text.text(language));
         c.text(15, 450, status, palette.chrome_text, 91);
         c.text_skip(15, 460, status, palette.chrome_text, 91, 91);
         true

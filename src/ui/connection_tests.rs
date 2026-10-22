@@ -18,7 +18,10 @@ fn connection_control_distinguishes_connect_cancel_and_explicit_logout() {
     ] {
         let s = state(connected, busy);
         let mut view = View::default();
-        assert_eq!(ConnectionAction::for_state(&s).label(), label);
+        assert_eq!(
+            ConnectionAction::for_state(&s).label(Language::French),
+            label
+        );
         assert!(view.pointer_down(470, 40, &s).is_none());
         let action = view.pointer_up(Some((470, 40)), &s);
         assert!(matches!(

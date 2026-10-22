@@ -1,4 +1,5 @@
 //! On-demand update workers. No polling thread or HTTP client is kept at idle.
+use crate::localized_text::LocalizedText;
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(not(feature = "updates"), allow(dead_code))]
 pub enum UpdateStatus {
@@ -10,7 +11,7 @@ pub enum UpdateStatus {
     Downloading { percent: u8 },
     Ready { version: String },
     Installing,
-    Failed(String),
+    Failed(LocalizedText),
 }
 
 impl Default for UpdateStatus {
@@ -33,16 +34,17 @@ mod release;
 #[cfg(feature = "updates")]
 mod worker {
     use super::{UpdateStatus, install, package, release};
+    use crate::localized_text::LocalizedText;
     use std::{
         sync::mpsc::{self, Receiver, SyncSender, TryRecvError},
         time::Duration,
     };
 
     enum Event {
-        Checked(Result<Option<release::Release>, String>),
+        Checked(Result<Option<release::Release>, LocalizedText>),
         Progress(u8),
-        Prepared(Result<install::Prepared, String>),
-        Handoff(Result<(), String>),
+        Prepared(Result<install::Prepared, LocalizedText>),
+        Handoff(Result<(), LocalizedText>),
     }
 
     pub struct Controller {
@@ -84,8 +86,10 @@ mod worker {
             {
                 Ok(_) => self.pending = Some(rx),
                 Err(_) => {
-                    self.status =
-                        UpdateStatus::Failed("Impossible de lancer la mise a jour.".into())
+                    self.status = UpdateStatus::Failed(LocalizedText::new(
+                        "Impossible de lancer la mise a jour.",
+                        "Could not start the update.",
+                    ))
                 }
             }
         }
@@ -144,9 +148,10 @@ mod worker {
                     Err(TryRecvError::Empty) => return false,
                     Err(TryRecvError::Disconnected) => {
                         self.pending = None;
-                        self.status = UpdateStatus::Failed(
-                            "La verification s'est interrompue. Reessayez.".into(),
-                        );
+                        self.status = UpdateStatus::Failed(LocalizedText::new(
+                            "La verification s'est interrompue. Reessayez.",
+                            "The update check was interrupted. Try again.",
+                        ));
                         return false;
                     }
                 };
@@ -194,6 +199,33 @@ mod worker {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use crate::locale::Language;
+
+        #[test]
+        fn a_failed_update_can_change_language_without_repeating_the_request() {
+            let mut controller = Controller::default();
+            let (tx, rx) = mpsc::sync_channel(8);
+            controller.pending = Some(rx);
+            tx.send(Event::Checked(Err(LocalizedText::new(
+                "Reseau indisponible : connexion refusee",
+                "Network unavailable: connection refused",
+            ))))
+            .unwrap();
+            assert!(!controller.poll());
+            let UpdateStatus::Failed(message) = &controller.status else {
+                panic!("Expected an update failure");
+            };
+            assert_eq!(
+                message.text(Language::French),
+                "Reseau indisponible : connexion refusee"
+            );
+            assert_eq!(
+                message.text(Language::English),
+                "Network unavailable: connection refused"
+            );
+            assert!(controller.pending.is_none());
+        }
+
         #[test]
         fn worker_errors_release_busy_state_and_never_request_exit() {
             let mut controller = Controller::default();

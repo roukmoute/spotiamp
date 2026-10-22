@@ -69,6 +69,9 @@ jobs:
       - name: Test saved window layout across real Linux process restarts
         if: runner.os == 'Linux'
         run: LC_ALL=C XMODIFIERS=@im=none xvfb-run -a -s "-screen 0 1920x1080x24 -noreset" python scripts/test_window_layout.py --executable target/${{ matrix.target }}/release/spotiamp
+      - name: Test language selection across real Linux process restarts
+        if: runner.os == 'Linux'
+        run: LC_ALL=C XMODIFIERS=@im=none xvfb-run -a -s "-screen 0 1920x1080x24 -noreset" python scripts/test_language.py --executable target/${{ matrix.target }}/release/spotiamp
       - name: Compare Windows size, startup and idle memory against 0.1.5
         if: runner.os == 'Windows'
         shell: pwsh

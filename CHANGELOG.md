@@ -1,5 +1,18 @@
 # Changements
 
+## 0.2.9 — 22 octobre 2026
+
+- Interface en français et en anglais, avec détection de la langue du système
+  et choix Auto / Français / English dans À propos → Spotiamp. Le changement
+  est immédiat dans les deux skins et la bibliothèque, sans interrompre la lecture.
+- Langue mémorisée dans un petit fichier borné, remplacé atomiquement ;
+  `--language auto|fr|en` permet un essai sans changer le choix enregistré.
+- Traduction des boutons, infobulles, aide, connexion, statuts de lecture,
+  bibliothèque et mises à jour. Les métadonnées Spotify ne sont pas traduites.
+- Textes statiques intégrés et empruntés sans allocation, sans dépendance ni
+  tâche de fond supplémentaire. Tests des changements à chaud, de la persistance
+  après redémarrage et de la détection de langue, avec les deux skins.
+
 ## 0.2.8 — 22 octobre 2026
 
 - Spotiamp est présenté comme un lecteur Spotify natif : retrait des mentions

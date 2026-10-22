@@ -16,6 +16,7 @@ fn snapshot() -> Snapshot {
                 title: format!("Titre {i}"),
                 artist: "Artiste".into(),
                 duration_ms: 180_000,
+                ..Default::default()
             })
             .collect(),
         ..Snapshot::default()

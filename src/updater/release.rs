@@ -1,4 +1,5 @@
 //! Public GitHub releases and bounded, verified archive downloads.
+use crate::localized_text::LocalizedText;
 
 use reqwest::{Url, blocking::Client, header, redirect};
 use semver::Version;
@@ -89,7 +90,7 @@ fn allowed_url(url: &Url) -> bool {
         )
 }
 
-fn client() -> Result<Client, String> {
+fn client() -> Result<Client, LocalizedText> {
     let mut headers = header::HeaderMap::new();
     headers.insert(
         "X-GitHub-Api-Version",
@@ -103,13 +104,18 @@ fn client() -> Result<Client, String> {
         .timeout(REQUEST_TIMEOUT)
         .redirect(redirect::Policy::custom(|attempt| {
             if !allowed_url(attempt.url()) {
-                attempt.error("Adresse de redirection non autorisée")
+                attempt.error("Unauthorized redirect URL")
             } else {
                 redirect::Policy::limited(5).redirect(attempt)
             }
         }))
         .build()
-        .map_err(|error| format!("Connexion GitHub indisponible : {error}"))
+        .map_err(|error| {
+            LocalizedText::new(
+                format!("Connexion GitHub indisponible : {error}"),
+                format!("GitHub connection unavailable: {error}"),
+            )
+        })
 }
 
 fn digest_valid(digest: &str) -> bool {
@@ -128,7 +134,7 @@ fn select_release(
     releases: &[ApiRelease],
     current: &Version,
     platform: Platform,
-) -> Result<Option<Release>, String> {
+) -> Result<Option<Release>, LocalizedText> {
     let mut best: Option<(Version, &ApiRelease, &ApiAsset)> = None;
     for release in releases.iter().take(100) {
         let Some(version) = parse_tag(&release.tag_name) else {
@@ -160,12 +166,21 @@ fn select_release(
         .as_deref()
         .and_then(|d| d.strip_prefix("sha256:"))
         .filter(|d| digest_valid(d))
-        .ok_or("Une mise à jour existe, mais son empreinte SHA-256 est absente ou invalide")?;
+        .ok_or(LocalizedText::new(
+            "Une mise à jour existe, mais son empreinte SHA-256 est absente ou invalide",
+            "An update is available, but its SHA-256 checksum is missing or invalid",
+        ))?;
     if !(1..=MAX_ARCHIVE_BYTES).contains(&asset.size) {
-        return Err("Une mise à jour existe, mais sa taille est invalide".into());
+        return Err(LocalizedText::new(
+            "Une mise à jour existe, mais sa taille est invalide",
+            "An update is available, but its size is invalid",
+        ));
     }
     if asset.browser_download_url != asset_url(&release.tag_name, platform) {
-        return Err("Une mise à jour existe, mais son adresse est invalide".into());
+        return Err(LocalizedText::new(
+            "Une mise à jour existe, mais son adresse est invalide",
+            "An update is available, but its URL is invalid",
+        ));
     }
     Ok(Some(Release {
         version: version.to_string(),
@@ -176,41 +191,72 @@ fn select_release(
     }))
 }
 
-fn read_json(mut reader: impl Read) -> Result<Vec<u8>, String> {
+fn read_json(mut reader: impl Read) -> Result<Vec<u8>, LocalizedText> {
     let mut bytes = Vec::new();
     reader
         .by_ref()
         .take(MAX_JSON_BYTES + 1)
         .read_to_end(&mut bytes)
-        .map_err(|error| format!("Lecture des versions impossible : {error}"))?;
+        .map_err(|error| {
+            LocalizedText::new(
+                format!("Lecture des versions impossible : {error}"),
+                format!("Could not read releases: {error}"),
+            )
+        })?;
     if bytes.len() as u64 > MAX_JSON_BYTES {
-        return Err("La réponse GitHub dépasse la taille autorisée".into());
+        return Err(LocalizedText::new(
+            "La réponse GitHub dépasse la taille autorisée",
+            "The GitHub response exceeds the allowed size",
+        ));
     }
     Ok(bytes)
 }
 
-pub fn check() -> Result<Option<Release>, String> {
-    let platform = platform().ok_or("Mise à jour indisponible pour cette plateforme")?;
-    let current =
-        Version::parse(env!("CARGO_PKG_VERSION")).map_err(|_| "Version actuelle non reconnue")?;
+pub fn check() -> Result<Option<Release>, LocalizedText> {
+    let platform = platform().ok_or(LocalizedText::new(
+        "Mise à jour indisponible pour cette plateforme",
+        "Updates are unavailable for this platform",
+    ))?;
+    let current = Version::parse(env!("CARGO_PKG_VERSION")).map_err(|_| {
+        LocalizedText::new(
+            "Version actuelle non reconnue",
+            "Current version not recognized",
+        )
+    })?;
     let response = client()?
         .get(RELEASES_URL)
         .header(header::ACCEPT, "application/vnd.github+json")
         // A per-request timeout also bounds the asynchronous body behind blocking Read.
         .timeout(REQUEST_TIMEOUT)
         .send()
-        .map_err(|error| format!("Recherche des versions impossible : {error}"))?;
+        .map_err(|error| {
+            LocalizedText::new(
+                format!("Recherche des versions impossible : {error}"),
+                format!("Could not check releases: {error}"),
+            )
+        })?;
     if !response.status().is_success() {
-        return Err(format!("GitHub a répondu HTTP {}", response.status()));
+        return Err(LocalizedText::new(
+            format!("GitHub a répondu HTTP {}", response.status()),
+            format!("GitHub returned HTTP {}", response.status()),
+        ));
     }
     if response
         .content_length()
         .is_some_and(|size| size > MAX_JSON_BYTES)
     {
-        return Err("La réponse GitHub dépasse la taille autorisée".into());
+        return Err(LocalizedText::new(
+            "La réponse GitHub dépasse la taille autorisée",
+            "The GitHub response exceeds the allowed size",
+        ));
     }
-    let releases: Vec<ApiRelease> = serde_json::from_slice(&read_json(response)?)
-        .map_err(|_| "La liste des versions GitHub est invalide")?;
+    let releases: Vec<ApiRelease> =
+        serde_json::from_slice(&read_json(response)?).map_err(|_| {
+            LocalizedText::new(
+                "La liste des versions GitHub est invalide",
+                "The GitHub release list is invalid",
+            )
+        })?;
     select_release(&releases, &current, platform)
 }
 
@@ -220,15 +266,23 @@ fn receive_archive(
     expected_bytes: u64,
     expected_sha256: &str,
     mut progress: impl FnMut(u8),
-) -> Result<(), String> {
+) -> Result<(), LocalizedText> {
     if !(1..=MAX_ARCHIVE_BYTES).contains(&expected_bytes) || !digest_valid(expected_sha256) {
-        return Err("Métadonnées de téléchargement invalides".into());
+        return Err(LocalizedText::new(
+            "Métadonnées de téléchargement invalides",
+            "Invalid download metadata",
+        ));
     }
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(path)
-        .map_err(|error| format!("Création du fichier de mise à jour impossible : {error}"))?;
+        .map_err(|error| {
+            LocalizedText::new(
+                format!("Création du fichier de mise à jour impossible : {error}"),
+                format!("Could not create the update file: {error}"),
+            )
+        })?;
     let result = (|| {
         let mut buffer = [0_u8; 32 * 1024];
         let mut sha256 = Sha256::new();
@@ -241,17 +295,29 @@ fn receive_archive(
             let count = match reader.read(&mut buffer[..capacity]) {
                 Ok(count) => count,
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(error) => return Err(format!("Téléchargement interrompu : {error}")),
+                Err(error) => {
+                    return Err(LocalizedText::new(
+                        format!("Téléchargement interrompu : {error}"),
+                        format!("Download interrupted: {error}"),
+                    ));
+                }
             };
             if count == 0 {
                 break;
             }
             total += count as u64;
             if total > expected_bytes {
-                return Err("L'archive dépasse la taille annoncée".into());
+                return Err(LocalizedText::new(
+                    "L'archive dépasse la taille annoncée",
+                    "The archive exceeds its advertised size",
+                ));
             }
-            file.write_all(&buffer[..count])
-                .map_err(|error| format!("Écriture de la mise à jour impossible : {error}"))?;
+            file.write_all(&buffer[..count]).map_err(|error| {
+                LocalizedText::new(
+                    format!("Écriture de la mise à jour impossible : {error}"),
+                    format!("Could not write the update: {error}"),
+                )
+            })?;
             sha256.update(&buffer[..count]);
             let percent = ((total * 100 / expected_bytes).min(99)) as u8;
             if percent > last_progress {
@@ -260,13 +326,23 @@ fn receive_archive(
             }
         }
         if total != expected_bytes {
-            return Err("Le téléchargement est incomplet".into());
+            return Err(LocalizedText::new(
+                "Le téléchargement est incomplet",
+                "The download is incomplete",
+            ));
         }
         if !format!("{:x}", sha256.finalize()).eq_ignore_ascii_case(expected_sha256) {
-            return Err("L'empreinte SHA-256 de l'archive est incorrecte".into());
+            return Err(LocalizedText::new(
+                "L'empreinte SHA-256 de l'archive est incorrecte",
+                "The archive SHA-256 checksum is incorrect",
+            ));
         }
-        file.sync_all()
-            .map_err(|error| format!("Enregistrement de la mise à jour impossible : {error}"))?;
+        file.sync_all().map_err(|error| {
+            LocalizedText::new(
+                format!("Enregistrement de la mise à jour impossible : {error}"),
+                format!("Could not save the update: {error}"),
+            )
+        })?;
         progress(100);
         Ok(())
     })();
@@ -277,29 +353,50 @@ fn receive_archive(
     result
 }
 
-pub fn download(release: &Release, path: &Path, progress: impl FnMut(u8)) -> Result<(), String> {
-    let platform = platform().ok_or("Mise à jour indisponible pour cette plateforme")?;
+pub fn download(
+    release: &Release,
+    path: &Path,
+    progress: impl FnMut(u8),
+) -> Result<(), LocalizedText> {
+    let platform = platform().ok_or(LocalizedText::new(
+        "Mise à jour indisponible pour cette plateforme",
+        "Updates are unavailable for this platform",
+    ))?;
     if !(1..=MAX_ARCHIVE_BYTES).contains(&release.bytes)
         || !digest_valid(&release.sha256)
         || release.asset_url != asset_url(&release.tag, platform)
         || parse_tag(&release.tag).is_none_or(|version| version.to_string() != release.version)
     {
-        return Err("Métadonnées de téléchargement invalides".into());
+        return Err(LocalizedText::new(
+            "Métadonnées de téléchargement invalides",
+            "Invalid download metadata",
+        ));
     }
     let response = client()?
         .get(&release.asset_url)
         .header(header::ACCEPT, "application/octet-stream")
         .timeout(REQUEST_TIMEOUT)
         .send()
-        .map_err(|error| format!("Téléchargement impossible : {error}"))?;
+        .map_err(|error| {
+            LocalizedText::new(
+                format!("Téléchargement impossible : {error}"),
+                format!("Could not download the update: {error}"),
+            )
+        })?;
     if !response.status().is_success() {
-        return Err(format!("GitHub a répondu HTTP {}", response.status()));
+        return Err(LocalizedText::new(
+            format!("GitHub a répondu HTTP {}", response.status()),
+            format!("GitHub returned HTTP {}", response.status()),
+        ));
     }
     if response
         .content_length()
         .is_some_and(|size| size != release.bytes)
     {
-        return Err("La taille de l'archive ne correspond pas à celle annoncée".into());
+        return Err(LocalizedText::new(
+            "La taille de l'archive ne correspond pas à celle annoncée",
+            "The archive size differs from its advertised size",
+        ));
     }
     receive_archive(response, path, release.bytes, &release.sha256, progress)
 }
@@ -333,7 +430,7 @@ mod tests {
     fn selection(
         releases: Vec<serde_json::Value>,
         current: &str,
-    ) -> Result<Option<Release>, String> {
+    ) -> Result<Option<Release>, LocalizedText> {
         let releases: Vec<ApiRelease> =
             serde_json::from_value(serde_json::Value::Array(releases)).unwrap();
         select_release(&releases, &Version::parse(current).unwrap(), WINDOWS)

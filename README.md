@@ -4,7 +4,7 @@
 
 Spotiamp partage les mêmes skins **Classique** et **Modern** et la même base Rust
 sur les trois systèmes : une file de lecture, vos playlists Spotify et des mises
-à jour intégrées. Le moteur audio actuel est librespot 0.8. Un compte Spotify
+à jour intégrées, en **français ou en anglais**. Le moteur audio actuel est librespot 0.8. Un compte Spotify
 Premium est nécessaire.
 
 Des binaires natifs sont publiés pour **Windows x64, macOS Apple Silicon et
@@ -52,6 +52,22 @@ compilation et retrait de code inutilisé, tout en conservant le niveau
 d’optimisation pour la vitesse. Les comparaisons et leurs limites sont dans
 [PERFORMANCE.md](PERFORMANCE.md). L’éclair du bouton À propos signale toujours
 les mises à jour disponibles.
+
+## Langue de l'interface
+
+Au premier lancement, Spotiamp utilise la langue du système : français ou anglais,
+avec l'anglais comme choix de repli pour les autres langues. Dans **À propos (F2)
+→ Spotiamp**, choisir **Auto**, **Français** ou **English**. Le changement s'applique
+immédiatement au lecteur, à la bibliothèque et aux messages, sans interrompre
+la musique. Les noms des playlists, titres et artistes restent ceux de Spotify.
+
+Le choix est conservé dans le petit fichier `Spotiamp/language`, à côté des autres
+préférences. **Auto** suit à nouveau la langue du système. Pour essayer une langue
+pendant un seul lancement, utiliser `spotiamp --language fr`, `--language en` ou
+`--language auto` (`.\spotiamp.exe` sous PowerShell, `./spotiamp` sous macOS/Linux).
+Les textes sont intégrés au binaire : aucun téléchargement, moteur de traduction,
+thread ni dépendance supplémentaire. Les diagnostics techniques des bibliothèques
+externes gardent leur texte d'origine.
 
 ## Deux skins natifs et légers
 

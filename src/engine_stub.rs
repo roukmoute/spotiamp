@@ -7,9 +7,12 @@ impl std::fmt::Display for SendError {
         f.write_str("Version de mesure UI seule : moteur audio non compile.")
     }
 }
+pub fn command_error(_: &SendError) -> crate::localized_text::LocalizedText {
+    "Version de mesure UI seule : moteur audio non compile.".into()
+}
 impl Sender {
     pub fn try_send(&self, command: Command) -> Result<(), SendError> {
-        if matches!(command, Command::Library(_)) {
+        if matches!(command, Command::Library(_) | Command::SetLanguage(_)) {
             Ok(())
         } else {
             Err(SendError)
@@ -22,7 +25,14 @@ pub struct Engine {
     pub library: Arc<Mutex<LibrarySnapshot>>,
 }
 impl Engine {
+    pub fn sync_language(&self, _: crate::locale::Language) -> bool {
+        true
+    }
+
     pub fn spawn() -> Self {
+        Self::spawn_with_language(crate::locale::Language::French)
+    }
+    pub fn spawn_with_language(_: crate::locale::Language) -> Self {
         Self {
             tx: Sender,
             state: Arc::new(Mutex::new(Snapshot {

@@ -1,4 +1,6 @@
 use crate::appearance::Skin;
+use crate::locale::{Language, LanguagePreference};
+use crate::localized_text::LocalizedText;
 use crate::model::{AudioQuality, Command, Snapshot};
 use crate::updater::UpdateStatus;
 use font8x8::UnicodeFonts;
@@ -23,6 +25,19 @@ const BLACK: u32 = 0x050805;
 const GOLD: u32 = 0xb3a978;
 const ROWS: usize = 8;
 
+const LANGUAGE_CHOICES: [LanguagePreference; 3] = [
+    LanguagePreference::Auto,
+    LanguagePreference::Specific(Language::French),
+    LanguagePreference::Specific(Language::English),
+];
+
+fn language_index(preference: LanguagePreference) -> usize {
+    LANGUAGE_CHOICES
+        .iter()
+        .position(|&value| value == preference)
+        .unwrap_or(0)
+}
+
 pub enum Action {
     Send(Command),
     Paste,
@@ -36,6 +51,7 @@ pub enum Action {
     Close,
     OpenLibrary,
     SetSkin(Skin),
+    SetLanguage(LanguagePreference),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -75,11 +91,11 @@ impl ConnectionAction {
         }
     }
 
-    fn label(self) -> &'static str {
+    fn label(self, language: Language) -> &'static str {
         match self {
-            Self::Connect => "CONNEXION",
-            Self::Cancel => "ANNULER",
-            Self::Logout => "DECONNECTER",
+            Self::Connect => language.text("CONNEXION", "CONNECT"),
+            Self::Cancel => language.text("ANNULER", "CANCEL"),
+            Self::Logout => language.text("DECONNECTER", "DISCONNECT"),
         }
     }
 
@@ -123,6 +139,7 @@ enum Button {
     Quality160,
     Quality320,
     Skin(Skin),
+    Language(LanguagePreference),
 }
 
 impl Button {
@@ -157,7 +174,7 @@ impl Button {
         Self::Quality320,
     ];
 
-    const MODAL: [Self; 12] = [
+    const MODAL: [Self; 15] = [
         Self::AboutTab(AboutTab::Player),
         Self::AboutTab(AboutTab::Credits),
         Self::AboutTab(AboutTab::Shortcuts),
@@ -170,6 +187,9 @@ impl Button {
         Self::UpdateCheck,
         Self::UpdateDownload,
         Self::UpdateInstall,
+        Self::Language(LanguagePreference::Auto),
+        Self::Language(LanguagePreference::Specific(Language::French)),
+        Self::Language(LanguagePreference::Specific(Language::English)),
     ];
 
     fn rect(self) -> (usize, usize, usize, usize) {
@@ -203,6 +223,7 @@ impl Button {
             Self::Quality320 => (480, 417, 66, 21),
             Self::Skin(Skin::Classic) => (47, 146, 74, 16),
             Self::Skin(Skin::Modern) => (125, 146, 62, 16),
+            Self::Language(preference) => (164 + language_index(preference) * 112, 210, 104, 22),
         }
     }
 
@@ -220,6 +241,7 @@ impl Button {
                 // Distinct capture identities prevent a Download press from becoming
                 // an Install release if the asynchronous update state changes.
                 let visible = match button {
+                    Self::Language(_) => about == Some(AboutTab::Player),
                     Self::UpdateCheck => about == Some(AboutTab::Updates),
                     Self::UpdateDownload => {
                         about == Some(AboutTab::Updates)
@@ -253,6 +275,8 @@ impl Button {
 pub struct View {
     pub pixels: Vec<u32>,
     pub skin: Skin,
+    pub language: Language,
+    pub language_preference: LanguagePreference,
     pub input: String,
     pub input_active: bool,
     pub select_all: bool,
@@ -271,7 +295,7 @@ pub struct View {
     observed_playback_revision: u64,
     dragging: u8,
     last_click: Option<(usize, Instant)>,
-    transient: Option<(String, Instant)>,
+    transient: Option<(LocalizedText, Instant)>,
 }
 
 impl Default for View {
@@ -279,6 +303,8 @@ impl Default for View {
         Self {
             pixels: vec![BG; WIDTH * HEIGHT],
             skin: Skin::default(),
+            language: Language::French,
+            language_preference: LanguagePreference::Auto,
             input: String::new(),
             input_active: false,
             select_all: false,
@@ -351,6 +377,16 @@ impl View {
         }
     }
 
+    /// Change only presentation; queued tracks, input and audio remain intact.
+    pub fn set_language(&mut self, preference: LanguagePreference, language: Language) {
+        if self.language != language || self.language_preference != preference {
+            self.cancel_pointer();
+            self.last_click = None;
+            self.language = language;
+            self.language_preference = preference;
+        }
+    }
+
     fn render_skin_selector(&mut self) {
         // Both choices occupy the existing playlist title strip, not a new window.
         self.rect(
@@ -374,7 +410,10 @@ impl View {
                 WHITE
             },
         );
-        for (skin, label) in [(Skin::Classic, "CLASSIQUE"), (Skin::Modern, "MODERN")] {
+        for (skin, label) in [
+            (Skin::Classic, self.language.text("CLASSIQUE", "CLASSIC")),
+            (Skin::Modern, "MODERN"),
+        ] {
             let (x, y, w, h) = Button::Skin(skin).rect();
             let down = self.button_down(x, y);
             self.metal_face(x, y, w, h, true, down || self.skin == skin);
@@ -423,11 +462,22 @@ impl View {
 
     fn about_tooltip(&self) -> &'static str {
         match self.update {
-            UpdateStatus::Available { .. } => "Mise à jour disponible (F2)",
-            UpdateStatus::Ready { .. } => "Mise à jour à installer (F2)",
-            UpdateStatus::Downloading { .. } => "Téléchargement en cours (F2)",
-            UpdateStatus::Failed(_) => "Échec de mise à jour (F2)",
-            _ => "À propos de Spotiamp (F2)",
+            UpdateStatus::Available { .. } => self
+                .language
+                .text("Mise à jour disponible (F2)", "Update available (F2)"),
+            UpdateStatus::Ready { .. } => self.language.text(
+                "Mise à jour à installer (F2)",
+                "Update ready to install (F2)",
+            ),
+            UpdateStatus::Downloading { .. } => self
+                .language
+                .text("Téléchargement en cours (F2)", "Downloading update (F2)"),
+            UpdateStatus::Failed(_) => self
+                .language
+                .text("Échec de mise à jour (F2)", "Update failed (F2)"),
+            _ => self
+                .language
+                .text("À propos de Spotiamp (F2)", "About Spotiamp (F2)"),
         }
     }
 
@@ -469,8 +519,17 @@ impl View {
                 self.about_focus = 2;
             }
             Key::Tab => {
-                let count = if tab == AboutTab::Updates { 10 } else { 8 };
-                self.about_focus = (self.about_focus + if shift { count - 1 } else { 1 }) % count;
+                let order: &[usize] = match tab {
+                    AboutTab::Player => &[0, 1, 2, 3, 4, 10, 11, 12, 5, 6, 7],
+                    AboutTab::Updates => &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+                    _ => &[0, 1, 2, 3, 4, 5, 6, 7],
+                };
+                let index = order
+                    .iter()
+                    .position(|&focus| focus == self.about_focus)
+                    .unwrap_or(0);
+                self.about_focus =
+                    order[(index + if shift { order.len() - 1 } else { 1 }) % order.len()];
             }
             Key::Left | Key::Up | Key::Right | Key::Down => {
                 let delta = if matches!(key, Key::Left | Key::Up) {
@@ -493,6 +552,9 @@ impl View {
             5 => return Some(Action::OpenProject),
             6 => return Some(Action::CopyAboutInfo),
             7 => self.close_about(),
+            10..=12 if self.about == Some(AboutTab::Player) => {
+                return Some(Action::SetLanguage(LANGUAGE_CHOICES[self.about_focus - 10]));
+            }
             8 if self.about == Some(AboutTab::Updates) && self.can_check_update() => {
                 return Some(Action::CheckUpdates);
             }
@@ -600,7 +662,7 @@ impl View {
             left == x && top == y && self.hovered_button == Some(button)
         })
     }
-    pub fn notice(&mut self, text: &str) {
+    pub fn notice(&mut self, text: impl Into<LocalizedText>) {
         self.transient = Some((text.into(), Instant::now()));
     }
     pub fn insert_char(&mut self, c: char) {
@@ -707,6 +769,7 @@ impl View {
                 Some(Button::AboutClose | Button::AboutCloseTop) => 7,
                 Some(Button::UpdateCheck) => 8,
                 Some(Button::UpdateDownload | Button::UpdateInstall) => 9,
+                Some(Button::Language(preference)) => 10 + language_index(preference),
                 _ => return None,
             };
             return self.activate_about_focus();
@@ -814,6 +877,8 @@ impl View {
         self.input.hash(&mut hash);
         self.update.hash(&mut hash);
         self.skin.hash(&mut hash);
+        self.language.hash(&mut hash);
+        self.language_preference.hash(&mut hash);
         if self.update_indicator_visible() {
             self.update_indicator_phase.hash(&mut hash);
         }
@@ -878,6 +943,9 @@ mod mode_tests;
 
 #[cfg(test)]
 mod skin_tests;
+
+#[cfg(test)]
+mod language_tests;
 
 #[cfg(test)]
 mod tests {

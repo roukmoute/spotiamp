@@ -204,7 +204,7 @@ fn update_progress_redraws_existing_buffer_and_leaves_audio_status_intact() {
     view.about = Some(AboutTab::Updates);
     for update in [
         UpdateStatus::Downloading { percent: 255 },
-        UpdateStatus::Failed("Échec réseau. ".repeat(1000)),
+        UpdateStatus::Failed("Échec réseau. ".repeat(1000).into()),
     ] {
         view.update = update;
         view.render(&state);

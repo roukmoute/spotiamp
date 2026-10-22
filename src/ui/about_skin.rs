@@ -11,7 +11,13 @@ impl View {
         self.bevel(24, 24, 512, 416, BG, false);
         self.bevel(30, 30, 500, 26, 0x353249, false);
         self.rect(35, 35, 3, 15, GOLD);
-        self.text(45, 39, "À PROPOS DE SPOTIAMP", WHITE, 54);
+        self.text(
+            45,
+            39,
+            self.language.text("À PROPOS DE SPOTIAMP", "ABOUT SPOTIAMP"),
+            WHITE,
+            54,
+        );
 
         let close_down = self.button_down(505, 33);
         self.metal_face(505, 33, 20, 18, true, close_down);
@@ -23,10 +29,19 @@ impl View {
 
         for (index, (candidate, label)) in [
             (AboutTab::Player, "Spotiamp"),
-            (AboutTab::Credits, "Crédits"),
-            (AboutTab::Shortcuts, "Raccourcis"),
-            (AboutTab::History, "Historique"),
-            (AboutTab::Updates, "Mise à jour"),
+            (AboutTab::Credits, self.language.text("Crédits", "Credits")),
+            (
+                AboutTab::Shortcuts,
+                self.language.text("Raccourcis", "Shortcuts"),
+            ),
+            (
+                AboutTab::History,
+                self.language.text("Historique", "History"),
+            ),
+            (
+                AboutTab::Updates,
+                self.language.text("Mise à jour", "Updates"),
+            ),
         ]
         .into_iter()
         .enumerate()
@@ -64,15 +79,25 @@ impl View {
             .transient
             .as_ref()
             .filter(|(_, at)| at.elapsed() < Duration::from_secs(8))
-            .map(|(text, _)| text.clone());
+            .map(|(text, _)| text.text(self.language).to_owned());
         if let Some(notice) = notice {
             self.rect(43, 380, 474, 12, 0x171724);
             self.text(48, 382, &notice, GOLD, 58);
         }
 
-        self.about_action(40, 186, "PROJET GITHUB", 5);
-        self.about_action(236, 174, "COPIER LES INFOS", 6);
-        self.about_action(420, 100, "FERMER", 7);
+        self.about_action(
+            40,
+            186,
+            self.language.text("PROJET GITHUB", "GITHUB PROJECT"),
+            5,
+        );
+        self.about_action(
+            236,
+            174,
+            self.language.text("COPIER LES INFOS", "COPY INFO"),
+            6,
+        );
+        self.about_action(420, 100, self.language.text("FERMER", "CLOSE"), 7);
     }
 
     fn about_action(&mut self, x: usize, width: usize, label: &str, focus: usize) {
@@ -140,14 +165,86 @@ impl View {
         self.rect(152, 174, 256, 1, 0x625a3c);
         self.rect(152, 176, 256, 1, GOLD);
         self.about_centered(191, concat!("Version ", env!("CARGO_PKG_VERSION")), GREEN);
-        self.about_centered(227, "Un lecteur Spotify natif, léger et compact.", WHITE);
-        self.about_centered(247, "Deux skins intégrés : Classique et Modern.", WHITE);
-        self.rect(64, 269, 432, 1, 0x303042);
-        self.about_centered(285, "Spotify Premium requis pour écouter.", WHITE);
-        self.about_centered(307, "Logiciel libre sous licence MIT.", WHITE);
-        self.about_centered(331, "github.com/roukmoute/spotiamp", GREEN);
-        self.about_centered(353, "(c) 2026 Spotiamp contributors", DIM);
-        self.about_centered(369, "Non affilié à Spotify ou à Winamp.", DIM);
+        self.text(54, 218, self.language.text("LANGUE", "LANGUAGE"), WHITE, 12);
+        for (x, preference, label, focus) in [
+            (164, crate::locale::LanguagePreference::Auto, "Auto", 10),
+            (
+                276,
+                crate::locale::LanguagePreference::Specific(crate::locale::Language::French),
+                "Français",
+                11,
+            ),
+            (
+                388,
+                crate::locale::LanguagePreference::Specific(crate::locale::Language::English),
+                "English",
+                12,
+            ),
+        ] {
+            let down = self.button_down(x, 210);
+            self.metal_face(
+                x,
+                210,
+                104,
+                22,
+                true,
+                down || self.language_preference == preference,
+            );
+            let offset = usize::from(down);
+            self.text(
+                x + (104 - label.chars().count() * 8) / 2 + offset,
+                217 + offset,
+                label,
+                0x242b40,
+                12,
+            );
+            if self.about_focus == focus {
+                self.about_focus_ring(x + 4, 214, 96, 14);
+            }
+        }
+        self.about_centered(
+            244,
+            self.language.text(
+                "Un lecteur Spotify natif, léger et compact.",
+                "A small, lightweight native Spotify player.",
+            ),
+            WHITE,
+        );
+        self.about_centered(
+            261,
+            self.language.text(
+                "Deux skins intégrés : Classique et Modern.",
+                "Two built-in skins: Classic and Modern.",
+            ),
+            WHITE,
+        );
+        self.rect(64, 278, 432, 1, 0x303042);
+        self.about_centered(
+            294,
+            self.language.text(
+                "Spotify Premium requis pour écouter.",
+                "Spotify Premium is required to listen.",
+            ),
+            WHITE,
+        );
+        self.about_centered(
+            311,
+            self.language.text(
+                "Logiciel libre sous licence MIT.",
+                "Free and open-source software. MIT license.",
+            ),
+            WHITE,
+        );
+        self.about_centered(330, "github.com/roukmoute/spotiamp", GREEN);
+        self.about_centered(350, "(c) 2026 Spotiamp contributors", DIM);
+        self.about_centered(
+            369,
+            self.language.text(
+                "Non affilié à Spotify ou à Winamp.",
+                "Not affiliated with Spotify or Winamp.",
+            ),
+            DIM,
+        );
     }
 
     fn about_credits(&mut self) {
@@ -159,15 +256,52 @@ impl View {
             WHITE,
             56,
         );
-        self.text(54, 150, "Code du projet : licence MIT.", WHITE, 56);
+        self.text(
+            54,
+            150,
+            self.language.text(
+                "Code du projet : licence MIT.",
+                "Project code: MIT license.",
+            ),
+            WHITE,
+            56,
+        );
         self.rect(54, 173, 452, 1, 0x303042);
         for (y, name, role) in [
-            (184, "librespot 0.8", "Protocole et lecture Spotify"),
-            (201, "Symphonia", "Décodage audio"),
-            (218, "Rodio / CPAL", "Sortie audio native"),
-            (235, "minifb", "Fenêtre et pixels"),
-            (252, "font8x8", "Caractères bitmap"),
-            (269, "arboard", "Presse-papiers"),
+            (
+                184,
+                "librespot 0.8",
+                self.language.text(
+                    "Protocole et lecture Spotify",
+                    "Spotify protocol and playback",
+                ),
+            ),
+            (
+                201,
+                "Symphonia",
+                self.language.text("Décodage audio", "Audio decoding"),
+            ),
+            (
+                218,
+                "Rodio / CPAL",
+                self.language
+                    .text("Sortie audio native", "Native audio output"),
+            ),
+            (
+                235,
+                "minifb",
+                self.language.text("Fenêtre et pixels", "Window and pixels"),
+            ),
+            (
+                252,
+                "font8x8",
+                self.language.text("Caractères bitmap", "Bitmap fonts"),
+            ),
+            (
+                269,
+                "arboard",
+                self.language.text("Presse-papiers", "Clipboard"),
+            ),
         ] {
             self.text(54, y, name, GOLD, 17);
             self.text(202, y, role, WHITE, 38);
@@ -176,56 +310,140 @@ impl View {
         self.text(
             54,
             301,
-            "Les dépendances gardent leurs licences propres.",
+            self.language.text(
+                "Les dépendances gardent leurs licences propres.",
+                "Dependencies retain their own licenses.",
+            ),
             WHITE,
             56,
         );
         self.text(
             54,
             320,
-            "Notices et sources MPL fournies dans le paquet.",
+            self.language.text(
+                "Notices et sources MPL fournies dans le paquet.",
+                "Notices and MPL sources are included in the package.",
+            ),
             WHITE,
             56,
         );
         self.text(
             54,
             350,
-            "Projet indépendant de Spotify et de Winamp.",
+            self.language.text(
+                "Projet indépendant de Spotify et de Winamp.",
+                "An independent project, separate from Spotify/Winamp.",
+            ),
             DIM,
             56,
         );
         self.text(
             54,
             370,
-            "Les noms restent ceux de leurs propriétaires.",
+            self.language.text(
+                "Les noms restent ceux de leurs propriétaires.",
+                "All names belong to their respective owners.",
+            ),
             DIM,
             56,
         );
     }
 
     fn about_shortcuts(&mut self) {
-        self.text(54, 111, "DANS CETTE FENÊTRE", GREEN, 56);
+        self.text(
+            54,
+            111,
+            self.language.text("DANS CETTE FENÊTRE", "IN THIS WINDOW"),
+            GREEN,
+            56,
+        );
         self.rect(54, 126, 452, 1, 0x303042);
         for (y, keys, action) in [
-            (140, "Tab / Maj+Tab", "Choisir un onglet ou bouton"),
-            (158, "Flèches", "Changer d'onglet"),
-            (176, "Entrée / Espace", "Activer le contrôle choisi"),
-            (194, "F1", "Afficher les raccourcis"),
-            (212, "Échap / F2", "Fermer À propos"),
+            (
+                140,
+                self.language.text("Tab / Maj+Tab", "Tab / Shift+Tab"),
+                self.language
+                    .text("Choisir un onglet ou bouton", "Choose a tab or button"),
+            ),
+            (
+                158,
+                self.language.text("Flèches", "Arrows"),
+                self.language.text("Changer d'onglet", "Switch tabs"),
+            ),
+            (
+                176,
+                self.language.text("Entrée / Espace", "Enter / Space"),
+                self.language.text(
+                    "Activer le contrôle choisi",
+                    "Activate the selected control",
+                ),
+            ),
+            (
+                194,
+                "F1",
+                self.language
+                    .text("Afficher les raccourcis", "Show shortcuts"),
+            ),
+            (
+                212,
+                self.language.text("Échap / F2", "Esc / F2"),
+                self.language.text("Fermer À propos", "Close About"),
+            ),
         ] {
             self.text(54, y, keys, GOLD, 20);
             self.text(230, y, action, WHITE, 35);
         }
-        self.text(54, 235, "DANS LE LECTEUR", GREEN, 56);
+        self.text(
+            54,
+            235,
+            self.language.text("DANS LE LECTEUR", "IN THE PLAYER"),
+            GREEN,
+            56,
+        );
         self.rect(54, 250, 452, 1, 0x303042);
         for (y, keys, action) in [
-            (265, "F1 / F2 / F3", "Aide / À propos / Bibliothèque"),
-            (282, "F4", "Changer de skin"),
-            (299, "Espace", "Lecture / pause (hors saisie)"),
-            (316, "Ctrl+V / Cmd+V", "Coller un lien Spotify"),
-            (333, "Entrée", "Ajouter le lien / lire"),
-            (350, "Flèches / molette", "Parcourir la file"),
-            (367, "Suppr", "Retirer le titre choisi"),
+            (
+                265,
+                "F1 / F2 / F3",
+                self.language
+                    .text("Aide / À propos / Bibliothèque", "Help / About / Library"),
+            ),
+            (
+                282,
+                "F4",
+                self.language.text("Changer de skin", "Switch skins"),
+            ),
+            (
+                299,
+                self.language.text("Espace", "Space"),
+                self.language.text(
+                    "Lecture / pause (hors saisie)",
+                    "Play / pause (outside text input)",
+                ),
+            ),
+            (
+                316,
+                "Ctrl+V / Cmd+V",
+                self.language
+                    .text("Coller un lien Spotify", "Paste a Spotify link"),
+            ),
+            (
+                333,
+                self.language.text("Entrée", "Enter"),
+                self.language
+                    .text("Ajouter le lien / lire", "Add the link / play"),
+            ),
+            (
+                350,
+                self.language.text("Flèches / molette", "Arrows / wheel"),
+                self.language.text("Parcourir la file", "Browse the queue"),
+            ),
+            (
+                367,
+                self.language.text("Suppr", "Delete"),
+                self.language
+                    .text("Retirer le titre choisi", "Remove the selected track"),
+            ),
         ] {
             self.text(54, y, keys, GOLD, 20);
             self.text(230, y, action, WHITE, 35);
@@ -236,39 +454,91 @@ impl View {
         for (y, version, first, second) in [
             (
                 109,
-                "0.2.8 / LECTEUR SPOTIFY NATIF",
-                "Présentation harmonisée dans le lecteur et l'aide.",
-                "À propos et documentation mis à jour.",
+                self.language.text(
+                    "0.2.9 / LANGUES DE L'INTERFACE",
+                    "0.2.9 / INTERFACE LANGUAGES",
+                ),
+                self.language.text(
+                    "Français et anglais, avec détection du système.",
+                    "French and English, with system language detection.",
+                ),
+                self.language.text(
+                    "Choix dans À propos, mémorisé au redémarrage.",
+                    "Choose in About; remembered across restarts.",
+                ),
             ),
             (
                 154,
-                "0.2.7 / DISPOSITION MÉMORISÉE",
-                "Positions et fenêtres attachées ou libres mémorisées.",
-                "Bibliothèque ouverte ou fermée retrouvée au lancement.",
+                self.language.text(
+                    "0.2.8 / LECTEUR SPOTIFY NATIF",
+                    "0.2.8 / NATIVE SPOTIFY PLAYER",
+                ),
+                self.language.text(
+                    "Présentation harmonisée dans le lecteur et l'aide.",
+                    "Consistent presentation in the player and help.",
+                ),
+                self.language.text(
+                    "À propos et documentation mis à jour.",
+                    "About and documentation updated.",
+                ),
             ),
             (
                 199,
-                "0.2.6 / FENÊTRES AIMANTÉES",
-                "Glisser la bibliothèque pour la détacher.",
-                "Rapprocher les bords et relâcher pour les recoller.",
+                self.language.text(
+                    "0.2.7 / DISPOSITION MÉMORISÉE",
+                    "0.2.7 / REMEMBERED WINDOW LAYOUT",
+                ),
+                self.language.text(
+                    "Positions et fenêtres attachées ou libres mémorisées.",
+                    "Window positions and attached/free layout remembered.",
+                ),
+                self.language.text(
+                    "Bibliothèque ouverte ou fermée retrouvée au lancement.",
+                    "Library open/closed state restored at startup.",
+                ),
             ),
             (
                 244,
-                "0.2.5 / NAVIGATION AU CLAVIER",
-                "Un appui bref sur une flèche déplace une seule ligne.",
-                "Maintenir la touche conserve la répétition.",
+                self.language
+                    .text("0.2.6 / FENÊTRES AIMANTÉES", "0.2.6 / MAGNETIC WINDOWS"),
+                self.language.text(
+                    "Glisser la bibliothèque pour la détacher.",
+                    "Drag the library to detach it.",
+                ),
+                self.language.text(
+                    "Rapprocher les bords et relâcher pour les recoller.",
+                    "Bring the edges together and release to attach them.",
+                ),
             ),
             (
                 289,
-                "0.2.4 / CHANGEMENTS RAPIDES DE TITRE",
-                "Dernier choix chargé après 200 ms sans nouveau clic.",
-                "Anciens chargements annulés ; clics conservés.",
+                self.language.text(
+                    "0.2.5 / NAVIGATION AU CLAVIER",
+                    "0.2.5 / KEYBOARD NAVIGATION",
+                ),
+                self.language.text(
+                    "Un appui bref sur une flèche déplace une seule ligne.",
+                    "A brief arrow-key press moves exactly one row.",
+                ),
+                self.language.text(
+                    "Maintenir la touche conserve la répétition.",
+                    "Holding the key still repeats.",
+                ),
             ),
             (
                 334,
-                "0.2.3 / DÉFILEMENT PLUS SOUPLE",
-                "Molette sur la fenêtre survolée, même inactive.",
-                "Avance automatique : petit décalage si nécessaire.",
+                self.language.text(
+                    "0.2.4 / CHANGEMENTS RAPIDES DE TITRE",
+                    "0.2.4 / RAPID TRACK CHANGES",
+                ),
+                self.language.text(
+                    "Dernier choix chargé après 200 ms sans nouveau clic.",
+                    "Last selection loads after 200 ms with no new click.",
+                ),
+                self.language.text(
+                    "Anciens chargements annulés ; clics conservés.",
+                    "Previous loads cancelled; every click is counted.",
+                ),
             ),
         ] {
             self.text(54, y, version, GOLD, 56);
@@ -278,18 +548,31 @@ impl View {
         self.text(
             54,
             382,
-            "Historique complet : CHANGELOG.md dans les sources.",
+            self.language.text(
+                "Historique complet : CHANGELOG.md dans les sources.",
+                "Full history: CHANGELOG.md in the source package.",
+            ),
             DIM,
             56,
         );
     }
 
     fn about_updates(&mut self) {
-        self.text(54, 111, "MISES À JOUR DE SPOTIAMP", GREEN, 56);
+        self.text(
+            54,
+            111,
+            self.language
+                .text("MISES À JOUR DE SPOTIAMP", "SPOTIAMP UPDATES"),
+            GREEN,
+            56,
+        );
         self.text(
             54,
             132,
-            concat!("Version actuelle : ", env!("CARGO_PKG_VERSION")),
+            self.language.text(
+                concat!("Version actuelle : ", env!("CARGO_PKG_VERSION")),
+                concat!("Current version: ", env!("CARGO_PKG_VERSION")),
+            ),
             WHITE,
             56,
         );
@@ -297,32 +580,94 @@ impl View {
 
         let status = self.update.clone();
         let (message, color) = match &status {
-            UpdateStatus::Disabled => {
-                ("Mises à jour indisponibles dans cette version.".into(), DIM)
-            }
-            UpdateStatus::Idle => ("Recherchez une nouvelle version du lecteur.".into(), WHITE),
-            UpdateStatus::Checking => ("Recherche d'une nouvelle version...".into(), GOLD),
-            UpdateStatus::Current => (
-                "Vous disposez de la dernière version compatible.".into(),
-                GREEN,
+            UpdateStatus::Disabled => (
+                self.language
+                    .text(
+                        "Mises à jour indisponibles dans cette version.",
+                        "Updates are unavailable in this build.",
+                    )
+                    .into(),
+                DIM,
             ),
-            UpdateStatus::Available { version } => {
-                (format!("Version disponible : {version}"), GREEN)
-            }
-            UpdateStatus::Downloading { percent } => (
-                format!("Téléchargement du paquet : {} %", (*percent).min(100)),
+            UpdateStatus::Idle => (
+                self.language
+                    .text(
+                        "Recherchez une nouvelle version du lecteur.",
+                        "Check for a new version of the player.",
+                    )
+                    .into(),
+                WHITE,
+            ),
+            UpdateStatus::Checking => (
+                self.language
+                    .text(
+                        "Recherche d'une nouvelle version...",
+                        "Checking for a new version...",
+                    )
+                    .into(),
                 GOLD,
             ),
-            UpdateStatus::Ready { version } => {
-                (format!("Version {version} prête à installer."), GREEN)
-            }
-            UpdateStatus::Installing => ("Installation en cours, puis redémarrage...".into(), GOLD),
-            UpdateStatus::Failed(_) => ("La mise à jour n'a pas abouti.".into(), GOLD),
+            UpdateStatus::Current => (
+                self.language
+                    .text(
+                        "Vous disposez de la dernière version compatible.",
+                        "You have the latest compatible version.",
+                    )
+                    .into(),
+                GREEN,
+            ),
+            UpdateStatus::Available { version } => (
+                match self.language {
+                    crate::locale::Language::French => format!("Version disponible : {version}"),
+                    crate::locale::Language::English => format!("Available version: {version}"),
+                },
+                GREEN,
+            ),
+            UpdateStatus::Downloading { percent } => (
+                match self.language {
+                    crate::locale::Language::French => {
+                        format!("Téléchargement du paquet : {} %", (*percent).min(100))
+                    }
+                    crate::locale::Language::English => {
+                        format!("Downloading package: {} %", (*percent).min(100))
+                    }
+                },
+                GOLD,
+            ),
+            UpdateStatus::Ready { version } => (
+                match self.language {
+                    crate::locale::Language::French => {
+                        format!("Version {version} prête à installer.")
+                    }
+                    crate::locale::Language::English => {
+                        format!("Version {version} is ready to install.")
+                    }
+                },
+                GREEN,
+            ),
+            UpdateStatus::Installing => (
+                self.language
+                    .text(
+                        "Installation en cours, puis redémarrage...",
+                        "Installing, then restarting...",
+                    )
+                    .into(),
+                GOLD,
+            ),
+            UpdateStatus::Failed(_) => (
+                self.language
+                    .text(
+                        "La mise à jour n'a pas abouti.",
+                        "The update did not complete.",
+                    )
+                    .into(),
+                GOLD,
+            ),
         };
         self.text(54, 162, &message, color, 56);
         if let UpdateStatus::Failed(error) = &status {
             // Bound error text to the content area, including long server errors.
-            let chars: Vec<char> = error.chars().take(112).collect();
+            let chars: Vec<char> = error.text(self.language).chars().take(112).collect();
             for (index, line) in chars.chunks(56).enumerate() {
                 self.text(
                     54,
@@ -347,41 +692,69 @@ impl View {
         self.text(
             54,
             228,
-            "La lecture continue pendant le téléchargement.",
+            self.language.text(
+                "La lecture continue pendant le téléchargement.",
+                "Playback continues while downloading.",
+            ),
             WHITE,
             56,
         );
         self.text(
             54,
             253,
-            "Installer redémarre le lecteur et interrompt",
+            self.language.text(
+                "Installer redémarre le lecteur et interrompt",
+                "Installing restarts the player and interrupts",
+            ),
             WHITE,
             56,
         );
         self.text(
             54,
             269,
-            "la lecture. La file n'est pas conservée.",
+            self.language.text(
+                "la lecture. La file n'est pas conservée.",
+                "playback. The play queue is not kept.",
+            ),
             GOLD,
             56,
         );
 
-        self.update_button(64, "VÉRIFIER", 8, self.can_check_update());
+        self.update_button(
+            64,
+            self.language.text("VÉRIFIER", "CHECK"),
+            8,
+            self.can_check_update(),
+        );
         let (label, enabled) = match status {
-            UpdateStatus::Available { .. } => ("TÉLÉCHARGER", true),
-            UpdateStatus::Ready { .. } => ("INSTALLER / REDÉMARRER", true),
-            UpdateStatus::Downloading { .. } => ("TÉLÉCHARGEMENT...", false),
-            UpdateStatus::Installing => ("INSTALLATION...", false),
-            _ => ("TÉLÉCHARGER", false),
+            UpdateStatus::Available { .. } => (self.language.text("TÉLÉCHARGER", "DOWNLOAD"), true),
+            UpdateStatus::Ready { .. } => (
+                self.language
+                    .text("INSTALLER / REDÉMARRER", "INSTALL / RESTART"),
+                true,
+            ),
+            UpdateStatus::Downloading { .. } => (
+                self.language.text("TÉLÉCHARGEMENT...", "DOWNLOADING..."),
+                false,
+            ),
+            UpdateStatus::Installing => (
+                self.language.text("INSTALLATION...", "INSTALLING..."),
+                false,
+            ),
+            _ => (self.language.text("TÉLÉCHARGER", "DOWNLOAD"), false),
         };
         self.update_button(286, label, 9, enabled);
         self.text(
             54,
             354,
             if env!("CARGO_PKG_VERSION").contains('-') {
-                "Canal préversion : préversions incluses."
+                self.language.text(
+                    "Canal préversion : préversions incluses.",
+                    "Preview channel: includes pre-releases.",
+                )
             } else {
-                "Versions stables uniquement."
+                self.language
+                    .text("Versions stables uniquement.", "Stable versions only.")
             },
             DIM,
             56,
@@ -389,7 +762,10 @@ impl View {
         self.text(
             54,
             370,
-            "Le paquet est vérifié avant son installation.",
+            self.language.text(
+                "Le paquet est vérifié avant son installation.",
+                "The package is verified before installation.",
+            ),
             DIM,
             56,
         );

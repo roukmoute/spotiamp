@@ -687,7 +687,7 @@ fn import_append_and_removal_preserve_shuffle_history_and_remaining_entries() {
         Update::Rows {
             generation: worker.generation,
             rows: vec![row("0000000000000000000001", "Added")],
-            notice: String::new(),
+            notice: LocalizedText::default(),
         },
         &updates,
     );
@@ -711,7 +711,7 @@ fn import_append_and_removal_preserve_shuffle_history_and_remaining_entries() {
         Update::Rows {
             generation: worker.generation,
             rows: vec![row("0000000000000000000002", "After clear")],
-            notice: String::new(),
+            notice: LocalizedText::default(),
         },
         &updates,
     );
@@ -798,4 +798,27 @@ fn library_append_preserves_order_and_same_length_replacement_clears_old_history
                 .all(|call| matches!(call, Call::Load(_, true, 0, _)))
         );
     }
+}
+
+#[test]
+fn language_change_keeps_playback_and_pending_loads_untouched() {
+    let (mut worker, player) = worker(true);
+    event(&mut worker, true);
+    let before = worker.snapshot();
+    let (updates, _) = mpsc::channel(1);
+    worker.command(Command::SetLanguage(Language::English), &updates);
+    assert_eq!(worker.language, Language::English);
+    assert_eq!(worker.snapshot(), before);
+    assert!(player.take().is_empty());
+    assert_eq!(
+        before.status.text(Language::English),
+        "Playing - requested quality 160 kb/s"
+    );
+    worker.command(Command::Next, &updates);
+    let deadline = worker.deferred_load.as_ref().unwrap().deadline;
+    let generation = worker.generation;
+    worker.command(Command::SetLanguage(Language::French), &updates);
+    assert_eq!(worker.deferred_load.as_ref().unwrap().deadline, deadline);
+    assert_eq!(worker.generation, generation);
+    assert!(player.take().is_empty());
 }

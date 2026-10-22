@@ -42,6 +42,7 @@ impl App {
                 title: format!("Titre {i:02}"),
                 artist: "Artiste du test".into(),
                 duration_ms: 180_000,
+                ..Default::default()
             })
             .collect();
         let entries: Vec<_> = (0..30)

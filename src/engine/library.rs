@@ -23,11 +23,11 @@ struct QueueRequest {
 pub(super) enum Update {
     Catalogue {
         generation: u64,
-        result: Result<Vec<PlaylistEntry>, String>,
+        result: Result<Vec<PlaylistEntry>, LocalizedText>,
     },
     Loaded {
         generation: u64,
-        result: Result<(Vec<TrackRow>, bool), String>,
+        result: Result<(Vec<TrackRow>, bool), LocalizedText>,
     },
     Metadata {
         generation: u64,
@@ -77,7 +77,7 @@ impl Worker {
         }
     }
 
-    pub(super) fn reset_library(&mut self, message: &str) {
+    pub(super) fn reset_library(&mut self, message: &'static str) {
         self.library.cancel();
         self.library.edit(|s| {
             s.entries = Arc::default();
@@ -260,9 +260,15 @@ impl Worker {
                     s.loading = false;
                     match result {
                         Ok(entries) => {
-                            s.status = format!(
-                                "{} playlist(s) Spotify. Selectionnez une playlist.",
-                                entries.len()
+                            s.status = LocalizedText::new(
+                                format!(
+                                    "{} playlist(s) Spotify. Selectionnez une playlist.",
+                                    entries.len()
+                                ),
+                                format!(
+                                    "{} Spotify playlist(s). Select a playlist.",
+                                    entries.len()
+                                ),
                             );
                             s.entries = Arc::new(entries);
                         }
@@ -378,7 +384,10 @@ impl Worker {
                 s.duration_ms = 0;
             }
             s.queue.extend(rows.iter().take(count).cloned());
-            s.status = format!("{count} titre(s) de la playlist ajoutes");
+            s.status = LocalizedText::new(
+                format!("{count} titre(s) de la playlist ajoutes"),
+                format!("{count} playlist track(s) added"),
+            );
         });
         if request.replace {
             self.reset_order(None);
@@ -387,9 +396,15 @@ impl Worker {
         }
         self.library.edit(|s| {
             s.status = if count < rows.len() {
-                format!("{count} titres ajoutes; file limitee a {MAX_QUEUE}")
+                LocalizedText::new(
+                    format!("{count} titres ajoutes; file limitee a {MAX_QUEUE}"),
+                    format!("{count} tracks added; queue limited to {MAX_QUEUE}"),
+                )
             } else {
-                format!("{count} titre(s) ajoutes a la file")
+                LocalizedText::new(
+                    format!("{count} titre(s) ajoutes a la file"),
+                    format!("{count} track(s) added to the queue"),
+                )
             }
         });
         if request.play {
@@ -403,11 +418,17 @@ impl Worker {
     }
 }
 
-fn playlist_notice(count: usize, truncated: bool) -> String {
+fn playlist_notice(count: usize, truncated: bool) -> LocalizedText {
     if truncated {
-        format!("{count} titres; apercu limite a 500 ou tronque par Spotify")
+        LocalizedText::new(
+            format!("{count} titres; apercu limite a 500 ou tronque par Spotify"),
+            format!("{count} tracks; preview limited to 500 or truncated by Spotify"),
+        )
     } else {
-        format!("{count} titre(s). Ajouter a la file ou Lire.")
+        LocalizedText::new(
+            format!("{count} titre(s). Ajouter a la file ou Lire."),
+            format!("{count} track(s). Add to queue or Play."),
+        )
     }
 }
 
@@ -435,7 +456,7 @@ async fn load_playlist(
         .filter_map(|uri| uri.to_uri().ok())
         .map(|uri| TrackRow {
             uri,
-            title: "Chargement du titre...".into(),
+            title_kind: TrackTitleKind::Loading,
             ..TrackRow::default()
         })
         .collect();
