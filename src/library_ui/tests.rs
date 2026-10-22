@@ -3,6 +3,23 @@ use crate::model::TrackRow;
 use std::sync::Arc;
 
 #[test]
+fn restored_playlist_is_revealed_once_without_following_background_updates() {
+    let mut s = snapshot(40, 20);
+    s.selected_id = Some(s.entries[31].id.clone());
+    let mut view = View::default();
+    view.render(&s);
+    assert_eq!(view.selected_id, s.selected_id);
+    assert!(view.left_offset <= 31 && 31 < view.left_offset + LEFT_ROWS);
+    view.left_offset = 0;
+    s.revision += 1;
+    view.render(&s);
+    assert_eq!(
+        view.left_offset, 0,
+        "A status update must not undo manual scrolling"
+    );
+}
+
+#[test]
 fn language_switch_preserves_scroll_selection_metadata_and_shared_storage() {
     for skin in [Skin::Classic, Skin::Modern] {
         let s = snapshot(30, 40);

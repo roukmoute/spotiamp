@@ -58,6 +58,20 @@ accessible. La visibilité de la fenêtre n'est pas mesurée sous Linux.
 Les deux scripts excluent les processus enfants et laissent l'application ouverte.
 L'empreinte SHA-256 de l'exécutable accompagne les résultats.
 
+## Tests de redémarrage
+
+Les tests natifs `test_window_layout.py`, `test_language.py` et
+`test_playback_session.py` lancent de vrais processus dans un affichage Xvfb
+jetable, avec Openbox et des préférences isolées. Ce dernier vérifie la reprise
+de la file et de sa sélection dans les deux skins, une suppression et un vidage
+mémorisés à la fermeture, puis la récupération d'un point de reprise périodique
+après un arrêt forcé. Les URI sont synthétiques ; la reprise audio et la position
+transmise au lecteur sont vérifiées séparément par les tests Rust du transport.
+
+```sh
+xvfb-run -a -s "-screen 0 1920x1080x24 -noreset" python3 scripts/test_playback_session.py --executable target/release/spotiamp
+```
+
 ## Archives
 
 Après une compilation release, utiliser la commande correspondant à la cible

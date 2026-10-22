@@ -2,6 +2,7 @@
 //! persistent audio cache. Spotify protocol work stays off the UI thread.
 use std::{
     collections::VecDeque,
+    hash::{Hash, Hasher},
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
@@ -30,7 +31,8 @@ use crate::{
     credentials,
     locale::Language,
     localized_text::LocalizedText,
-    model::{AudioQuality, LibrarySnapshot, PlaybackOrigin, TrackTitleKind},
+    model::{AudioQuality, LibrarySnapshot, PlaybackOrigin, PlaylistId, TrackTitleKind},
+    playback_settings::{self, PlaybackSession},
     settings,
 };
 
@@ -84,6 +86,7 @@ pub struct Engine {
     pub tx: mpsc::Sender<Command>,
     pub state: Arc<Mutex<Snapshot>>,
     pub library: Arc<Mutex<LibrarySnapshot>>,
+    pub(crate) completion: Option<std::sync::mpsc::Receiver<Result<(), LocalizedText>>>,
 }
 
 /// Localized command-channel errors without formatting a command payload.
@@ -110,13 +113,37 @@ impl Engine {
         )
     }
 
-    // Convenience entry point used by the standalone diagnostic probe.
+    // Probes deliberately avoid reading or writing playback-session preferences.
     #[allow(dead_code)]
     pub fn spawn() -> Self {
-        Self::spawn_with_language(Language::French)
+        Self::spawn_config(Language::French, false)
     }
 
     pub fn spawn_with_language(language: Language) -> Self {
+        Self::spawn_config(language, true)
+    }
+
+    /// Dropping the final command sender drains queued actions before saving.
+    /// This also works when the bounded command queue is completely full.
+    pub fn shutdown(self) -> Result<(), LocalizedText> {
+        // Normal FIFO delivery also handles a diagnostic sender clone. If
+        // full, dropping the application's sender still drains the queue.
+        let _ = self.tx.try_send(Command::Shutdown);
+        drop(self.tx);
+        let Some(completion) = self.completion else {
+            return Ok(());
+        };
+        completion
+            .recv_timeout(Duration::from_secs(3))
+            .map_err(|_| {
+                LocalizedText::new(
+                    "La sauvegarde de la lecture n'a pas pu etre confirmee avant la fermeture.",
+                    "Playback could not be confirmed saved before closing.",
+                )
+            })?
+    }
+
+    fn spawn_config(language: Language, persist_playback: bool) -> Self {
         let state = Arc::new(Mutex::new(Snapshot {
             volume: 45_875,
             quality: settings::load(),
@@ -124,6 +151,7 @@ impl Engine {
             ..Snapshot::default()
         }));
         let (tx, rx) = mpsc::channel(32);
+        let (finished, completion) = std::sync::mpsc::channel();
         let library = Arc::new(Mutex::new(LibrarySnapshot::default()));
         let shared_library = library.clone();
         let shared = state.clone();
@@ -134,27 +162,43 @@ impl Engine {
                     .enable_all()
                     .max_blocking_threads(2)
                     .build();
-                match runtime {
+                let outcome = match runtime {
                     Ok(runtime) => {
                         let mut worker = Worker::new(shared);
                         worker.language = language;
                         worker.library.shared = shared_library;
-                        runtime.block_on(worker.run(rx));
-                        // A browser callback may still be winding down. Never hold up
-                        // closing the application on a third-party OAuth listener.
+                        worker.persist_playback = persist_playback;
+                        // Bounded disk parsing stays off the UI thread.
+                        let saved = persist_playback.then(playback_settings::load).flatten();
+                        if let Some(saved) = saved {
+                            worker.restore_session(saved);
+                        }
+                        worker.saved_fingerprint = worker.playback_fingerprint();
+                        let outcome = runtime.block_on(worker.run(rx));
+                        // Never hold up shutdown on an OAuth listener or decoder.
                         runtime.shutdown_timeout(Duration::from_millis(200));
+                        outcome
                     }
-                    Err(_) => edit(&shared, |s| {
-                        s.status = "Impossible de demarrer le moteur audio".into()
-                    }),
-                }
+                    Err(_) => {
+                        edit(&shared, |s| {
+                            s.status = "Impossible de demarrer le moteur audio".into()
+                        });
+                        Err("Impossible de demarrer le moteur audio".into())
+                    }
+                };
+                let _ = finished.send(outcome);
             });
         if result.is_err() {
             edit(&state, |s| {
                 s.status = "Impossible de creer le thread audio".into()
             });
         }
-        Self { tx, state, library }
+        Self {
+            tx,
+            state,
+            library,
+            completion: Some(completion),
+        }
     }
 }
 
@@ -162,6 +206,13 @@ fn edit(state: &Arc<Mutex<Snapshot>>, f: impl FnOnce(&mut Snapshot)) {
     if let Ok(mut snapshot) = state.lock() {
         f(&mut snapshot);
     }
+}
+
+fn restored_notice() -> LocalizedText {
+    LocalizedText::new(
+        "Lecture restauree en pause. Appuyez sur Lecture pour reprendre.",
+        "Playback restored paused. Press Play to resume.",
+    )
 }
 
 fn requested_bitrate(quality: AudioQuality) -> Bitrate {
@@ -215,6 +266,13 @@ struct DeferredLoad {
 }
 
 struct Worker {
+    persist_playback: bool,
+    saved_fingerprint: Option<u64>,
+    last_checkpoint: std::time::Instant,
+    resume_pending: bool,
+    queue_playlist: Option<PlaylistId>,
+    import_playlist: Option<PlaylistId>,
+    restore_library_selection: Option<PlaylistId>,
     language: Language,
     state: Arc<Mutex<Snapshot>>,
     library: library::State,
@@ -251,6 +309,13 @@ impl Worker {
         let load_quality = state.lock().map(|s| s.quality).unwrap_or_default();
         let wants_playback = state.lock().is_ok_and(|s| s.playing);
         let mut worker = Self {
+            persist_playback: false,
+            saved_fingerprint: None,
+            last_checkpoint: std::time::Instant::now(),
+            resume_pending: false,
+            queue_playlist: None,
+            import_playlist: None,
+            restore_library_selection: None,
             language: Language::French,
             state,
             library: library::State::default(),
@@ -282,7 +347,7 @@ impl Worker {
         worker
     }
 
-    async fn run(mut self, mut commands: mpsc::Receiver<Command>) {
+    async fn run(mut self, mut commands: mpsc::Receiver<Command>) -> Result<(), LocalizedText> {
         let (updates, mut update_rx) = mpsc::channel(16);
         self.start_connection(auth::Mode::Automatic, &updates);
         let mut health = tokio::time::interval(Duration::from_secs(2));
@@ -306,6 +371,12 @@ impl Worker {
                     self.dispatch_due_load(tokio::time::Instant::now());
                 }
                 _ = health.tick() => {
+                    if self.last_checkpoint.elapsed() >= Duration::from_secs(15) {
+                        self.last_checkpoint = std::time::Instant::now();
+                        if let Err(message) = self.save_checkpoint() {
+                            edit(&self.state, |s| s.status = message);
+                        }
+                    }
                     let audio_error = self.audio_error.lock().ok().and_then(|mut error| error.take());
                     if let Some(message) = audio_error {
                         self.stop();
@@ -322,8 +393,102 @@ impl Worker {
                 }
             }
             self.sync_library_summary();
+            self.restore_library_preview(&updates);
         }
+        let saved = self.save_checkpoint();
         self.disconnect();
+        saved
+    }
+
+    fn restore_session(&mut self, mut saved: PlaybackSession) {
+        // A prior process may have quit while metadata was still arriving.
+        // No request is running now; the real title will refresh on playback.
+        for row in &mut saved.queue {
+            if row.title_kind == TrackTitleKind::Loading {
+                row.title_kind = TrackTitleKind::Unavailable;
+            }
+        }
+        self.queue_playlist = saved.playlist.clone();
+        self.restore_library_selection = saved.playlist;
+        edit(&self.state, |s| {
+            s.queue = saved.queue;
+            s.current = saved.current.filter(|&index| index < s.queue.len());
+            s.duration_ms = s.current.map_or(0, |index| s.queue[index].duration_ms);
+            s.position_ms = if s.current.is_some() {
+                saved.position_ms
+            } else {
+                0
+            };
+            s.volume = saved.volume;
+            s.shuffle = saved.shuffle;
+            s.repeat = saved.repeat;
+            s.playing = false;
+            if s.current.is_some() {
+                s.playback_revision = 1;
+                s.playback_origin = PlaybackOrigin::Explicit;
+                s.status = restored_notice();
+            }
+        });
+        let current = self.state.lock().ok().and_then(|state| state.current);
+        self.resume_pending = current.is_some();
+        self.stopped = true;
+        self.wants_playback = false;
+        self.reset_order(current);
+    }
+
+    fn playback_fingerprint(&self) -> Option<u64> {
+        let state = self.state.lock().ok()?;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        state.queue.hash(&mut hasher);
+        state.current.hash(&mut hasher);
+        state.position_ms.hash(&mut hasher);
+        state.volume.hash(&mut hasher);
+        state.shuffle.hash(&mut hasher);
+        state.repeat.hash(&mut hasher);
+        self.queue_playlist.hash(&mut hasher);
+        Some(hasher.finish())
+    }
+
+    fn save_checkpoint(&mut self) -> Result<(), LocalizedText> {
+        if !self.persist_playback {
+            return Ok(());
+        }
+        let fingerprint = self.playback_fingerprint();
+        if fingerprint.is_some() && fingerprint == self.saved_fingerprint {
+            return Ok(());
+        }
+        // Clone only at a changed checkpoint, not on progress ticks or paints.
+        let saved = self
+            .state
+            .lock()
+            .ok()
+            .map(|state| playback_settings::from_snapshot(&state, self.queue_playlist.clone()))
+            .ok_or_else(|| {
+                LocalizedText::new(
+                    "Etat de lecture indisponible pour la sauvegarde.",
+                    "Playback state unavailable for saving.",
+                )
+            })?;
+        playback_settings::save(&saved).map_err(|error| {
+            LocalizedText::new(
+                format!("Lecture non memorisee : {error}"),
+                format!("Playback could not be saved: {error}"),
+            )
+        })?;
+        self.saved_fingerprint = fingerprint;
+        Ok(())
+    }
+
+    fn merge_queue_origin(&mut self, playlist: Option<PlaylistId>, replace: bool) {
+        let previous = self.queue_playlist.clone();
+        if replace || self.state.lock().is_ok_and(|s| s.queue.is_empty()) {
+            self.queue_playlist = playlist;
+        } else if self.queue_playlist != playlist {
+            self.queue_playlist = None;
+        }
+        if self.queue_playlist != previous {
+            self.restore_library_selection = None;
+        }
     }
 
     fn snapshot(&self) -> Snapshot {
@@ -451,6 +616,10 @@ impl Worker {
                     });
                     return;
                 }
+                self.import_playlist = match &uri {
+                    SpotifyUri::Playlist { .. } => uri.to_uri().ok().map(PlaylistId::Spotify),
+                    _ => None,
+                };
                 let generation = self.generation;
                 let updates = updates.clone();
                 edit(&self.state, |s| {
@@ -471,7 +640,7 @@ impl Worker {
                         player.pause();
                         self.wants_playback = false;
                     } else if self.stopped {
-                        self.play(snapshot.current.unwrap_or(0));
+                        self.press_play(snapshot.current.unwrap_or(0));
                     } else {
                         // A queued selection has no decoder yet. Remember the
                         // intent without resuming the previous track instead.
@@ -496,11 +665,16 @@ impl Worker {
             Command::Previous => self.previous(),
             Command::Seek(position) => {
                 let position = position.min(self.snapshot().duration_ms);
-                if let Some(load) = &mut self.deferred_load {
+                if self.resume_pending {
+                    edit(&self.state, |s| s.position_ms = position);
+                } else if let Some(load) = &mut self.deferred_load {
                     load.position_ms = position;
                     edit(&self.state, |s| s.position_ms = position);
                 } else if let Some(player) = &self.player {
                     player.seek(position);
+                    // Save the accepted intent even if the application closes
+                    // before the asynchronous Seeked event reaches this worker.
+                    edit(&self.state, |s| s.position_ms = position);
                 }
             }
             Command::Volume(volume) => {
@@ -530,8 +704,14 @@ impl Worker {
                     self.order.remove(index);
                 }
                 edit(&self.state, |s| remove_row(s, index));
+                if self.state.lock().is_ok_and(|s| s.queue.is_empty()) {
+                    self.queue_playlist = None;
+                    self.restore_library_selection = None;
+                }
             }
             Command::Clear => {
+                self.queue_playlist = None;
+                self.restore_library_selection = None;
                 self.cancel_import();
                 self.stop();
                 self.current_uri = None;
@@ -593,7 +773,11 @@ impl Worker {
                             s.connected = true;
                             s.busy = false;
                             s.status = connection.notice.take().unwrap_or_else(|| {
-                                "Connecte. Collez un lien de titre, album ou playlist.".into()
+                                if self.resume_pending {
+                                    restored_notice()
+                                } else {
+                                    "Connecte. Collez un lien de titre, album ou playlist.".into()
+                                }
                             });
                         });
                         if self.library.open {
@@ -611,6 +795,8 @@ impl Worker {
                 rows,
                 notice,
             } if generation == self.generation => {
+                let origin = self.import_playlist.take();
+                self.merge_queue_origin(origin, false);
                 edit(&self.state, |s| {
                     s.queue.extend(
                         rows.into_iter()
@@ -680,6 +866,10 @@ impl Worker {
     }
 
     fn load(&mut self, index: usize, origin: PlaybackOrigin) -> bool {
+        self.load_at(index, origin, 0)
+    }
+
+    fn load_at(&mut self, index: usize, origin: PlaybackOrigin, position_ms: u32) -> bool {
         let snapshot = self.snapshot();
         let Some(row) = snapshot.queue.get(index) else {
             return false;
@@ -691,6 +881,7 @@ impl Worker {
             return false;
         }
         if let Ok(uri) = SpotifyUri::from_uri(&row.uri) {
+            self.resume_pending = false;
             let immediate =
                 self.stopped || self.current_uri.is_none() || origin == PlaybackOrigin::Automatic;
             let now = tokio::time::Instant::now();
@@ -699,7 +890,7 @@ impl Worker {
             self.deferred_load = Some(DeferredLoad {
                 uri: uri.clone(),
                 quality: snapshot.quality,
-                position_ms: 0,
+                position_ms,
                 deadline: now
                     + if immediate {
                         Duration::ZERO
@@ -715,7 +906,7 @@ impl Worker {
                 s.current = Some(index);
                 s.playback_revision = s.playback_revision.wrapping_add(1);
                 s.playback_origin = origin;
-                s.position_ms = 0;
+                s.position_ms = position_ms;
                 s.duration_ms = row.duration_ms;
                 s.playing = false;
                 s.status = "Chargement audio...".into();
@@ -751,6 +942,19 @@ impl Worker {
     }
 
     fn press_play(&mut self, start_index: usize) {
+        if self.resume_pending {
+            let resume = self
+                .state
+                .lock()
+                .ok()
+                .and_then(|state| state.current.map(|index| (index, state.position_ms)));
+            if let Some((index, position_ms)) = resume {
+                if self.load_at(index, PlaybackOrigin::Explicit, position_ms) {
+                    self.reset_order(Some(index));
+                }
+                return;
+            }
+        }
         if self.stopped || self.current_uri.is_none() {
             self.play(start_index);
         } else if let Some(player) = &self.player {
@@ -764,6 +968,7 @@ impl Worker {
                 // Repeated Play while Loading must not restart network work.
                 player.seek(0);
                 edit(&self.state, |s| {
+                    s.position_ms = 0;
                     s.playback_revision = s.playback_revision.wrapping_add(1);
                     s.playback_origin = PlaybackOrigin::Explicit;
                 });
@@ -815,6 +1020,7 @@ impl Worker {
                 player.seek(0);
             }
             edit(&self.state, |s| {
+                s.position_ms = 0;
                 s.playback_revision = s.playback_revision.wrapping_add(1);
                 s.playback_origin = PlaybackOrigin::Explicit;
             });
@@ -854,6 +1060,7 @@ impl Worker {
     }
 
     fn stop(&mut self) {
+        self.resume_pending = false;
         self.deferred_load = None;
         self.stopped = true;
         self.wants_playback = false;
@@ -994,6 +1201,7 @@ impl Worker {
     }
 
     fn cancel_import(&mut self) {
+        self.import_playlist = None;
         self.generation = self.generation.wrapping_add(1);
         if let Some(task) = self.import_task.take() {
             task.abort();
@@ -1002,6 +1210,15 @@ impl Worker {
     }
 
     fn disconnect(&mut self) {
+        // A lost session releases audio but must not erase the resume point.
+        let resume = if self.resume_pending || !self.stopped {
+            self.state
+                .lock()
+                .ok()
+                .and_then(|s| s.current.map(|_| s.position_ms))
+        } else {
+            None
+        };
         self.reset_library("Connectez Spotify pour afficher vos playlists");
         self.auth_generation = self.auth_generation.wrapping_add(1);
         self.auth_epoch
@@ -1014,6 +1231,10 @@ impl Worker {
         }
         self.cancel_import();
         self.stop();
+        if let Some(position_ms) = resume {
+            self.resume_pending = true;
+            edit(&self.state, |s| s.position_ms = position_ms);
+        }
         self.current_uri = None;
         if let Some(session) = self.session.take() {
             session.shutdown();
@@ -1330,6 +1551,7 @@ mod tests {
             tx,
             state: state.clone(),
             library: Arc::new(Mutex::new(LibrarySnapshot::default())),
+            completion: None,
         };
         let before = state.lock().unwrap().clone();
         engine.tx.try_send(Command::Next).unwrap();
@@ -1344,6 +1566,39 @@ mod tests {
         assert_eq!(*state.lock().unwrap(), before);
         drop(rx);
         assert!(engine.sync_language(Language::French));
+    }
+
+    #[test]
+    fn graceful_shutdown_drains_a_full_queue_before_acknowledging_completion() {
+        let (tx, rx) = mpsc::channel(2);
+        let (finished, completion) = std::sync::mpsc::channel();
+        let state = Arc::new(Mutex::new(Snapshot::default()));
+        let shared = state.clone();
+        let library = Arc::new(Mutex::new(LibrarySnapshot::default()));
+        tx.try_send(Command::Volume(123)).unwrap();
+        tx.try_send(Command::Volume(456)).unwrap();
+        let thread = std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let outcome = runtime.block_on(async move {
+                let mut worker = Worker::new(shared);
+                // Synthetic session prevents startup auth; no network or OS store.
+                worker.session = Some(Session::new(SessionConfig::default(), None));
+                worker.run(rx).await
+            });
+            let _ = finished.send(outcome);
+        });
+        let engine = Engine {
+            tx,
+            state: state.clone(),
+            library,
+            completion: Some(completion),
+        };
+        engine.shutdown().unwrap();
+        assert_eq!(state.lock().unwrap().volume, 456);
+        thread.join().unwrap();
     }
 
     #[test]

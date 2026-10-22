@@ -9,6 +9,7 @@ fn closing_library_retries_a_full_channel_until_the_worker_can_release_it() {
         tx,
         state: Default::default(),
         library: Default::default(),
+        completion: None,
     };
     let mut pending = true;
     flush_library_close(&mut pending, &engine);

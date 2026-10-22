@@ -150,6 +150,28 @@ ainsi que sa qualité audio. Après **Arrêt**, le bouton démarre le titre sél
 Un double-clic sur une ligne ou **Entrée** lance explicitement ce titre depuis
 le début. **Pause (Ⅱ)** et **Espace** alternent entre pause et reprise.
 
+### Retrouver sa musique au redémarrage
+
+Spotiamp mémorise la file de lecture dans son ordre exact, le morceau courant
+et sa position. Au prochain lancement, ce morceau est sélectionné et visible
+dans la file. La lecture reste en pause : **Lecture (▶)** ou **Espace** reprend
+à l'endroit mémorisé, après la reconnexion à Spotify. Aucun flux audio n'est
+chargé avant cette action.
+
+Lorsque la file provient d'une playlist Spotify, celle-ci est retrouvée dans
+la bibliothèque après le chargement du catalogue. Consulter une autre playlist
+avant de fermer ne change pas cette association. Le volume, Shuffle et Repeat
+sont également conservés. **Vider** efface la file mémorisée ; **Arrêt** remet
+la position au début du morceau.
+
+La sauvegarde utilise `Spotiamp/playback-session.json`, à côté des autres
+préférences : `%APPDATA%` sous Windows, `~/Library/Application Support` sous
+macOS et `$XDG_CONFIG_HOME` (ou `~/.config`) sous Linux. Elle contient uniquement
+les identifiants et métadonnées de la file, sans audio ni identifiants de connexion.
+Elle est remplacée atomiquement à la fermeture et, en cas de changement, toutes
+les 15 secondes environ. Aucun thread ni dépendance supplémentaire ; la limite
+reste de 500 titres.
+
 Pendant la lecture ou un chargement, la navigation affiche immédiatement le
 titre choisi. Le moteur attend **200 ms sans nouveau choix** avant de charger
 le dernier demandé : plusieurs clics rapides sur **Suivant** ne lancent donc

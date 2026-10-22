@@ -487,3 +487,30 @@ fn latest_queue_intent_reuses_read_and_failure_allows_a_fresh_retry() {
     assert!(worker.library.task.is_some());
     assert!(worker.library.shared.lock().unwrap().busy);
 }
+
+#[test]
+fn restored_source_playlist_waits_for_catalogue_and_user_browsing_takes_precedence() {
+    let mut worker = worker();
+    let origin = PlaylistId::Spotify(PLAYLIST.into());
+    worker.queue_playlist = Some(origin.clone());
+    worker.restore_library_selection = Some(origin.clone());
+    worker.library.shared.lock().unwrap().entries = Arc::new(vec![crate::model::PlaylistEntry {
+        id: origin.clone(),
+        name: "Original playlist".into(),
+        track_count: None,
+        duration_ms: None,
+        folder: String::new(),
+        available: true,
+    }]);
+    let (updates, _) = mpsc::channel(1);
+    worker.restore_library_preview(&updates);
+    assert_eq!(worker.restore_library_selection, Some(origin.clone()));
+    assert_eq!(worker.take_restored_playlist(), Some(origin.clone()));
+    assert_eq!(worker.take_restored_playlist(), None);
+    worker.restore_library_selection = Some(origin.clone());
+    // Selecting the already-loaded preview exercises user intent without network.
+    worker.library.ready = Some((origin.clone(), false));
+    worker.library_command(LibraryCommand::Select(origin.clone()), &updates);
+    assert!(worker.restore_library_selection.is_none());
+    assert_eq!(worker.queue_playlist, Some(origin));
+}

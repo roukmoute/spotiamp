@@ -290,7 +290,7 @@ async fn worker_starts_once_remains_responsive_coalesces_connect_and_clears_busy
     tx.send(Command::Volume(456)).await.unwrap();
     until(|| state.lock().unwrap().volume == 456).await;
     tx.send(Command::Shutdown).await.unwrap();
-    running.await.unwrap();
+    running.await.unwrap().unwrap();
     assert_eq!(*fake.calls.lock().unwrap(), vec![Call::Load]);
 }
 
@@ -325,7 +325,7 @@ async fn worker_publishes_connected_only_after_save_and_fresh_worker_reconnects_
         assert_eq!(*fake.stored.lock().unwrap(), Ok(Some(reusable())));
         // Closing immediately after the visible connected state is now safe.
         tx.send(Command::Shutdown).await.unwrap();
-        running.await.unwrap();
+        running.await.unwrap().unwrap();
         assert_eq!(*fake.stored.lock().unwrap(), Ok(Some(reusable())));
         assert!(
             fake.sessions
@@ -382,7 +382,7 @@ async fn logout_cancels_pending_startup_save_and_does_not_resurrect_credentials(
     assert_eq!(*fake.stored.lock().unwrap(), Ok(None));
     assert!(fake.sessions.lock().unwrap()[0].is_invalid());
     tx.send(Command::Shutdown).await.unwrap();
-    running.await.unwrap();
+    running.await.unwrap().unwrap();
     assert_eq!(
         fake.calls
             .lock()

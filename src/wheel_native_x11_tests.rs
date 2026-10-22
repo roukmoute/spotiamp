@@ -76,6 +76,7 @@ impl App {
             tx,
             state: Arc::new(Mutex::new(snapshot.clone())),
             library: Arc::new(Mutex::new(library_snapshot)),
+            completion: None,
         };
         let mut player = Window::new(
             "Spotiamp physical wheel test",

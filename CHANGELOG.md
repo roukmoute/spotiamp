@@ -1,5 +1,19 @@
 # Changements
 
+## 0.2.10 — 22 octobre 2026
+
+- File, morceau courant et position mémorisés dans les préférences. Au lancement,
+  le morceau est révélé dans la file et reste en pause ; Lecture ou Espace reprend
+  au temps enregistré sans précharger de flux audio au démarrage.
+- Playlist d'origine retrouvée dans la bibliothèque, indépendamment de la
+  dernière playlist consultée. Volume, Shuffle et Repeat conservés.
+- Sauvegarde locale bornée et remplacée atomiquement à la fermeture, avec un
+  point de reprise environ toutes les 15 secondes si l'état a changé. Aucune
+  nouvelle dépendance ni tâche de fond ; les sondes de mesure n'utilisent pas
+  cette sauvegarde.
+- Tests hors connexion du transport, des préférences et de vrais redémarrages
+  du processus, dont une file contenant plusieurs occurrences du même titre.
+
 ## 0.2.9 — 22 octobre 2026
 
 - Interface en français et en anglais, avec détection de la langue du système

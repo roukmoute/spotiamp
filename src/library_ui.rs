@@ -195,6 +195,13 @@ impl View {
                     self.selected_track = None;
                     self.selected_uri = None;
                     self.right_offset = 0;
+                    if let Some(index) = s
+                        .entries
+                        .iter()
+                        .position(|entry| Some(&entry.id) == self.selected_id.as_ref())
+                    {
+                        reveal(index, &mut self.left_offset, LEFT_ROWS);
+                    }
                 }
             }
             self.observed_id = s.selected_id.clone();

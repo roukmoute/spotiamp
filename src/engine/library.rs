@@ -10,6 +10,7 @@ pub(super) struct State {
     task: Option<JoinHandle<()>>,
     ready: Option<(PlaylistId, bool)>,
     pending_queue: Option<QueueRequest>,
+    catalogue_loaded: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -65,6 +66,32 @@ impl State {
 }
 
 impl Worker {
+    /// Restore the source playlist once its catalogue exists. A deliberate
+    /// selection cancels this pending startup action; browsing never changes
+    /// the remembered origin of the actual playback queue.
+    pub(super) fn restore_library_preview(&mut self, updates: &mpsc::Sender<super::Update>) {
+        if !self.library.open || !self.library.catalogue_loaded || self.session.is_none() {
+            return;
+        }
+        if let Some(id) = self.take_restored_playlist() {
+            self.load_library_playlist(id, None, updates);
+        }
+    }
+
+    fn take_restored_playlist(&mut self) -> Option<PlaylistId> {
+        let id = self.restore_library_selection.take()?;
+        self.library
+            .shared
+            .lock()
+            .ok()
+            .filter(|s| {
+                s.entries
+                    .iter()
+                    .any(|entry| entry.id == id && entry.available)
+            })
+            .map(|_| id)
+    }
+
     pub(super) fn sync_library_summary(&self) {
         // No queue clone or library hash on a position/volume update.
         if let Ok(audio) = self.state.lock()
@@ -79,6 +106,7 @@ impl Worker {
 
     pub(super) fn reset_library(&mut self, message: &'static str) {
         self.library.cancel();
+        self.library.catalogue_loaded = false;
         self.library.edit(|s| {
             s.entries = Arc::default();
             s.tracks = Arc::default();
@@ -112,6 +140,7 @@ impl Worker {
             }
             LibraryCommand::Refresh if self.library.open => self.refresh_library(updates),
             LibraryCommand::Select(id) if self.library.open => {
+                self.restore_library_selection = None;
                 if self
                     .library
                     .ready
@@ -129,6 +158,7 @@ impl Worker {
                 play,
                 start,
             } if self.library.open => {
+                self.restore_library_selection = None;
                 if self.import_task.is_some() {
                     self.library.edit(|s| {
                         s.status =
@@ -256,6 +286,7 @@ impl Worker {
         match update {
             Update::Catalogue { result, .. } => {
                 self.library.task = None;
+                self.library.catalogue_loaded = result.is_ok();
                 self.library.edit(|s| {
                     s.loading = false;
                     match result {
@@ -370,6 +401,8 @@ impl Worker {
             });
             return;
         }
+        let origin = self.library.ready.as_ref().map(|(id, _)| id.clone());
+        self.merge_queue_origin(origin, request.replace);
         // All validation and network work has succeeded before stopping or
         // replacing anything. Incoming old import events cannot refill it.
         if request.replace {

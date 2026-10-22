@@ -212,7 +212,7 @@ fn run_worker() -> (
     mpsc::Sender<Command>,
     Arc<Mutex<Snapshot>>,
     Arc<RecordingPlayer>,
-    JoinHandle<()>,
+    JoinHandle<Result<(), LocalizedText>>,
 ) {
     let (mut worker, player) = populated(20);
     // Suppress startup reconnect using a disconnected synthetic Session. Never
@@ -262,7 +262,7 @@ async fn real_worker_timer_waits_for_quiet_period_and_latest_selection_wins() {
         )]
     );
     tx.send(Command::Shutdown).await.unwrap();
-    task.await.unwrap();
+    task.await.unwrap().unwrap();
     assert_eq!(player.take(), vec![Call::Stop]);
 }
 
@@ -290,6 +290,6 @@ async fn real_worker_stop_and_pause_remain_immediate_during_the_timer() {
             ));
         }
         tx.send(Command::Shutdown).await.unwrap();
-        task.await.unwrap();
+        task.await.unwrap().unwrap();
     }
 }

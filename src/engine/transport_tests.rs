@@ -3,6 +3,8 @@ use crate::model::{LibraryCommand, PlaylistEntry, PlaylistId};
 
 #[path = "load_tests.rs"]
 mod load_tests;
+#[path = "restore_tests.rs"]
+mod restore_tests;
 
 #[derive(Debug, PartialEq)]
 enum Call {

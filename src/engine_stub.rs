@@ -25,6 +25,10 @@ pub struct Engine {
     pub library: Arc<Mutex<LibrarySnapshot>>,
 }
 impl Engine {
+    pub fn shutdown(self) -> Result<(), crate::localized_text::LocalizedText> {
+        Ok(())
+    }
+
     pub fn sync_language(&self, _: crate::locale::Language) -> bool {
         true
     }

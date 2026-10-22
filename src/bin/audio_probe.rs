@@ -11,6 +11,8 @@ mod locale;
 mod localized_text;
 #[path = "../model.rs"]
 mod model;
+#[path = "../playback_settings.rs"]
+mod playback_settings;
 #[path = "../settings.rs"]
 mod settings;
 #[path = "../spotify_library.rs"]

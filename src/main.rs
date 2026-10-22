@@ -22,6 +22,8 @@ mod localized_text;
 mod magnetic_native_macos_tests;
 mod model;
 #[cfg(feature = "spotify")]
+mod playback_settings;
+#[cfg(feature = "spotify")]
 mod settings;
 mod skin_settings;
 #[cfg(feature = "spotify")]
@@ -945,8 +947,9 @@ fn run(initial_notice: Option<LocalizedText>) -> Result<(), Box<dyn std::error::
         library.as_ref().and_then(|library| library.placement()),
     );
     let saved = layout.save();
-    let _ = engine.tx.try_send(Command::Shutdown);
+    let playback_saved = engine.shutdown();
     saved?;
+    playback_saved?;
     Ok(())
 }
 

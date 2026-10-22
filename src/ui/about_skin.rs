@@ -454,6 +454,19 @@ impl View {
         for (y, version, first, second) in [
             (
                 109,
+                self.language
+                    .text("0.2.10 / REPRISE MÉMORISÉE", "0.2.10 / REMEMBERED PLAYBACK"),
+                self.language.text(
+                    "Playlist, morceau et position retrouvés au lancement.",
+                    "Playlist, track and position restored at startup.",
+                ),
+                self.language.text(
+                    "Lecture reprend où vous vous êtes arrêté.",
+                    "Play resumes where you left off.",
+                ),
+            ),
+            (
+                154,
                 self.language.text(
                     "0.2.9 / LANGUES DE L'INTERFACE",
                     "0.2.9 / INTERFACE LANGUAGES",
@@ -468,7 +481,7 @@ impl View {
                 ),
             ),
             (
-                154,
+                199,
                 self.language.text(
                     "0.2.8 / LECTEUR SPOTIFY NATIF",
                     "0.2.8 / NATIVE SPOTIFY PLAYER",
@@ -483,7 +496,7 @@ impl View {
                 ),
             ),
             (
-                199,
+                244,
                 self.language.text(
                     "0.2.7 / DISPOSITION MÉMORISÉE",
                     "0.2.7 / REMEMBERED WINDOW LAYOUT",
@@ -498,7 +511,7 @@ impl View {
                 ),
             ),
             (
-                244,
+                289,
                 self.language
                     .text("0.2.6 / FENÊTRES AIMANTÉES", "0.2.6 / MAGNETIC WINDOWS"),
                 self.language.text(
@@ -511,7 +524,7 @@ impl View {
                 ),
             ),
             (
-                289,
+                334,
                 self.language.text(
                     "0.2.5 / NAVIGATION AU CLAVIER",
                     "0.2.5 / KEYBOARD NAVIGATION",
@@ -523,21 +536,6 @@ impl View {
                 self.language.text(
                     "Maintenir la touche conserve la répétition.",
                     "Holding the key still repeats.",
-                ),
-            ),
-            (
-                334,
-                self.language.text(
-                    "0.2.4 / CHANGEMENTS RAPIDES DE TITRE",
-                    "0.2.4 / RAPID TRACK CHANGES",
-                ),
-                self.language.text(
-                    "Dernier choix chargé après 200 ms sans nouveau clic.",
-                    "Last selection loads after 200 ms with no new click.",
-                ),
-                self.language.text(
-                    "Anciens chargements annulés ; clics conservés.",
-                    "Previous loads cancelled; every click is counted.",
                 ),
             ),
         ] {
