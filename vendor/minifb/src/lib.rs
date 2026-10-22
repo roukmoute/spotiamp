@@ -19,6 +19,7 @@ mod error;
 mod icon;
 mod key;
 mod key_handler;
+mod magnet;
 mod os;
 mod rate;
 
@@ -597,6 +598,44 @@ impl Window {
             let _ = (parent, offset_x, offset_y);
             Err(Error::UpdateFailed(
                 "Window docking is not supported".into(),
+            ))
+        }
+    }
+
+    /// Enable magnetic dragging for an existing docked pair. Dragging the
+    /// companion separates it; releasing either free window close to a facing
+    /// edge joins the pair again. The parent moves both while joined. Native
+    /// minimization/restoration remains grouped while the windows are free.
+    /// Disabling this mode keeps the current offset and restores rigid docking.
+    /// Windows, macOS and X11 support this mode; no pair or unsupported backends
+    /// return an error. Closing a window or `set_docked_parent(None, ..)` clears
+    /// the entire relationship, including magnetic dragging.
+    pub fn set_dock_magnetic(&mut self, enabled: bool) -> Result<()> {
+        #[cfg(any(
+            target_os = "windows",
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "dragonfly",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        ))]
+        {
+            self.0.set_dock_magnetic(enabled)
+        }
+        #[cfg(not(any(
+            target_os = "windows",
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "dragonfly",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        )))]
+        {
+            let _ = enabled;
+            Err(Error::UpdateFailed(
+                "Magnetic window docking is not supported".into(),
             ))
         }
     }

@@ -183,6 +183,7 @@ extern "C" {
         offset_x: f64,
         offset_y: f64,
     ) -> bool;
+    fn mfb_set_dock_magnetic(window: *mut c_void, enabled: bool) -> bool;
     fn mfb_get_work_area(
         window: *const c_void,
         x: *mut f64,
@@ -468,6 +469,16 @@ impl Window {
             Ok(())
         } else {
             Err(Error::UpdateFailed("Cannot dock a closed window".into()))
+        }
+    }
+
+    pub fn set_dock_magnetic(&mut self, enabled: bool) -> Result<()> {
+        if unsafe { mfb_set_dock_magnetic(self.window_handle, enabled) } {
+            Ok(())
+        } else {
+            Err(Error::UpdateFailed(
+                "Magnetic docking requires an open window pair".into(),
+            ))
         }
     }
 

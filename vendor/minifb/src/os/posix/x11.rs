@@ -50,12 +50,21 @@ struct MwmHints {
 // cannot issue requests against a destroyed peer.
 struct DockPair {
     active: bool,
+    magnetic: bool,
+    attached: bool,
     parent: xlib::Window,
     child: xlib::Window,
     offset: (isize, isize),
     displays: [*mut xlib::Display; 2],
     positions: [(isize, isize); 2],
     pending: [Option<((isize, isize), c_ulong)>; 2],
+    gesture: Option<DockGesture>,
+}
+
+struct DockGesture {
+    index: usize,
+    moved: bool,
+    distance: f64,
 }
 
 struct DisplayInfo {
@@ -268,6 +277,7 @@ impl Drop for DisplayInfo {
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum ProcessEventResult {
     Ok,
+    TitlebarDragStarted,
     Termination,
 }
 
@@ -632,12 +642,15 @@ impl Window {
         );
         let pair = Rc::new(RefCell::new(DockPair {
             active: true,
+            magnetic: false,
+            attached: true,
             parent: parent.handle,
             child: self.handle,
             offset: (offset_x, offset_y),
             displays: [parent.d.display, self.d.display],
             positions: [origin, child_origin],
             pending: [None, None],
+            gesture: None,
         }));
         unsafe {
             // Do not let the WM infer a modal/dialog window from the transient
@@ -669,11 +682,65 @@ impl Window {
         Ok(())
     }
 
+    pub fn set_dock_magnetic(&mut self, enabled: bool) -> Result<()> {
+        let Some(shared) = &self.dock else {
+            return Err(Error::UpdateFailed("Window has no docked pair".into()));
+        };
+        let mut pair = shared.borrow_mut();
+        if !pair.active {
+            return Err(Error::UpdateFailed(
+                "Window has no active docked pair".into(),
+            ));
+        }
+        pair.magnetic = enabled;
+        if !enabled {
+            // Switching back to the rigid API must not jump either window.
+            let parent = self.native_dock_rect(pair.parent);
+            let child = self.native_dock_rect(pair.child);
+            pair.positions = [
+                (parent.x as isize, parent.y as isize),
+                (child.x as isize, child.y as isize),
+            ];
+            pair.offset = (
+                pair.positions[1].0 - pair.positions[0].0,
+                pair.positions[1].1 - pair.positions[0].1,
+            );
+            pair.pending = [None, None];
+            pair.attached = true;
+        }
+        Ok(())
+    }
+
+    fn native_dock_rect(&self, handle: xlib::Window) -> crate::magnet::Rect {
+        unsafe {
+            let (mut x, mut y, mut child) = (0, 0, 0);
+            let mut attributes: xlib::XWindowAttributes = std::mem::zeroed();
+            (self.d.lib.XTranslateCoordinates)(
+                self.d.display,
+                handle,
+                (self.d.lib.XDefaultRootWindow)(self.d.display),
+                0,
+                0,
+                &mut x,
+                &mut y,
+                &mut child,
+            );
+            (self.d.lib.XGetWindowAttributes)(self.d.display, handle, &mut attributes);
+            crate::magnet::Rect {
+                x: x as f64,
+                y: y as f64,
+                width: attributes.width as f64,
+                height: attributes.height as f64,
+            }
+        }
+    }
+
     fn detach_dock(&mut self) {
         if let Some(shared) = self.dock.take() {
             let mut pair = shared.borrow_mut();
             if pair.active {
                 pair.active = false;
+                pair.gesture = None;
                 unsafe {
                     (self.d.lib.XDeleteProperty)(
                         self.d.display,
@@ -699,6 +766,16 @@ impl Window {
         }
         let index = usize::from(self.handle == pair.child);
         let position = self.get_position();
+        self.follow_dock_position(&mut pair, index, position, serial);
+    }
+
+    fn follow_dock_position(
+        &self,
+        pair: &mut DockPair,
+        index: usize,
+        position: (isize, isize),
+        serial: c_ulong,
+    ) {
         if let Some((expected, requested)) = pair.pending[index] {
             if position == expected {
                 pair.pending[index] = None;
@@ -715,6 +792,22 @@ impl Window {
         if position == pair.positions[index] {
             return;
         }
+        if let Some(gesture) = pair
+            .gesture
+            .as_mut()
+            .filter(|gesture| gesture.index == index)
+        {
+            gesture.moved = true;
+            if pair.magnetic && index == 1 {
+                // A click alone keeps the pair attached. The first real move
+                // of the companion detaches it before any parent follow request.
+                pair.attached = false;
+            }
+        }
+        pair.positions[index] = position;
+        if pair.magnetic && !pair.attached {
+            return;
+        }
         let target = if index == 0 {
             (
                 position.0.saturating_add(pair.offset.0),
@@ -726,7 +819,6 @@ impl Window {
                 position.1.saturating_sub(pair.offset.1),
             )
         };
-        pair.positions[index] = position;
         pair.positions[1 - index] = target;
         let display = pair.displays[1 - index];
         let peer = if index == 0 { pair.child } else { pair.parent };
@@ -734,6 +826,85 @@ impl Window {
             pair.pending[1 - index] = Some((target, (self.d.lib.XNextRequest)(display)));
             (self.d.lib.XMoveWindow)(display, peer, target.0 as i32, target.1 as i32);
             (self.d.lib.XFlush)(display);
+        }
+    }
+
+    fn finish_titlebar_drag(&mut self) {
+        // The WM owns the pointer grab and may consume ButtonRelease. The
+        // existing per-frame XQueryPointer supplies the release state; this
+        // adds no request, timer or wake-up while the windows are idle.
+        if !self.titlebar_dragging {
+            return;
+        }
+        self.titlebar_dragging = false;
+        if self.should_close {
+            return;
+        }
+        let Some(shared) = &self.dock else { return };
+        let mut pair = shared.borrow_mut();
+        let index = usize::from(self.handle == pair.child);
+        // A newer press on the peer may have already finalized our gesture.
+        // Its owner is shared even while the old Window flag awaits a release.
+        if pair
+            .gesture
+            .as_ref()
+            .is_some_and(|gesture| gesture.index == index)
+        {
+            self.finish_dock_gesture(&mut pair);
+        }
+    }
+
+    fn finish_dock_gesture(&self, pair: &mut DockPair) {
+        let Some(gesture) = pair.gesture.as_ref().filter(|_| pair.active) else {
+            return;
+        };
+        let index = gesture.index;
+        let handle = if index == 0 { pair.parent } else { pair.child };
+        let display = pair.displays[index];
+        let moving = self.native_dock_rect(handle);
+        let serial = unsafe { (self.d.lib.XLastKnownRequestProcessed)(display) };
+        self.follow_dock_position(pair, index, (moving.x as isize, moving.y as isize), serial);
+        let gesture = pair.gesture.take().unwrap();
+        if !gesture.moved || !pair.magnetic || pair.attached {
+            return;
+        }
+        let peer = if index == 0 { pair.child } else { pair.parent };
+        let stationary = self.native_dock_rect(peer);
+        let Some((x, y)) = crate::magnet::snap(moving, stationary, gesture.distance) else {
+            return;
+        };
+        let target = (x.round() as isize, y.round() as isize);
+        pair.positions[index] = target;
+        pair.positions[1 - index] = (stationary.x as isize, stationary.y as isize);
+        pair.offset = (
+            pair.positions[1].0 - pair.positions[0].0,
+            pair.positions[1].1 - pair.positions[0].1,
+        );
+        pair.attached = true;
+        unsafe {
+            pair.pending[index] = Some((target, (self.d.lib.XNextRequest)(display)));
+            (self.d.lib.XMoveWindow)(display, handle, target.0 as i32, target.1 as i32);
+            (self.d.lib.XFlush)(display);
+        }
+    }
+
+    fn begin_titlebar_drag(&mut self) {
+        self.titlebar_dragging = true;
+        if let Some(shared) = &self.dock {
+            let mut pair = shared.borrow_mut();
+            if pair.active {
+                // The WM can consume a release, and the next press can arrive
+                // before either endpoint sampled the intervening button-up.
+                self.finish_dock_gesture(&mut pair);
+                let index = usize::from(self.handle == pair.child);
+                pair.positions[index] = self.get_position();
+                pair.pending[index] = None;
+                pair.gesture = Some(DockGesture {
+                    index,
+                    moved: false,
+                    distance: 12.0 * self.scale as f64,
+                });
+            }
         }
     }
 
@@ -828,8 +999,20 @@ impl Window {
         self.scroll_y = 0.0;
 
         unsafe {
-            self.raw_get_mouse_pos();
-            self.raw_process_events();
+            let pointer_mask = self.raw_get_mouse_pos();
+            self.process_events_after_pointer_sample(pointer_mask);
+        }
+    }
+
+    unsafe fn process_events_after_pointer_sample(&mut self, pointer_mask: Option<c_uint>) {
+        let gesture_started = self.raw_process_events();
+        // The sample predates this event pump: it cannot release a gesture
+        // started by a press that arrived after XQueryPointer returned.
+        if !gesture_started
+            && self.titlebar_dragging
+            && pointer_mask.is_some_and(|mask| mask & xlib::Button1Mask == 0)
+        {
+            self.finish_titlebar_drag();
         }
     }
 
@@ -1307,7 +1490,7 @@ impl Window {
         (self.d.lib.XFlush)(self.d.display);
     }
 
-    unsafe fn raw_get_mouse_pos(&mut self) {
+    unsafe fn raw_get_mouse_pos(&mut self) -> Option<c_uint> {
         let mut root: xlib::Window = 0;
         let mut root_x: i32 = 0;
         let mut root_y: i32 = 0;
@@ -1332,11 +1515,15 @@ impl Window {
         {
             self.mouse_x = child_x as f32;
             self.mouse_y = child_y as f32;
+            Some(mask)
+        } else {
+            None
         }
     }
 
-    unsafe fn raw_process_events(&mut self) {
+    unsafe fn raw_process_events(&mut self) -> bool {
         let count = (self.d.lib.XPending)(self.d.display);
+        let mut gesture_started = false;
 
         for _ in 0..count {
             let mut event: xlib::XEvent = std::mem::zeroed();
@@ -1350,10 +1537,13 @@ impl Window {
             }
 
             // Don't process any more messages if we hit a termination event
-            if self.raw_process_one_event(event) == ProcessEventResult::Termination {
-                return;
+            match self.raw_process_one_event(event) {
+                ProcessEventResult::Termination => return gesture_started,
+                ProcessEventResult::TitlebarDragStarted => gesture_started = true,
+                ProcessEventResult::Ok => {}
             }
         }
+        gesture_started
     }
 
     unsafe fn raw_process_one_event(&mut self, mut ev: xlib::XEvent) -> ProcessEventResult {
@@ -1451,11 +1641,15 @@ impl Window {
             }
 
             xlib::ButtonPress => {
-                self.titlebar_dragging = false;
-                if let Some(shared) = &self.dock {
-                    let mut pair = shared.borrow_mut();
-                    let index = usize::from(self.handle == pair.child);
-                    pair.pending[index] = None;
+                if ev.button.button == xlib::Button1 {
+                    // A new left press proves the previous left gesture ended,
+                    // even when the WM swallowed release at the other endpoint.
+                    // Content clicks finalize it too; wheel/other buttons must
+                    // preserve the held gesture and its release-sample fallback.
+                    if let Some(shared) = &self.dock {
+                        self.finish_dock_gesture(&mut shared.borrow_mut());
+                    }
+                    self.titlebar_dragging = false;
                 }
                 if ev.button.button == xlib::Button1
                     && self.in_titlebar_drag_region(ev.button.x, ev.button.y)
@@ -1464,18 +1658,18 @@ impl Window {
                     if let Some(callback) = self.key_handler.key_callback.as_mut() {
                         callback.mouse_input_cancelled();
                     }
-                    self.titlebar_dragging = true;
+                    self.begin_titlebar_drag();
                     self.send_moveresize(ev.button, 8); // _NET_WM_MOVERESIZE_MOVE
-                    return ProcessEventResult::Ok;
+                    return ProcessEventResult::TitlebarDragStarted;
                 }
                 self.process_button(ev, true /* is_down */);
             }
 
             xlib::ButtonRelease => {
                 if ev.button.button == xlib::Button1 && self.titlebar_dragging {
-                    self.titlebar_dragging = false;
                     // A very short click can be released before the WM grabs it.
                     self.send_moveresize(ev.button, 11); // _NET_WM_MOVERESIZE_CANCEL
+                    self.finish_titlebar_drag();
                     return ProcessEventResult::Ok;
                 }
                 self.process_button(ev, false /* is_down */);
@@ -1811,5 +2005,260 @@ impl Drop for Window {
             (self.d.lib.XCloseIM)(self.xim);
             (self.d.lib.XDestroyWindow)(self.d.display, self.handle);
         }
+    }
+}
+
+#[cfg(test)]
+mod magnetic_race_tests {
+    use super::*;
+
+    fn window(name: &str) -> Window {
+        let mut window = Window::new(
+            name,
+            100,
+            80,
+            WindowOptions {
+                borderless: true,
+                title: false,
+                resize: false,
+                ..WindowOptions::default()
+            },
+        )
+        .unwrap();
+        window.set_titlebar_drag_region(Some((0, 0, 70, 18)));
+        window.update();
+        window
+    }
+
+    unsafe fn queue_button(window: &Window, down: bool) {
+        queue_button_at(window, down, xlib::Button1, 10, 8);
+    }
+
+    unsafe fn queue_button_at(window: &Window, down: bool, button: c_uint, x: i32, y: i32) {
+        let mut event: xlib::XEvent = std::mem::zeroed();
+        event.button = xlib::XButtonEvent {
+            type_: if down {
+                xlib::ButtonPress
+            } else {
+                xlib::ButtonRelease
+            },
+            display: window.d.display,
+            window: window.handle,
+            root: (window.d.lib.XDefaultRootWindow)(window.d.display),
+            button,
+            x,
+            y,
+            x_root: x,
+            y_root: y,
+            same_screen: xlib::True,
+            ..std::mem::zeroed()
+        };
+        (window.d.lib.XPutBackEvent)(window.d.display, &mut event);
+    }
+
+    unsafe fn sync(window: &Window) {
+        (window.d.lib.XSync)(window.d.display, xlib::False);
+    }
+
+    fn attached_pair() -> (Window, Window) {
+        let mut parent = window("magnetic button parent");
+        let mut child = window("magnetic button child");
+        parent.set_position(100, 100);
+        unsafe { sync(&parent) };
+        child.set_docked_parent(Some(&mut parent), 100, 0).unwrap();
+        child.set_dock_magnetic(true).unwrap();
+        unsafe { sync(&child) };
+        parent.update();
+        child.update();
+        (parent, child)
+    }
+
+    fn move_child_near(parent: &Window, child: &mut Window) {
+        unsafe {
+            queue_button(child, true);
+            child.process_events_after_pointer_sample(Some(xlib::Button1Mask));
+        }
+        child.set_position(211, 110);
+        unsafe { sync(child) };
+        let serial = unsafe { (child.d.lib.XLastKnownRequestProcessed)(child.d.display) };
+        child.follow_dock_move(serial);
+        assert!(!child.dock.as_ref().unwrap().borrow().attached);
+        assert_eq!(parent.get_position(), (100, 100));
+    }
+
+    #[test]
+    #[ignore = "requires isolated Xvfb without a window manager"]
+    fn x11_magnetic_wheel_preserves_held_gesture_and_release_fallback() {
+        let (parent, mut child) = attached_pair();
+        unsafe {
+            queue_button(&child, true);
+            child.process_events_after_pointer_sample(Some(xlib::Button1Mask));
+            queue_button_at(&child, true, xlib::Button4, 80, 40);
+            child.process_events_after_pointer_sample(Some(xlib::Button1Mask));
+        }
+        assert!(child.titlebar_dragging, "wheel must not erase the gesture");
+        assert!(child.dock.as_ref().unwrap().borrow().attached);
+        assert!(child.dock.as_ref().unwrap().borrow().gesture.is_some());
+        assert_eq!(child.get_position(), (200, 100));
+
+        child.set_position(211, 110);
+        unsafe { sync(&child) };
+        let serial = unsafe { (child.d.lib.XLastKnownRequestProcessed)(child.d.display) };
+        child.follow_dock_move(serial);
+        unsafe {
+            queue_button_at(&child, true, xlib::Button5, 80, 40);
+            child.process_events_after_pointer_sample(Some(xlib::Button1Mask));
+        }
+        assert!(child.titlebar_dragging);
+        assert!(!child.dock.as_ref().unwrap().borrow().attached);
+        assert_eq!(child.get_position(), (211, 110), "no snap while held");
+        assert_eq!(parent.get_position(), (100, 100));
+
+        // The WM swallowed ButtonRelease. A wheel event in the next pump must
+        // not suppress the existing fresh-pointer-sample release fallback.
+        unsafe {
+            queue_button_at(&child, true, xlib::Button4, 80, 40);
+            child.process_events_after_pointer_sample(Some(0));
+            sync(&child);
+        }
+        assert!(!child.titlebar_dragging);
+        assert!(child.dock.as_ref().unwrap().borrow().gesture.is_none());
+        assert!(child.dock.as_ref().unwrap().borrow().attached);
+        assert_eq!(child.get_position(), (200, 100));
+    }
+
+    #[test]
+    #[ignore = "requires isolated Xvfb without a window manager"]
+    fn x11_magnetic_new_content_press_finishes_shared_owner() {
+        for click_peer in [false, true] {
+            let (mut parent, mut child) = attached_pair();
+            move_child_near(&parent, &mut child);
+            let clicked = if click_peer { &mut parent } else { &mut child };
+            unsafe {
+                queue_button_at(clicked, true, xlib::Button1, 80, 40);
+                clicked.process_events_after_pointer_sample(Some(xlib::Button1Mask));
+            }
+            assert!(!clicked.titlebar_dragging, "content starts no drag");
+            assert!(
+                clicked.get_mouse_down(MouseButton::Left),
+                "content click is delivered"
+            );
+            unsafe { sync(&child) };
+            assert!(child.dock.as_ref().unwrap().borrow().gesture.is_none());
+            assert!(child.dock.as_ref().unwrap().borrow().attached);
+            assert_eq!(child.get_position(), (200, 100));
+            assert_eq!(parent.get_position(), (100, 100));
+            // Any stale release sample at the former owner is harmless.
+            unsafe { child.process_events_after_pointer_sample(Some(0)) };
+            assert_eq!(child.get_position(), (200, 100));
+        }
+    }
+
+    #[test]
+    #[ignore = "requires isolated Xvfb without a window manager"]
+    fn x11_magnetic_old_pointer_sample_cannot_release_a_new_press() {
+        let mut window = window("magnetic pointer sample ordering");
+        unsafe {
+            let sampled = window.raw_get_mouse_pos();
+            assert!(sampled.is_some_and(|mask| mask & xlib::Button1Mask == 0));
+            // Inject the press after the exact production query, deterministically
+            // reproducing an event arriving between sampling and event dispatch.
+            queue_button(&window, true);
+            window.process_events_after_pointer_sample(sampled);
+            assert!(
+                window.titlebar_dragging,
+                "old up sample ended the new gesture"
+            );
+            // The WM may consume its release; the next fresh query still ends it.
+            let fresh = window.raw_get_mouse_pos();
+            window.process_events_after_pointer_sample(fresh);
+            assert!(!window.titlebar_dragging);
+            // XPutBackEvent is LIFO: process a real press/release in one pump.
+            queue_button(&window, false);
+            queue_button(&window, true);
+            window.process_events_after_pointer_sample(Some(0));
+            assert!(
+                !window.titlebar_dragging,
+                "same-pump release must not be lost"
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "requires isolated Xvfb without a window manager"]
+    fn x11_magnetic_new_peer_press_finishes_old_owner_before_handoff() {
+        let mut parent = window("magnetic gesture parent");
+        let mut child = window("magnetic gesture child");
+        parent.set_position(100, 100);
+        unsafe { sync(&parent) };
+        child.set_docked_parent(Some(&mut parent), 100, 0).unwrap();
+        child.set_dock_magnetic(true).unwrap();
+        unsafe { sync(&child) };
+        parent.update();
+        child.update();
+        unsafe {
+            queue_button(&child, true);
+            child.process_events_after_pointer_sample(Some(xlib::Button1Mask));
+        }
+        child.set_position(211, 110);
+        unsafe { sync(&child) };
+        let serial = unsafe { (child.d.lib.XLastKnownRequestProcessed)(child.d.display) };
+        child.follow_dock_move(serial);
+        assert!(!child.dock.as_ref().unwrap().borrow().attached);
+        assert_eq!(parent.get_position(), (100, 100));
+
+        // No child release callback or up sample: the WM consumed the release
+        // and the next press arrived at the other endpoint in the meantime.
+        unsafe {
+            queue_button(&parent, true);
+            parent.process_events_after_pointer_sample(Some(xlib::Button1Mask));
+            sync(&child);
+        }
+        assert!(
+            child.titlebar_dragging,
+            "the old endpoint has not sampled release"
+        );
+        assert_eq!(
+            child.get_position(),
+            (200, 100),
+            "old gesture was finalized and snapped"
+        );
+        assert!(parent.dock.as_ref().unwrap().borrow().attached);
+        assert_eq!(
+            parent
+                .dock
+                .as_ref()
+                .unwrap()
+                .borrow()
+                .gesture
+                .as_ref()
+                .unwrap()
+                .index,
+            0
+        );
+
+        // A late up sample at the old endpoint cannot finalize the new owner.
+        unsafe { child.process_events_after_pointer_sample(Some(0)) };
+        assert!(!child.titlebar_dragging && parent.titlebar_dragging);
+        assert_eq!(
+            parent
+                .dock
+                .as_ref()
+                .unwrap()
+                .borrow()
+                .gesture
+                .as_ref()
+                .unwrap()
+                .index,
+            0
+        );
+        parent.set_position(130, 120);
+        unsafe { sync(&parent) };
+        let serial = unsafe { (parent.d.lib.XLastKnownRequestProcessed)(parent.d.display) };
+        parent.follow_dock_move(serial);
+        unsafe { sync(&child) };
+        assert_eq!(child.get_position(), (230, 120));
+        parent.finish_titlebar_drag();
+        assert!(parent.dock.as_ref().unwrap().borrow().gesture.is_none());
     }
 }

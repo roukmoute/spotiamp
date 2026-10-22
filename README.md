@@ -80,9 +80,13 @@ tandis que Spotiamp utilise le rendu logiciel et GDI sous Windows.
 Les [détails techniques et les mesures](PERFORMANCE.md) expliquent cette approche.
 
 La **bibliothèque de vos playlists Spotify** s'ouvre automatiquement avec le
-lecteur, dans une fenêtre utilisant le même skin **collée à sa droite**. Les deux
-fenêtres se déplacent ensemble en faisant glisser l'un de leurs bandeaux et
-se réduisent ensemble. Sur un écran trop étroit, la bibliothèque se place
+lecteur, dans une fenêtre utilisant le même skin **collée à sa droite**. Faire
+glisser le bandeau du lecteur déplace les deux fenêtres lorsqu'elles sont
+attachées. Faire glisser le bandeau de la bibliothèque permet de la détacher.
+Pour les recoller, rapprocher leurs bords puis relâcher la souris : elles
+s'aimantent à droite, à gauche, au-dessus ou en dessous. Une fois séparées,
+l'une ou l'autre peut être déplacée pour les réunir. Elles se réduisent toujours
+ensemble. Sur un écran trop étroit, la bibliothèque se place initialement
 juste en dessous. **BIBLIO. F3** ou **F3** la ferme ou la rouvre : playlists
 et dossiers à gauche, titres de la playlist choisie à droite, en lecture seule.
 Le catalogue est chargé à l'ouverture et les titres seulement à la sélection.
@@ -205,8 +209,12 @@ Les boutons s'activent au relâchement de la souris dans le bouton pressé.
 Relâcher à l'extérieur annule le clic ; une perte de focus annule aussi l'appui.
 Les barres de volume et de position réagissent dès l'appui et pendant le glissement.
 
-Pour déplacer les fenêtres ensemble, maintenir le bouton gauche de la souris
-sur une zone libre de l'un des bandeaux supérieurs et la faire glisser.
+Pour déplacer les fenêtres attachées ensemble, maintenir le bouton gauche de
+la souris sur une zone libre du bandeau du lecteur et la faire glisser.
+Le bandeau de la bibliothèque la détache au premier déplacement ; un simple
+clic conserve l'attachement. Relâcher une fenêtre libre près du bord de l'autre
+les recolle automatiquement et aligne les coins proches. Ce comportement est
+identique sous Windows, macOS et Linux, dans les deux skins et aux deux échelles.
 **Réduire** et **Fermer**, à
 droite du bandeau, remplacent les boutons du cadre système. **Alt+F4** continue
 de fermer la fenêtre active sous Windows : la bibliothèque seule si elle a le

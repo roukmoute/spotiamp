@@ -505,6 +505,7 @@ static int generic_update(OSXWindow* win) {
     }
 
     int state = update_events();
+    [win updateDockDrag];
 
     if (win->shared_data) {
         NSPoint p = [win mouseLocationOutsideOfEventStream];
@@ -591,12 +592,33 @@ bool mfb_set_docked_parent(void* window, void* parent, double offset_x, double o
         child->docked_parent = owner;
         owner->docked_child = child;
         child->dock_offset = NSMakePoint(offset_x, offset_y);
+        child->dock_attached = true;
         [owner syncDockPosition];
         if ([owner isMiniaturized]) {
             owner->dock_child_hidden = true;
             [child orderOut:nil];
         }
     }
+    return true;
+}
+
+bool mfb_set_dock_magnetic(void* window, bool enabled) {
+    OSXWindow* win = (OSXWindow*)window;
+    if (!win || win->should_close) return false;
+    OSXWindow* child = win->docked_parent ? win : win->docked_child;
+    if (!child || child->should_close) return false;
+    if (!enabled) {
+        // Returning to rigid mode locks the current placement without a jump.
+        OSXWindow* owner = child->docked_parent;
+        const NSRect parentFrame = [owner frame];
+        const NSRect childFrame = [child frame];
+        child->dock_offset = NSMakePoint(childFrame.origin.x - parentFrame.origin.x,
+                                        NSMaxY(parentFrame) - NSMaxY(childFrame));
+        child->dock_attached = true;
+        child->dock_drag_active = false;
+        owner->dock_drag_active = false;
+    }
+    child->dock_magnetic = enabled;
     return true;
 }
 

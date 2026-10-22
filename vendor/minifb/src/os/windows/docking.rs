@@ -10,6 +10,10 @@ const X: &[u16] = &[109, 102, 98, 46, 100, 111, 99, 107, 46, 120, 0];
 const Y: &[u16] = &[109, 102, 98, 46, 100, 111, 99, 107, 46, 121, 0];
 const OLD_OWNER: &[u16] = &[109, 102, 98, 46, 100, 111, 99, 107, 46, 111, 0];
 const MOVING: &[u16] = &[109, 102, 98, 46, 100, 111, 99, 107, 46, 109, 0];
+const MAGNETIC: &[u16] = &[109, 102, 98, 46, 100, 111, 99, 107, 46, 103, 0];
+const ATTACHED: &[u16] = &[109, 102, 98, 46, 100, 111, 99, 107, 46, 97, 0];
+const DISTANCE: &[u16] = &[109, 102, 98, 46, 100, 111, 99, 107, 46, 100, 0];
+const DRAGGED: &[u16] = &[109, 102, 98, 46, 100, 111, 99, 107, 46, 114, 0];
 
 fn get(window: windef::HWND, key: &[u16]) -> isize {
     unsafe { winuser::GetPropW(window, key.as_ptr()) as isize }
@@ -30,6 +34,15 @@ pub(super) fn parent(window: windef::HWND) -> Option<windef::HWND> {
     (!parent.is_null() && get(parent, CHILD) == window as isize).then_some(parent)
 }
 
+fn pair(window: windef::HWND) -> Option<(windef::HWND, windef::HWND)> {
+    if let Some(owner) = parent(window) {
+        Some((owner, window))
+    } else {
+        let child = get(window, CHILD) as windef::HWND;
+        (!child.is_null() && parent(child) == Some(window)).then_some((window, child))
+    }
+}
+
 /// Clear the reciprocal links before native calls that could re-enter WndProc.
 pub(super) fn detach(window: windef::HWND) {
     let child = get(window, CHILD) as windef::HWND;
@@ -42,8 +55,11 @@ pub(super) fn detach(window: windef::HWND) {
     if was_attached && get(owner, CHILD) == window as isize {
         remove(owner, CHILD);
         remove(owner, MOVING);
+        remove(owner, DRAGGED);
     }
-    for key in [PARENT, CHILD, X, Y, OLD_OWNER, MOVING] {
+    for key in [
+        PARENT, CHILD, X, Y, OLD_OWNER, MOVING, MAGNETIC, ATTACHED, DISTANCE, DRAGGED,
+    ] {
         remove(window, key);
     }
     if was_attached && unsafe { winuser::IsWindow(window) } != 0 {
@@ -95,6 +111,7 @@ pub(super) fn attach(
     let installed = set(window, OLD_OWNER, previous as isize)
         && set(window, X, offset_x as isize)
         && set(window, Y, offset_y as isize)
+        && set(window, ATTACHED, 1)
         && set(window, MOVING, 1)
         && set(owner, MOVING, 1)
         && set(window, PARENT, owner as isize)
@@ -121,6 +138,134 @@ pub(super) fn attach(
     Ok(())
 }
 
+pub(super) fn magnetic(window: windef::HWND, enabled: bool, distance: i32) -> Result<()> {
+    let (owner, child) = pair(window).ok_or_else(|| {
+        Error::UpdateFailed("Attach a window pair before enabling magnets".into())
+    })?;
+    if !enabled && get(child, ATTACHED) == 0 {
+        // Returning to rigid mode must not jump back to the old dock offset.
+        if unsafe { winuser::IsIconic(owner) != 0 || winuser::IsIconic(child) != 0 } {
+            return Err(Error::UpdateFailed(
+                "Cannot restore rigid docking while windows are minimized".into(),
+            ));
+        }
+        if !remember_offset(owner, child) || !set(child, ATTACHED, 1) {
+            return Err(Error::UpdateFailed("Cannot restore rigid docking".into()));
+        }
+    }
+    if !set(child, DISTANCE, distance.max(0) as isize)
+        || !set(child, MAGNETIC, isize::from(enabled))
+    {
+        return Err(Error::UpdateFailed(
+            "Cannot configure window magnets".into(),
+        ));
+    }
+    remove(owner, DRAGGED);
+    remove(child, DRAGGED);
+    Ok(())
+}
+
+fn rect(window: windef::HWND) -> Option<windef::RECT> {
+    let mut result = unsafe { mem::zeroed() };
+    (unsafe { winuser::GetWindowRect(window, &mut result) } != 0).then_some(result)
+}
+
+fn remember_offset(owner: windef::HWND, child: windef::HWND) -> bool {
+    let (Some(owner_rect), Some(child_rect)) = (rect(owner), rect(child)) else {
+        return false;
+    };
+    let x = isize::try_from(child_rect.left as i64 - owner_rect.left as i64);
+    let y = isize::try_from(child_rect.top as i64 - owner_rect.top as i64);
+    match (x, y) {
+        (Ok(x), Ok(y)) => set(child, X, x) && set(child, Y, y),
+        _ => false,
+    }
+}
+
+pub(super) fn begin_drag(window: windef::HWND) {
+    remove(window, DRAGGED);
+}
+
+/// Unlike WM_ENTERSIZEMOVE, an actually changed WM_MOVING rectangle proves a
+/// drag occurred. A simple click on the titlebar must leave the pair attached.
+pub(super) fn moving(window: windef::HWND, proposed: &windef::RECT) {
+    if let Some((_, child)) = pair(window) {
+        if get(child, MAGNETIC) != 0 && get(window, MOVING) == 0 {
+            if let Some(current) = rect(window) {
+                if current.left != proposed.left || current.top != proposed.top {
+                    set(window, DRAGGED, 1);
+                    if window == child {
+                        remove(child, ATTACHED);
+                    }
+                }
+            }
+        }
+    }
+    follow(window, Some(proposed));
+}
+
+/// Snap only at the end of a native drag. Reciprocal links and the native owner
+/// remain present while free, so minimization and destruction still group safely.
+pub(super) fn end_drag(window: windef::HWND) {
+    let dragged = get(window, DRAGGED) != 0;
+    remove(window, DRAGGED);
+    let Some((owner, child)) = pair(window) else {
+        return;
+    };
+    if !dragged || get(child, MAGNETIC) == 0 || get(child, ATTACHED) != 0 {
+        return;
+    }
+    let other = if window == child { owner } else { child };
+    if unsafe { winuser::IsIconic(window) != 0 || winuser::IsIconic(other) != 0 } {
+        return;
+    }
+    let (Some(moving), Some(stationary)) = (rect(window), rect(other)) else {
+        return;
+    };
+    let to_rect = |r: windef::RECT| crate::magnet::Rect {
+        x: r.left as f64,
+        y: r.top as f64,
+        width: r.right as f64 - r.left as f64,
+        height: r.bottom as f64 - r.top as f64,
+    };
+    let Some((x, y)) = crate::magnet::snap(
+        to_rect(moving),
+        to_rect(stationary),
+        get(child, DISTANCE) as f64,
+    ) else {
+        return;
+    };
+    if !set(window, MOVING, 1) {
+        return;
+    }
+    if !set(other, MOVING, 1) {
+        set(window, MOVING, 0);
+        return;
+    }
+    let moved = unsafe {
+        winuser::SetWindowPos(
+            window,
+            ptr::null_mut(),
+            x.round() as i32,
+            y.round() as i32,
+            0,
+            0,
+            winuser::SWP_NOACTIVATE
+                | winuser::SWP_NOSIZE
+                | winuser::SWP_NOZORDER
+                | winuser::SWP_NOOWNERZORDER,
+        )
+    } != 0;
+    if pair(window) != Some((owner, child)) {
+        return;
+    }
+    set(window, MOVING, 0);
+    set(other, MOVING, 0);
+    if moved && remember_offset(owner, child) {
+        set(child, ATTACHED, 1);
+    }
+}
+
 /// Follow both ordinary SetWindowPos and WM_MOVING inside the native modal loop.
 pub(super) fn follow(window: windef::HWND, proposed: Option<&windef::RECT>) {
     if get(window, MOVING) != 0 || unsafe { winuser::IsIconic(window) } != 0 {
@@ -135,6 +280,9 @@ pub(super) fn follow(window: windef::HWND, proposed: Option<&windef::RECT>) {
         }
         (child, child, 1i64)
     };
+    if get(child, ATTACHED) == 0 {
+        return;
+    }
     if unsafe { winuser::IsIconic(other) } != 0 {
         return;
     }

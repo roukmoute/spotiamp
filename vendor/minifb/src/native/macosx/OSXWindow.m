@@ -2,6 +2,11 @@
 #import "OSXWindowFrameView.h"
 #include <string.h>
 
+// Pure Rust geometry; scalar coordinates avoid an NSRect ABI boundary.
+extern bool mfb_snap_dock_rect(double mx, double my, double mw, double mh,
+                              double fx, double fy, double fw, double fh,
+                              double distance, double* out_x, double* out_y);
+
 @implementation OSXWindow
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -180,14 +185,16 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// NSWindowDidMove is delivered during the native drag loop, even when Rust's
-// frame loop is paused in performWindowDragWithEvent:. Do not use Cocoa child
-// windows here: their automatic parent-to-child displacement would apply a
-// second delta when the companion is the source of a bidirectional move.
+// NSWindowDidMove follows movements made by the Window Server. AppKit's
+// performWindowDragWithEvent: returns immediately and may omit mouseUp, so the
+// existing update loop checks the button only while a magnetic gesture is live.
+// Cocoa child windows would apply a second automatic movement to the companion.
 - (void)syncDockPosition {
     if (docking_move || should_close) return;
     OSXWindow* peer = docked_parent ? docked_parent : docked_child;
     if (!peer || peer->should_close) return;
+    OSXWindow* child = docked_parent ? self : docked_child;
+    if (child->dock_magnetic && !child->dock_attached) return;
     NSRect frame = [self frame];
     NSRect target = [peer frame];
     if (docked_parent) {
@@ -207,7 +214,64 @@
 
 - (void)dockWindowMoved:(NSNotification*)notification {
     (void)notification;
+    if (docking_move || should_close) return;
+    if (dock_drag_active && !NSEqualPoints(dock_drag_origin, [self frame].origin)) {
+        dock_drag_moved = true;
+        // Only a real companion movement separates the pair. A click in its
+        // title strip, or a programmatic reposition, keeps the rigid relation.
+        if (docked_parent && dock_magnetic) dock_attached = false;
+    }
     [self syncDockPosition];
+}
+
+- (void)beginDockDrag {
+    [self finishDockDrag];
+    // A new mouseDown proves any previous drag has ended, even when AppKit
+    // omitted its mouseUp and this window's next update has not run yet.
+    OSXWindow* peer = docked_parent ? docked_parent : docked_child;
+    if (peer && peer->dock_drag_active) [peer finishDockDrag];
+    OSXWindow* child = docked_parent ? self : docked_child;
+    if (should_close || !child || child->should_close || !child->dock_magnetic) return;
+    dock_drag_origin = [self frame].origin;
+    dock_drag_moved = false;
+    dock_drag_active = true;
+}
+
+- (void)finishDockDrag {
+    if (!dock_drag_active) return;
+    dock_drag_active = false;
+    if (!dock_drag_moved || should_close) return;
+    OSXWindow* owner = docked_parent ? docked_parent : self;
+    OSXWindow* child = owner->docked_child;
+    if (!child || owner->should_close || child->should_close ||
+        !child->dock_magnetic || child->dock_attached) return;
+    OSXWindow* peer = docked_parent ? owner : child;
+    const NSRect moving = [self frame];
+    const NSRect fixed = [peer frame];
+    double x, y;
+    // Negated Cocoa top edges form one signed top-left coordinate space. The
+    // common screen-origin translation cancels out of proximity and offsets.
+    if (!mfb_snap_dock_rect(moving.origin.x, -NSMaxY(moving),
+                           moving.size.width, moving.size.height,
+                           fixed.origin.x, -NSMaxY(fixed),
+                           fixed.size.width, fixed.size.height,
+                           12.0 * (scale > 0 ? scale : 1), &x, &y)) return;
+    docking_move = true;
+    peer->docking_move = true;
+    [self setFrameOrigin:NSMakePoint(x, -y - moving.size.height)];
+    peer->docking_move = false;
+    docking_move = false;
+    const NSRect parentFrame = [owner frame];
+    const NSRect childFrame = [child frame];
+    child->dock_offset = NSMakePoint(childFrame.origin.x - parentFrame.origin.x,
+                                    NSMaxY(parentFrame) - NSMaxY(childFrame));
+    child->dock_attached = true;
+}
+
+- (void)updateDockDrag {
+    if (dock_drag_active && ([NSEvent pressedMouseButtons] & 1) == 0) {
+        [self finishDockDrag];
+    }
 }
 
 - (void)miniaturize:(id)sender {
@@ -232,7 +296,10 @@
 }
 
 - (void)detachDock {
+    dock_drag_active = false;
+    dock_drag_moved = false;
     if (docked_parent) {
+        docked_parent->dock_drag_active = false;
         const bool wasHidden = docked_parent->dock_child_hidden;
         docked_parent->docked_child = nil;
         docked_parent->dock_child_hidden = false;
@@ -240,6 +307,9 @@
         if (wasHidden && !should_close) [self orderFront:nil];
     }
     if (docked_child) {
+        docked_child->dock_drag_active = false;
+        docked_child->dock_magnetic = false;
+        docked_child->dock_attached = false;
         docked_child->docked_parent = nil;
         // Closing or detaching the parent must not strand a surviving hidden
         // companion. orderFront does not activate the app or steal key focus.
@@ -247,6 +317,8 @@
         docked_child = nil;
     }
     dock_child_hidden = false;
+    dock_magnetic = false;
+    dock_attached = false;
 }
 
 - (void)windowWillClose:(NSNotification *)notification {

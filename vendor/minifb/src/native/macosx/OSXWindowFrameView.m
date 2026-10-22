@@ -403,6 +403,7 @@ uint32_t upper_power_of_two(uint32_t v) {
                 window->mouse_cancel_callback(window->rust_data);
             }
             window->titlebar_dragging = true;
+            [window beginDockDrag];
             [window performWindowDragWithEvent:event];
             return;
         }
@@ -416,6 +417,7 @@ uint32_t upper_power_of_two(uint32_t v) {
     OSXWindow* window = (OSXWindow*)[self window];
     if (window->titlebar_dragging) {
         window->titlebar_dragging = false;
+        [window finishDockDrag];
         return;
     }
     [self reportMouseButton:0 down:NO event:event];

@@ -126,6 +126,20 @@ impl Window {
         }
     }
 
+    pub fn set_dock_magnetic(&mut self, enabled: bool) -> Result<()> {
+        match self {
+            #[cfg(feature = "x11")]
+            Window::X11(window) => window.set_dock_magnetic(enabled),
+            #[cfg(feature = "wayland")]
+            Window::Wayland(_) => {
+                let _ = enabled;
+                Err(crate::Error::UpdateFailed(
+                    "Magnetic window docking is not supported on Wayland".into(),
+                ))
+            }
+        }
+    }
+
     pub fn get_work_area(&self) -> Option<(isize, isize, usize, usize)> {
         match self {
             #[cfg(feature = "x11")]

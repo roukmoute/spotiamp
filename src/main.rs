@@ -15,6 +15,8 @@ mod engine;
 mod library_native_tests;
 mod library_ui;
 mod library_window;
+#[cfg(target_os = "macos")]
+mod magnetic_native_macos_tests;
 mod model;
 #[cfg(feature = "spotify")]
 mod settings;
@@ -510,8 +512,9 @@ fn main() {
     };
     #[cfg(target_os = "macos")]
     if std::env::args_os().any(|arg| arg == "--test-library-windows") {
-        if let Err(error) =
-            library_native_tests::smoke().and_then(|_| docking_native_tests::smoke())
+        if let Err(error) = library_native_tests::smoke()
+            .and_then(|_| docking_native_tests::smoke())
+            .and_then(|_| magnetic_native_macos_tests::smoke())
         {
             eprintln!("Spotiamp: {error}");
             std::process::exit(1);
@@ -851,6 +854,9 @@ mod window_native_windows_tests;
 
 #[cfg(all(test, target_os = "linux"))]
 mod window_native_x11_tests;
+
+#[cfg(all(test, target_os = "linux"))]
+mod window_magnetic_x11_tests;
 
 #[cfg(test)]
 mod tests {

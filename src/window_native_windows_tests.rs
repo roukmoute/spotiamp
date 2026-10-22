@@ -10,6 +10,10 @@ use std::{
 };
 
 pub(crate) static WINDOWS: Mutex<()> = Mutex::new(());
+
+#[path = "magnetic_native_windows_tests.rs"]
+mod magnetic_tests;
+
 type Hwnd = *mut c_void;
 #[repr(C)]
 #[derive(Default)]

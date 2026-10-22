@@ -61,6 +61,13 @@ void build_submenu(NSMenu* menu, MenuDesc* desc);
     @public NSPoint dock_offset;
     @public bool docking_move;
     @public bool dock_child_hidden;
+    // Pair ownership survives magnetic separation; only the companion owns
+    // magnetic/attached. Drag state belongs to the window being dragged.
+    @public bool dock_magnetic;
+    @public bool dock_attached;
+    @public bool dock_drag_active;
+    @public bool dock_drag_moved;
+    @public NSPoint dock_drag_origin;
     @public int active_menu_id;
     @public int prev_cursor;
     @public MenuData* menu_data;
@@ -73,4 +80,7 @@ void build_submenu(NSMenu* menu, MenuDesc* desc);
 }
 - (void)detachDock;
 - (void)syncDockPosition;
+- (void)beginDockDrag;
+- (void)finishDockDrag;
+- (void)updateDockDrag;
 @end

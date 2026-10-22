@@ -263,6 +263,38 @@ Native docking references:
 - https://specifications.freedesktop.org/wm-spec/latest/ar01s03.html
 - https://www.x.org/releases/current/doc/xorg-docs/icccm/icccm.html
 
+## Optional magnetic dragging
+
+`set_dock_magnetic(true)` opts an existing pair into free separation and
+reattachment. The original rigid docking API remains available. Dragging the
+parent moves an attached group; the companion separates on its first actual
+drag movement. A click without movement keeps the attachment. On release,
+either free window can snap to any facing edge of its peer within 12 logical
+pixels (scaled to native units), with nearby corner alignment. Only overlapping
+side projections qualify; diagonal corner-only proximity does not attach.
+`magnet.rs` supplies one allocation-free geometry routine for all three backends,
+including macOS through a scalar C ABI. Disabling magnets restores rigid
+following at the current offset, without repositioning either window.
+
+The pair's native ownership/lifetime links survive geometric separation, so
+minimization/restoration remains grouped and closing either endpoint clears the
+relationship. Free windows retain their independent positions on restore.
+Windows tracks real `WM_MOVING` proposals and snaps at `WM_EXITSIZEMOVE`.
+AppKit's `performWindowDragWithEvent:` returns immediately and may omit MouseUp:
+macOS observes moves, and checks `pressedMouseButtons` in the existing update
+loop only while a gesture is active. X11 reuses its existing pointer query to
+detect a release consumed by the window manager. Neither adds a thread, timer,
+renderer, buffer, global hook or idle repaint.
+
+The shared geometry has tests for all four edges, unequal dimensions, threshold
+boundaries, negative coordinates, both scales and invalid geometry. Native
+application tests exercise separation, snap on release, group movement and
+free-window minimize/restore. Windows sends native move messages; the macOS
+main-thread smoke invokes the native gesture methods and real move notifications;
+X11 tests send pointer gestures through Openbox under an isolated Xvfb display.
+Additional X11 event-order tests cover stale pointer samples, successive gestures
+on opposite windows, and wheel/content clicks after a WM-consumed release.
+
 ## Wheel input over an inactive companion
 
 Windows routes `WM_MOUSEWHEEL` using the message's signed screen coordinates and
@@ -301,3 +333,11 @@ Wheel references:
 
 Upstream source: https://crates.io/crates/minifb/0.29.0
 Original licenses are preserved in this directory.
+
+## Test dependency configuration
+
+The vendored `Cargo.toml` omits upstream example targets and their demo-only
+dev-dependencies (PNG and web demos). Their sources and the original manifest
+are retained for reference. This lets CI run the library unit tests with
+`cargo test --locked -p minifb --lib` against Spotiamp’s existing lockfile and
+its selected backend features, without adding dependencies to the application.

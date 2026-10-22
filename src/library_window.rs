@@ -86,6 +86,7 @@ impl LibraryWindow {
             parent.set_position(placement.player.0, placement.player.1);
         }
         window.set_docked_parent(Some(parent), placement.offset.0, placement.offset.1)?;
+        window.set_dock_magnetic(true)?;
         let chars = Rc::new(RefCell::new(Vec::new()));
         let keys = Rc::new(RefCell::new(Vec::new()));
         let mouse = Rc::new(RefCell::new(Vec::with_capacity(16)));

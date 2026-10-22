@@ -252,10 +252,20 @@ unsafe extern "system" fn wnd_proc(
     let wnd: &mut WindowState = &mut *(user_data as *mut WindowState);
 
     match msg {
+        winuser::WM_ENTERSIZEMOVE => {
+            docking::begin_drag(window);
+            return 0;
+        }
+
+        winuser::WM_EXITSIZEMOVE => {
+            docking::end_drag(window);
+            return 0;
+        }
+
         winuser::WM_MOVING => {
             // Runs inside Windows' native modal move loop, even while the
             // application's normal frame loop is suspended.
-            docking::follow(window, Some(&*(lparam as *const windef::RECT)));
+            docking::moving(window, &*(lparam as *const windef::RECT));
             return 1;
         }
 
@@ -1047,6 +1057,10 @@ impl Window {
 
     pub fn get_work_area(&self) -> Option<(isize, isize, usize, usize)> {
         docking::work_area(self.hwnd)
+    }
+
+    pub fn set_dock_magnetic(&mut self, enabled: bool) -> Result<()> {
+        docking::magnetic(self.hwnd, enabled, 12 * self.scale_factor)
     }
 
     #[inline]

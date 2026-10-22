@@ -1,5 +1,17 @@
 # Changements
 
+## 0.2.6 — 22 octobre 2026
+
+- Fenêtres aimantées : le bandeau de la bibliothèque permet de la détacher,
+  tandis que celui du lecteur déplace les deux fenêtres lorsqu'elles sont liées.
+  Un simple clic sans déplacement ne les détache pas.
+- Au relâchement, rapprocher une fenêtre libre du bord de l'autre les recolle
+  à droite, à gauche, au-dessus ou en dessous, avec alignement des coins proches.
+  La réduction et la restauration restent groupées même une fois séparées.
+- Même géométrie d'accrochage sur Windows, macOS et Linux, aux échelles 1× et 2×.
+  Le suivi réutilise les événements et la boucle existants, sans nouveau thread,
+  timer, moteur graphique ou dépendance.
+
 ## 0.2.5 — 22 octobre 2026
 
 - Un appui bref sur Haut ou Bas ne déplace plus la sélection de deux lignes
