@@ -60,22 +60,26 @@ public static class SpotiampPerformanceWindow {
             ["client_rect"] = $"{client.Left},{client.Top},{client.Right},{client.Bottom}",
             ["foreground"] = Identity(GetForegroundWindow())
         };
-        var dc = window == IntPtr.Zero ? IntPtr.Zero : GetDC(window);
+        // Observe the composed screen, never borrow the reader's CS_OWNDC.
+        // A private DC may only be used by one thread at a time (GetDC docs).
+        var dc = window == IntPtr.Zero ? IntPtr.Zero : GetDC(IntPtr.Zero);
         try {
             foreach (var point in new [] { new Point { X=10, Y=200 }, new Point { X=20, Y=260 } }) {
                 var mapped = point; ClientToScreen(window, ref mapped);
-                result[$"pixel_{point.X}_{point.Y}"] = dc == IntPtr.Zero ? "no_dc" : $"0x{GetPixel(dc, point.X, point.Y):X8}";
+                result[$"pixel_{point.X}_{point.Y}"] = dc == IntPtr.Zero ? "no_dc" : $"0x{GetPixel(dc, mapped.X, mapped.Y):X8}";
                 result[$"window_at_{point.X}_{point.Y}"] = Identity(WindowFromPoint(mapped));
             }
-        } finally { if (dc != IntPtr.Zero) ReleaseDC(window, dc); }
+        } finally { if (dc != IntPtr.Zero) ReleaseDC(IntPtr.Zero, dc); }
         IntPtr response;
         result["responds_to_wm_null"] = window != IntPtr.Zero && SendMessageTimeout(window, 0, IntPtr.Zero, IntPtr.Zero, 0x22, 1000, out response) != IntPtr.Zero;
         return result;
     }
     public static bool CopyClient(IntPtr window, IntPtr target, int width, int height) {
-        var dc = GetDC(window);
-        try { return dc != IntPtr.Zero && BitBlt(target, 0, 0, width, height, dc, 0, 0, 0x00CC0020); }
-        finally { if (dc != IntPtr.Zero) ReleaseDC(window, dc); }
+        var origin = new Point();
+        if (!ClientToScreen(window, ref origin)) return false;
+        var dc = GetDC(IntPtr.Zero);
+        try { return dc != IntPtr.Zero && BitBlt(target, 0, 0, width, height, dc, origin.X, origin.Y, 0x00CC0020); }
+        finally { if (dc != IntPtr.Zero) ReleaseDC(IntPtr.Zero, dc); }
     }
 
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
@@ -85,14 +89,21 @@ public static class SpotiampPerformanceWindow {
     [DllImport("user32.dll", EntryPoint="PostMessageW")]
     public static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
     public static bool Painted(IntPtr window) {
-        if (window == IntPtr.Zero || !IsWindowVisible(window)) return false;
-        var dc = GetDC(window);
+        if (window == IntPtr.Zero || !IsWindowVisible(window) || IsIconic(window)) return false;
+        var background = new Point { X=10, Y=200 };
+        var playlist = new Point { X=20, Y=260 };
+        if (!ClientToScreen(window, ref background) || !ClientToScreen(window, ref playlist)) return false;
+        if (WindowFromPoint(background) != window || WindowFromPoint(playlist) != window) return false;
+        var dc = GetDC(IntPtr.Zero);
         if (dc == IntPtr.Zero) return false;
         try {
-            // Unchanging client pixels: skin background and empty playlist.
+            // Unchanging client pixels mapped to the screen, with occlusion checked.
+            // Do not call GetDC(window): minifb retains its private CS_OWNDC and
+            // an external thread must not use that same DC while it is drawing.
+            // https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getdc
             // COLORREF is BGR. Visibility alone can precede the first paint.
-            return GetPixel(dc, 10, 200) == 0x003d2829 && GetPixel(dc, 20, 260) == 0x00050805;
-        } finally { ReleaseDC(window, dc); }
+            return GetPixel(dc, background.X, background.Y) == 0x003d2829 && GetPixel(dc, playlist.X, playlist.Y) == 0x00050805;
+        } finally { ReleaseDC(IntPtr.Zero, dc); }
     }
 }
 '@
@@ -133,12 +144,12 @@ function Close-OwnedProcess([Diagnostics.Process]$Process) {
     if ($Process.ExitCode -ne 0) { throw "Benchmark process exit code: $($Process.ExitCode)" }
 }
 $report = [ordered]@{
-    schema_version = 1
+    schema_version = 2
     recorded_at_utc = [DateTime]::UtcNow.ToString('o')
     platform = [Environment]::OSVersion.VersionString
     logical_processors = [Environment]::ProcessorCount
     scope = 'Disconnected native UI, no playback, no update check, no Spotify account; one process at a time'
-    startup_note = 'Launch to visible and painted client, 5ms polling, warm filesystem cache; shared CI runner'
+    startup_note = 'Launch to painted client observed on the screen with occlusion checked; screen DC only, 5ms polling, warm filesystem cache; shared CI runner'
     memory_note = 'Working Set includes shared resident pages; Private Bytes is private committed memory. Do not add them.'
     success = $false
     executables = @{}
