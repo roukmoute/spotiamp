@@ -18,7 +18,7 @@ fn queue(len: usize, current: Option<usize>, revision: u64) -> Snapshot {
 }
 
 #[test]
-fn ninth_track_is_selected_visible_and_mouse_accessible_in_both_skins() {
+fn ninth_track_is_selected_centered_and_mouse_accessible_in_both_skins() {
     for skin in [Skin::Classic, Skin::Modern] {
         let mut view = View::default();
         view.set_skin(skin);
@@ -30,12 +30,12 @@ fn ninth_track_is_selected_visible_and_mouse_accessible_in_both_skins() {
         view.sync_playback(&state);
         view.render(&state);
         assert_eq!(view.selected, Some(8));
-        assert_eq!(view.offset, 1, "only scroll enough to reveal row nine");
+        assert_eq!(view.offset, 4, "center row nine among rows five to twelve");
         assert!(!view.focused, "following playback must not steal focus");
         assert_eq!(view.pixels.as_ptr(), address);
         assert_eq!(view.pixels.capacity(), capacity);
         view.set_focus(true);
-        let y = 221 + (ROWS - 1) * 24 + 12;
+        let y = 221 + (ROWS / 2) * 24 + 12;
         assert!(view.click(100, y, &state).is_none());
         assert!(matches!(
             view.click(100, y, &state),
@@ -70,7 +70,7 @@ fn browsing_stays_free_through_ticks_pause_metadata_and_queue_appends() {
     state.current = Some(21);
     state.playback_revision += 1;
     view.sync_playback(&state);
-    assert_eq!((view.selected, view.offset), (Some(21), 14));
+    assert_eq!((view.selected, view.offset), (Some(21), 17));
     assert_eq!(view.scroll_remainder, 0.0);
 }
 
@@ -82,19 +82,19 @@ fn replaying_the_same_row_or_replacing_a_playlist_at_the_same_index_follows_agai
     view.scroll(-20.0, state.queue.len());
     state.playback_revision += 1;
     view.sync_playback(&state);
-    assert_eq!((view.selected, view.offset), (Some(8), 8));
+    assert_eq!((view.selected, view.offset), (Some(8), 4));
 
     view.scroll(100.0, state.queue.len());
     state = queue(15, Some(8), 3);
     state.queue[8].uri = "spotify:track:another-playlist-track".into();
     view.sync_playback(&state);
-    assert_eq!((view.selected, view.offset), (Some(8), 1));
+    assert_eq!((view.selected, view.offset), (Some(8), 4));
 
     // A replacement can also contain the same URI at the same row.
     view.scroll(100.0, state.queue.len());
     state.playback_revision += 1;
     view.sync_playback(&state);
-    assert_eq!((view.selected, view.offset), (Some(8), 1));
+    assert_eq!((view.selected, view.offset), (Some(8), 4));
 }
 
 #[test]
@@ -127,7 +127,7 @@ fn new_playback_does_not_retarget_a_captured_remove_or_old_double_click() {
     view.sync_playback(&state);
     assert!(view.last_click.is_none());
     assert!(view.pointer_up(Some((50, 425)), &state).is_none());
-    assert!(view.click(100, 401, &state).is_none());
+    assert!(view.click(100, 329, &state).is_none());
     assert_eq!(view.selected, Some(8));
 }
 
@@ -141,8 +141,28 @@ fn following_behind_about_keeps_the_dialog_and_link_input_intact() {
     view.sync_playback(&state);
     assert_eq!(view.about, tab);
     assert_eq!(view.input, "https://open.spotify.com/playlist/example");
-    assert_eq!((view.selected, view.offset), (Some(20), 13));
+    assert_eq!((view.selected, view.offset), (Some(20), 16));
     view.close_about();
     view.render(&state);
-    assert_eq!((view.selected, view.offset), (Some(20), 13));
+    assert_eq!((view.selected, view.offset), (Some(20), 16));
+}
+
+#[test]
+fn centering_stops_at_both_ends_without_leaving_empty_rows() {
+    for skin in [Skin::Classic, Skin::Modern] {
+        let mut view = View::default();
+        view.set_skin(skin);
+        for (revision, (index, expected_offset)) in [(0, 0), (3, 0), (8, 4), (16, 12), (19, 12)]
+            .into_iter()
+            .enumerate()
+        {
+            let state = queue(20, Some(index), revision as u64 + 1);
+            view.sync_playback(&state);
+            view.render(&state);
+            assert_eq!(view.selected, Some(index));
+            assert_eq!(view.offset, expected_offset);
+            assert!(view.offset <= index && index < view.offset + ROWS);
+            assert!(view.offset + ROWS <= state.queue.len());
+        }
+    }
 }

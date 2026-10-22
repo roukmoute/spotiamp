@@ -3,7 +3,8 @@
 ## 0.2.1 — 22 octobre 2026
 
 - Quand un titre démarre ou est relancé, le lecteur sélectionne sa ligne et
-  la rend visible dans la file, y compris depuis la bibliothèque.
+  la centre dans la partie visible de la file, y compris depuis la bibliothèque.
+  Près du début ou de la fin, le défilement est borné aux limites de la liste.
 - Le défilement manuel reste libre pendant la lecture : les actualisations
   de position ne recentrent pas la liste. Le comportement est commun aux
   skins Classique et Modern.

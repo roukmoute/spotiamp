@@ -296,7 +296,7 @@ impl Default for View {
 }
 
 impl View {
-    /// Reveal each accepted playback start once, before handling new input.
+    /// Center each accepted playback start once, before handling new input.
     /// Position/metadata updates must leave the user's browsing position alone.
     pub fn sync_playback(&mut self, snapshot: &Snapshot) -> bool {
         if self.observed_playback_revision == snapshot.playback_revision {
@@ -315,12 +315,9 @@ impl View {
         self.last_click = None;
         self.scroll_remainder = 0.0;
         self.selected = Some(index);
-        self.offset = self.offset.min(snapshot.queue.len().saturating_sub(ROWS));
-        if index < self.offset {
-            self.offset = index;
-        } else if index >= self.offset + ROWS {
-            self.offset = index + 1 - ROWS;
-        }
+        self.offset = index
+            .saturating_sub(ROWS / 2)
+            .min(snapshot.queue.len().saturating_sub(ROWS));
         true
     }
 

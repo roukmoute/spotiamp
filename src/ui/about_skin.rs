@@ -236,9 +236,9 @@ impl View {
         for (y, version, first, second) in [
             (
                 109,
-                "0.2.1 / TITRE COURANT VISIBLE",
-                "Le titre lancé est sélectionné dans la file.",
-                "La liste le révèle, puis le défilement reste libre.",
+                "0.2.1 / TITRE COURANT CENTRÉ",
+                "Le titre lancé est centré, dans les limites de la file.",
+                "Puis le défilement manuel reste libre.",
             ),
             (
                 154,
