@@ -235,51 +235,51 @@ impl View {
         for (y, version, first, second) in [
             (
                 109,
+                "0.1.9 / BANDEAU ACTIF ET INACTIF",
+                "Bandeau atténué quand la bibliothèque est inactive.",
+                "Couleurs rétablies dès qu'elle redevient active.",
+            ),
+            (
+                142,
                 "0.1.8 / PLAYLISTS AU DOUBLE-CLIC",
                 "Double-clic : lecture dès le premier titre.",
                 "Un clic affiche les titres sans changer la file.",
             ),
             (
-                142,
+                175,
                 "0.1.7 / FENÊTRES ATTACHÉES",
                 "Bibliothèque ouverte avec le lecteur.",
                 "Déplacement et réduction des fenêtres ensemble.",
             ),
             (
-                175,
+                208,
                 "0.1.6 / BINAIRE ALLÉGÉ",
                 "Optimisation globale, priorité à la vitesse.",
                 "Code inutilisé retiré, formats audio conservés.",
             ),
             (
-                208,
+                241,
                 "0.1.5 / ALERTE DE MISE À JOUR",
                 "L'éclair clignote en vert si une mise à jour attend.",
                 "L'infobulle indique si elle est prête à installer.",
             ),
             (
-                241,
+                274,
                 "0.1.4 / ICÔNE WINDOWS",
                 "Le S doré identifie le lecteur et sa bibliothèque.",
                 "Barre des tâches et Alt+Tab, icône intégrée.",
             ),
             (
-                274,
+                307,
                 "0.1.3 / RECONNEXION AUTOMATIQUE",
                 "Session mémorisée réutilisée au lancement.",
                 "Déconnecter efface la session enregistrée.",
             ),
             (
-                307,
+                340,
                 "0.1.2 / SHUFFLE ET REPEAT",
                 "Ordre aléatoire et répétition de la file.",
                 "Boutons classiques, voyants verts et relief.",
-            ),
-            (
-                340,
-                "0.1.1 / BOUTON LECTURE",
-                "En pause : reprise à la même position.",
-                "En lecture : retour au début du morceau.",
             ),
         ] {
             self.text(54, y, version, GOLD, 56);

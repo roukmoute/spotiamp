@@ -157,6 +157,8 @@ et son buffer graphique sont relâchés à la fermeture.
 **F3** depuis le lecteur la rouvre accolée à celui-ci. Pour démarrer avec le
 lecteur seul, utilisez `--no-library` ; `--library` reste accepté pour les
 raccourcis existants. Fermer le lecteur ferme également la bibliothèque.
+Comme celui du lecteur, le bandeau de la bibliothèque s'atténue lorsqu'elle
+n'est pas active et retrouve ses couleurs lorsqu'elle redevient active.
 Les touches **Ctrl**, **F3** et les **flèches** sont réinitialisées aux changements
 de focus entre les deux fenêtres. Sous Linux, restaurer une fenêtre réduite
 réaffiche l'image conservée, même si son contenu n'a pas changé. La fermeture

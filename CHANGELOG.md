@@ -1,5 +1,11 @@
 # Changements
 
+## 0.1.9 — 22 octobre 2026
+
+- Le bandeau de la bibliothèque s'atténue lorsqu'elle perd le focus, comme
+  celui du lecteur. Ses couleurs actives reviennent lorsqu'elle reprend le focus.
+- Ce rendu utilise l'état de focus existant, sans timer ni animation supplémentaire.
+
 ## 0.1.8 — 22 octobre 2026
 
 - Double-cliquer sur une playlist dans la bibliothèque charge ses titres,

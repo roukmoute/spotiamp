@@ -562,18 +562,21 @@ impl View {
             self.enabled(Button::Append, s),
         ];
         let pressed = self.pressed.filter(|p| Some(*p) == self.hovered);
+        let title_line = if self.focused { GOLD } else { 0x6c6870 };
+        let title_text = if self.focused { WHITE } else { 0x86838e };
         let mut c = Canvas {
             pixels: &mut self.pixels,
+            focused: self.focused,
         };
         c.pixels.fill(BG);
         c.bevel((0, 0, WIDTH, HEIGHT), BG, false);
         c.bevel((3, 3, WIDTH - 6, HEIGHT - 6), BG, true);
         c.bevel((6, 4, 688, 14), 0x343344, true);
         for y in [7, 10, 13] {
-            c.rect((12, y, 208, 1), GOLD);
-            c.rect((480, y, 208, 1), GOLD);
+            c.rect((12, y, 208, 1), title_line);
+            c.rect((480, y, 208, 1), title_line);
         }
-        c.text(232, 7, "SPOTIAMP  /  BIBLIOTHÈQUE", WHITE, 30);
+        c.text(232, 7, "SPOTIAMP  /  BIBLIOTHÈQUE", title_text, 30);
         c.button(
             Button::Minimize,
             "_",
@@ -791,6 +794,7 @@ fn reveal(index: usize, offset: &mut usize, rows: usize) {
 }
 struct Canvas<'a> {
     pixels: &'a mut [u32],
+    focused: bool,
 }
 impl Canvas<'_> {
     fn rect(&mut self, (x, y, w, h): Rect, color: u32) {
@@ -855,7 +859,13 @@ impl Canvas<'_> {
             x + w.saturating_sub(label.chars().count() * 8) / 2 + shift,
             y + (h - 8) / 2 + shift,
             label,
-            if enabled { 0x242b40 } else { 0x51586b },
+            if matches!(b, Button::Minimize | Button::Close) {
+                if self.focused { 0x303346 } else { 0x62677a }
+            } else if enabled {
+                0x242b40
+            } else {
+                0x51586b
+            },
             w / 8,
         );
     }
