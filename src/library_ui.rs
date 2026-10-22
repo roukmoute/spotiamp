@@ -69,7 +69,8 @@ pub struct View {
     pressed: Option<Target>,
     hovered: Option<Target>,
     press_revision: u64,
-    last_click: Option<(PlaylistId, usize, Instant)>,
+    pressed_playlist: Option<PlaylistId>,
+    last_click: Option<(PlaylistId, Target, Instant)>,
     notice: Option<(String, Instant)>,
     ui_revision: u64,
     snapshot_revision: Option<u64>,
@@ -93,6 +94,7 @@ impl Default for View {
             pressed: None,
             hovered: None,
             press_revision: 0,
+            pressed_playlist: None,
             last_click: None,
             notice: None,
             ui_revision: 0,
@@ -120,9 +122,18 @@ impl View {
         }
     }
     pub fn cancel_pointer(&mut self) {
+        // Win32 also reports capture loss after a normal button release.
+        // Only an interrupted press should break the double-click sequence.
+        if self.pressed.is_some() {
+            self.last_click = None;
+        }
+        self.clear_press();
+    }
+    fn clear_press(&mut self) {
         if self.pressed.take().is_some() {
             self.dirty();
         }
+        self.pressed_playlist = None;
         self.hovered = None;
     }
     fn selected<'a>(&self, s: &'a LibrarySnapshot) -> Option<&'a PlaylistEntry> {
@@ -139,7 +150,14 @@ impl View {
         }
         let initial = self.snapshot_revision.is_none();
         self.snapshot_revision = Some(s.revision);
-        self.last_click = None;
+        // Loading and metadata updates can arrive between the two clicks.
+        // Keep a playlist click only while the same available ID occupies its row.
+        if !self.last_click.as_ref().is_some_and(|(id, target, _)| {
+            matches!(target, Target::Playlist(i) if s.connected
+                && s.entries.get(*i).is_some_and(|e| e.available && &e.id == id))
+        }) {
+            self.last_click = None;
+        }
         if initial || self.observed_id != s.selected_id {
             if self.pending_selection.is_none() || self.pending_selection == s.selected_id {
                 let changed = self.selected_id != s.selected_id;
@@ -231,7 +249,7 @@ impl View {
     }
     pub fn pointer_down(&mut self, x: usize, y: usize, s: &LibrarySnapshot) -> Option<Action> {
         self.sync(s);
-        self.cancel_pointer();
+        self.clear_press();
         if !self.focused {
             return None;
         }
@@ -246,7 +264,13 @@ impl View {
             self.pressed = target;
             self.hovered = target;
             self.press_revision = s.revision;
+            self.pressed_playlist = match target {
+                Some(Target::Playlist(i)) => Some(s.entries[i].id.clone()),
+                _ => None,
+            };
             self.dirty();
+        } else {
+            self.last_click = None;
         }
         None
     }
@@ -264,34 +288,63 @@ impl View {
         position: Option<(usize, usize)>,
         s: &LibrarySnapshot,
     ) -> Option<Action> {
+        self.sync(s);
         let pressed = self.pressed.take();
+        let playlist = self.pressed_playlist.take();
         self.pointer_move(position);
         if pressed.is_some() {
             self.dirty();
         }
         if !self.focused || pressed != self.hovered {
+            self.last_click = None;
             return None;
         }
         let target = pressed?;
         if self.press_revision != s.revision
-            && !matches!(target, Target::Button(Button::Close | Button::Minimize))
+            && !matches!(
+                target,
+                Target::Playlist(_) | Target::Button(Button::Close | Button::Minimize)
+            )
         {
+            self.last_click = None;
             return None;
         }
         match target {
             Target::Button(b) if self.enabled(b, s) => self.button(b, s),
             Target::Playlist(index) => {
+                let Some(entry) = s
+                    .entries
+                    .get(index)
+                    .filter(|e| e.available && playlist.as_ref() == Some(&e.id))
+                else {
+                    self.last_click = None;
+                    return None;
+                };
                 self.left_focus = true;
-                self.select_playlist(index, s)
+                let double = self.is_double_click(&entry.id, target);
+                let selection = self.select_playlist(index, s);
+                self.last_click = (!double).then(|| (entry.id.clone(), target, Instant::now()));
+                if double && s.connected {
+                    // The engine also handles playlists that are still loading.
+                    self.selected_track = None;
+                    self.selected_uri = None;
+                    self.right_offset = 0;
+                    Some(Action::Command(LibraryCommand::Queue {
+                        id: entry.id.clone(),
+                        replace: true,
+                        play: true,
+                        start: 0,
+                    }))
+                } else {
+                    selection
+                }
             }
             Target::Track(index) if self.tracks_ready(s) && index < s.tracks.len() => {
                 self.left_focus = false;
                 self.select_track(index, s);
                 let id = self.selected_id.clone()?;
-                let double = self.last_click.as_ref().is_some_and(|(old, row, at)| {
-                    old == &id && *row == index && at.elapsed() < Duration::from_millis(450)
-                });
-                self.last_click = (!double).then(|| (id.clone(), index, Instant::now()));
+                let double = self.is_double_click(&id, target);
+                self.last_click = (!double).then(|| (id, target, Instant::now()));
                 if double && self.enabled(Button::Play, s) {
                     self.queue(s, true)
                 } else {
@@ -300,6 +353,13 @@ impl View {
             }
             _ => None,
         }
+    }
+    fn is_double_click(&self, id: &PlaylistId, target: Target) -> bool {
+        self.last_click
+            .as_ref()
+            .is_some_and(|(old, old_target, at)| {
+                old == id && *old_target == target && at.elapsed() < Duration::from_millis(450)
+            })
     }
     fn select_playlist(&mut self, index: usize, s: &LibrarySnapshot) -> Option<Action> {
         let entry = s.entries.get(index)?;
@@ -362,6 +422,7 @@ impl View {
     ) -> Option<Action> {
         self.sync(s);
         self.cancel_pointer();
+        self.last_click = None;
         if !self.focused {
             return None;
         }
@@ -702,7 +763,7 @@ impl View {
             enabled[2],
             pressed == Some(Target::Button(Button::Append)),
         );
-        c.text(506, 416, "Double-clic : lire le titre", DIM, 30);
+        c.text(506, 416, "Double-clic : lire", DIM, 30);
         let mut queue = Label::new();
         let _ = write!(queue, "FILE : {} TITRES", s.queue_len);
         c.text(506, 428, queue.as_str(), DIM, 30);

@@ -39,6 +39,14 @@ pub(super) enum Update {
 }
 
 impl State {
+    fn is_loading(&self, id: &PlaylistId) -> bool {
+        self.task.is_some()
+            && self
+                .shared
+                .lock()
+                .is_ok_and(|s| s.loading && s.selected_id.as_ref() == Some(id))
+    }
+
     fn edit(&self, change: impl FnOnce(&mut LibrarySnapshot)) {
         if let Ok(mut snapshot) = self.shared.lock() {
             change(&mut snapshot);
@@ -109,6 +117,7 @@ impl Worker {
                     .ready
                     .as_ref()
                     .is_some_and(|(ready, _)| ready == &id)
+                    || self.library.is_loading(&id)
                 {
                     return;
                 }
@@ -152,6 +161,12 @@ impl Worker {
                         .map(|s| s.tracks.clone())
                         .unwrap_or_default();
                     self.apply_library_queue(&rows, request);
+                } else if self.library.is_loading(&id) {
+                    // A playlist double-click follows its first Select. Keep
+                    // that read (even if its response is already queued) and
+                    // attach the latest queue/play intent to the same result.
+                    self.library.pending_queue = Some(request);
+                    self.library.edit(|s| s.busy = true);
                 } else {
                     self.load_library_playlist(id, Some(request), updates);
                 }

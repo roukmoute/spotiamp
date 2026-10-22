@@ -1,5 +1,13 @@
 # Changements
 
+## 0.1.8 — 22 octobre 2026
+
+- Double-cliquer sur une playlist dans la bibliothèque charge ses titres,
+  remplace la file après chargement réussi et lance le premier titre.
+- Un simple clic conserve l'aperçu des titres sans modifier la file ni la
+  lecture en cours. Le double-clic sur un titre démarre toujours cette ligne.
+- Une playlist vide ou une erreur de chargement conserve la file précédente.
+
 ## 0.1.7 — 22 octobre 2026
 
 - Bibliothèque Spotify ouverte automatiquement avec le lecteur, accolée à sa

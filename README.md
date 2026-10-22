@@ -126,8 +126,11 @@ Les deux modes sont désactivés au lancement et n'altèrent pas vos playlists S
 
 Pour retrouver vos playlists sans copier de lien, connectez Spotify : la
 bibliothèque déjà ouverte affiche les playlists enregistrées ou suivies de votre
-compte, avec leur dossier en sous-titre. Cliquer sur une playlist charge ses
-titres ; **Actualiser** ou **F5** recharge le catalogue Spotify.
+compte, avec leur dossier en sous-titre. Un **simple clic sur une playlist**
+affiche ses titres sans modifier la file ni la lecture en cours. Un
+**double-clic sur la playlist** charge ses titres, remplace la file après
+chargement réussi et lance le premier titre. **Actualiser** ou **F5** recharge
+le catalogue Spotify.
 
 **Lire** remplace la file par la playlist chargée et démarre le titre sélectionné,
 ou le premier titre si aucune ligne n'est sélectionnée. Le remplacement n'a lieu

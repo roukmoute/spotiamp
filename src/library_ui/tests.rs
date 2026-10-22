@@ -125,6 +125,167 @@ fn double_click_plays_only_the_same_track_and_selected_playlist() {
     assert!(click(&mut view, 310, 152, &s).is_none());
 }
 
+fn assert_playlist_play(action: Option<Action>, expected: &str) {
+    assert!(
+        matches!(action, Some(Action::Command(LibraryCommand::Queue {
+            id: PlaylistId::Spotify(ref id), start: 0, replace: true, play: true
+        })) if id == expected),
+        "expected playback of {expected} from the first track, got {action:?}"
+    );
+}
+
+#[test]
+fn playlist_double_click_plays_before_during_or_after_async_loading() {
+    for loading_stage in 0..3 {
+        let mut view = View::default();
+        let mut s = snapshot(3, 5);
+        assert!(matches!(
+            click(&mut view, 40, 124, &s),
+            Some(Action::Command(LibraryCommand::Select(_)))
+        ));
+        // Normal Win32 ReleaseCapture follows mouse-up, including each click
+        // in a double-click. It must not erase the completed first click.
+        view.cancel_pointer();
+        if loading_stage > 0 {
+            s.revision += 1;
+            s.selected_id = Some(s.entries[1].id.clone());
+            s.loading = loading_stage == 1;
+            s.tracks = Arc::default();
+            view.render(&s);
+        }
+        view.pointer_down(40, 124, &s);
+        if loading_stage > 0 {
+            // The worker can report progress while the second click is held.
+            s.revision += 1;
+            s.status = "Titres reçus".into();
+        }
+        assert_playlist_play(view.pointer_up(Some((40, 124)), &s), "playlist-1");
+        view.cancel_pointer();
+        assert!(click(&mut view, 40, 124, &s).is_none(), "third click");
+    }
+}
+
+#[test]
+fn playlist_double_click_starts_first_track_even_with_another_track_selected() {
+    let mut view = View::default();
+    let s = snapshot(2, 20);
+    view.key(Key::Right, false, false, &s);
+    view.key(Key::End, false, false, &s);
+    assert_eq!(view.selected_track, Some(19));
+    assert!(click(&mut view, 40, 96, &s).is_none());
+    assert_playlist_play(click(&mut view, 40, 96, &s), "playlist-0");
+    assert_eq!(view.selected_track, None);
+    assert_eq!(view.right_offset, 0);
+    assert!(view.render(&s));
+    assert!(!view.render(&s), "no idle repaint");
+}
+
+#[test]
+fn playlist_double_click_never_plays_a_different_row_or_reordered_id() {
+    let mut view = View::default();
+    let mut s = snapshot(3, 5);
+    click(&mut view, 40, 96, &s);
+    assert!(matches!(
+        click(&mut view, 40, 124, &s),
+        Some(Action::Command(LibraryCommand::Select(_)))
+    ));
+    view.pointer_down(40, 124, &s);
+    Arc::make_mut(&mut s.entries).swap(0, 1);
+    s.revision += 1;
+    assert!(view.pointer_up(Some((40, 124)), &s).is_none());
+    assert!(!matches!(
+        click(&mut view, 40, 124, &s),
+        Some(Action::Command(LibraryCommand::Queue { .. }))
+    ));
+    // Moving the original playlist to another row also requires two fresh clicks.
+    assert!(matches!(
+        click(&mut view, 40, 96, &s),
+        Some(Action::Command(LibraryCommand::Select(_)))
+    ));
+}
+
+#[test]
+fn playlist_double_click_is_cancelled_by_interrupted_input_and_timeout() {
+    for interruption in 0..7 {
+        let mut view = View::default();
+        let s = snapshot(20, 5);
+        assert!(click(&mut view, 40, 96, &s).is_none());
+        match interruption {
+            0 => {
+                view.set_focus(false);
+                view.set_focus(true);
+            }
+            1 => {
+                view.pointer_down(40, 96, &s);
+                view.cancel_pointer();
+            }
+            2 => {
+                view.pointer_down(40, 96, &s);
+                assert!(view.pointer_up(Some((230, 96)), &s).is_none());
+            }
+            3 => {
+                assert!(click(&mut view, 230, 96, &s).is_none());
+            }
+            4 => {
+                view.key(Key::Tab, false, false, &s);
+            }
+            5 => {
+                view.scroll(-1.0, Some((40, 200)), &s);
+                view.scroll(1.0, Some((40, 200)), &s);
+            }
+            _ => view.last_click.as_mut().unwrap().2 = Instant::now() - Duration::from_secs(1),
+        }
+        assert!(
+            click(&mut view, 40, 96, &s).is_none(),
+            "case {interruption}"
+        );
+    }
+}
+
+#[test]
+fn playlist_and_track_clicks_do_not_combine_into_a_double_click() {
+    let mut view = View::default();
+    let s = snapshot(2, 5);
+    assert!(click(&mut view, 40, 96, &s).is_none());
+    assert!(click(&mut view, 310, 128, &s).is_none());
+    assert!(click(&mut view, 40, 96, &s).is_none());
+    assert_playlist_play(click(&mut view, 40, 96, &s), "playlist-0");
+}
+
+#[test]
+fn unavailable_or_disconnected_playlist_cannot_autoplay() {
+    for state in 0..3 {
+        let mut view = View::default();
+        let mut s = snapshot(2, 5);
+        click(&mut view, 40, 96, &s);
+        view.pointer_down(40, 96, &s);
+        match state {
+            0 => s.connected = false,
+            1 => Arc::make_mut(&mut s.entries)[0].available = false,
+            _ => s.entries = Arc::default(),
+        }
+        s.revision += 1;
+        assert!(!matches!(
+            view.pointer_up(Some((40, 96)), &s),
+            Some(Action::Command(LibraryCommand::Queue { .. }))
+        ));
+    }
+}
+
+#[test]
+fn double_click_can_replace_a_previous_play_request_within_one_frame() {
+    let mut view = View::default();
+    let mut s = snapshot(2, 0);
+    s.loading = true;
+    s.busy = true; // Playlist 0 is already loading with a pending play request.
+    assert!(matches!(
+        click(&mut view, 40, 124, &s),
+        Some(Action::Command(LibraryCommand::Select(_)))
+    ));
+    // No snapshot update yet: the worker will receive Select(1), then Queue(1).
+    assert_playlist_play(click(&mut view, 40, 124, &s), "playlist-1");
+}
+
 #[test]
 fn row_reordering_preserves_ids_and_removal_clears_selection() {
     let mut view = View::default();
