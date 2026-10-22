@@ -493,7 +493,7 @@ mod macos {
             }
         }
     }
-    unsafe fn key(window: &Window, key: u16, down: bool, control: bool, chars: &CStr) {
+    unsafe fn key_event(window: &Window, key: u16, down: bool, control: bool, chars: &CStr) -> Id {
         let string: unsafe extern "C" fn(Id, Sel, *const c_char) -> Id =
             unsafe { std::mem::transmute(objc_msgSend as *const ()) };
         let event: unsafe extern "C" fn(
@@ -525,7 +525,13 @@ mod macos {
             } else {
                 11
             };
-            let e = event(objc_getClass(c"NSEvent".as_ptr()), sel_registerName(c"keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:".as_ptr()), kind, Point{x:0.0,y:0.0}, if control { 1 << 18 } else { 0 }, 0.0, number(window.get_window_handle(), sel_registerName(c"windowNumber".as_ptr())), std::ptr::null_mut(), text, text, false, key);
+            event(objc_getClass(c"NSEvent".as_ptr()), sel_registerName(c"keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:".as_ptr()), kind, Point{x:0.0,y:0.0}, if control { 1 << 18 } else { 0 }, 0.0, number(window.get_window_handle(), sel_registerName(c"windowNumber".as_ptr())), std::ptr::null_mut(), text, text, false, key)
+        }
+    }
+
+    unsafe fn key(window: &Window, key: u16, down: bool, control: bool, chars: &CStr) {
+        unsafe {
+            let e = key_event(window, key, down, control, chars);
             void1(
                 window.get_window_handle(),
                 if key == 0x3b {
@@ -540,10 +546,175 @@ mod macos {
         }
     }
 
+    // Queue real NSEvents so KeyHandler::update runs before native delivery,
+    // as it does in the application's two-window frame loop.
+    unsafe fn post_arrow(window: &Window, key: u16, down: bool) {
+        let post: unsafe extern "C" fn(Id, Sel, Id, bool) =
+            unsafe { std::mem::transmute(objc_msgSend as *const ()) };
+        unsafe {
+            let app = id0(
+                objc_getClass(c"NSApplication".as_ptr()),
+                c"sharedApplication",
+            );
+            post(
+                app,
+                sel_registerName(c"postEvent:atStart:".as_ptr()),
+                key_event(
+                    window,
+                    key,
+                    down,
+                    false,
+                    if key == 0x7d {
+                        c"\u{f701}"
+                    } else {
+                        c"\u{f700}"
+                    },
+                ),
+                false,
+            );
+        }
+    }
+
+    fn take_presses(input: &Observed, key: Key) -> usize {
+        input
+            .keys
+            .borrow_mut()
+            .drain(..)
+            .filter(|event| *event == (key, false, false))
+            .count()
+    }
+
+    fn repeating(window: &Window, key: Key) -> bool {
+        crate::repeat_only(window.is_key_down(key), |mode| {
+            window.is_key_pressed(key, mode)
+        })
+    }
+
+    fn check_arrow_navigation(
+        window: &mut Window,
+        other: &mut Window,
+        input: &Observed,
+        label: &str,
+    ) -> Result<(), String> {
+        unsafe {
+            void1(
+                window.get_window_handle(),
+                c"makeKeyAndOrderFront:",
+                std::ptr::null_mut(),
+            );
+        }
+        pump(window, other);
+        for (arrow, code) in [(Key::Down, 0x7d), (Key::Up, 0x7e)] {
+            input.keys.borrow_mut().clear();
+            unsafe { post_arrow(window, code, true) };
+            window.update();
+            other.update();
+            if take_presses(input, arrow) != 1 || repeating(window, arrow) {
+                return Err(format!(
+                    "{label} {arrow:?}: native initial press is not exactly one step"
+                ));
+            }
+            // The next update exposes the same edge as a polled initial press.
+            // It must not be counted again after the callback was consumed.
+            window.update();
+            other.update();
+            if !window.is_key_pressed(arrow, KeyRepeat::No)
+                || take_presses(input, arrow) != 0
+                || repeating(window, arrow)
+            {
+                return Err(format!(
+                    "{label} {arrow:?}: delayed initial polling duplicates the callback"
+                ));
+            }
+            unsafe { post_arrow(window, code, false) };
+            // The other window can deliver KeyUp while this window's held
+            // duration still equals zero; released keys must never repeat.
+            other.update();
+            if window.is_key_down(arrow) || repeating(window, arrow) {
+                return Err(format!(
+                    "{label} {arrow:?}: release delivered by the other window still repeats"
+                ));
+            }
+            window.update();
+
+            for _ in 0..2 {
+                unsafe {
+                    post_arrow(window, code, true);
+                    post_arrow(window, code, false);
+                }
+            }
+            window.update();
+            other.update();
+            if take_presses(input, arrow) != 2 || repeating(window, arrow) {
+                return Err(format!(
+                    "{label} {arrow:?}: two taps in one pump must remain two steps"
+                ));
+            }
+            window.update();
+
+            unsafe { post_arrow(window, code, true) };
+            window.update();
+            other.update();
+            if take_presses(input, arrow) != 1 || repeating(window, arrow) {
+                return Err(format!(
+                    "{label} {arrow:?}: held key initial press is not one step"
+                ));
+            }
+            window.update();
+            if repeating(window, arrow) {
+                return Err(format!(
+                    "{label} {arrow:?}: held key repeats its delayed initial edge"
+                ));
+            }
+            // A repeated native Down must not create a second initial callback.
+            unsafe { post_arrow(window, code, true) };
+            other.update();
+            if take_presses(input, arrow) != 0 {
+                return Err(format!(
+                    "{label} {arrow:?}: held native Down bypasses TextInput filtering"
+                ));
+            }
+            let until = Instant::now() + Duration::from_secs(2);
+            let mut repeats = 0;
+            while repeats < 2 && Instant::now() < until {
+                std::thread::sleep(Duration::from_millis(5));
+                window.update();
+                other.update();
+                repeats += usize::from(repeating(window, arrow));
+                if take_presses(input, arrow) != 0 {
+                    return Err(format!(
+                        "{label} {arrow:?}: extra initial callback during hold"
+                    ));
+                }
+            }
+            if repeats < 2 {
+                return Err(format!(
+                    "{label} {arrow:?}: holding the key no longer repeats"
+                ));
+            }
+            unsafe { post_arrow(window, code, false) };
+            other.update();
+            if window.is_key_down(arrow) || repeating(window, arrow) {
+                return Err(format!(
+                    "{label} {arrow:?}: holding stopped but repeat remains active"
+                ));
+            }
+            window.update();
+            other.update();
+            if repeating(window, arrow) || take_presses(input, arrow) != 0 {
+                return Err(format!("{label} {arrow:?}: extra step after release"));
+            }
+        }
+        Ok(())
+    }
+
     pub fn run() -> Result<(), String> {
         let mut a = window("Spotiamp parent focus test")?;
         let input = observe(&mut a);
         let mut b = window("Spotiamp library focus test")?;
+        let library_input = observe(&mut b);
+        check_arrow_navigation(&mut a, &mut b, &input, "player")?;
+        check_arrow_navigation(&mut b, &mut a, &library_input, "library")?;
         pump(&mut a, &mut b);
         unsafe {
             void1(

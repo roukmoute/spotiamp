@@ -236,39 +236,39 @@ impl View {
         for (y, version, first, second) in [
             (
                 109,
+                "0.2.5 / NAVIGATION AU CLAVIER",
+                "Un appui bref sur une flèche déplace une seule ligne.",
+                "Maintenir la touche conserve la répétition.",
+            ),
+            (
+                154,
                 "0.2.4 / CHANGEMENTS RAPIDES DE TITRE",
                 "Dernier choix chargé après 200 ms sans nouveau clic.",
                 "Anciens chargements annulés ; clics conservés.",
             ),
             (
-                154,
+                199,
                 "0.2.3 / DÉFILEMENT PLUS SOUPLE",
                 "Molette sur la fenêtre survolée, même inactive.",
                 "Avance automatique : petit décalage si nécessaire.",
             ),
             (
-                199,
+                244,
                 "0.2.2 / BOUTONS MODERN",
                 "Contours mieux lissés et relief cohérent.",
                 "Au repos comme pendant l'appui.",
             ),
             (
-                244,
+                289,
                 "0.2.1 / TITRE COURANT CENTRÉ",
                 "Le titre lancé est centré, dans les limites de la file.",
                 "Puis le défilement manuel reste libre.",
             ),
             (
-                289,
+                334,
                 "0.2.0 / CLASSIQUE ET MODERN",
                 "Deux skins natifs ; boutons de choix ou F4.",
                 "Choix mémorisé ; la musique continue.",
-            ),
-            (
-                334,
-                "0.1.9 / BANDEAU ACTIF ET INACTIF",
-                "Bandeau atténué quand la bibliothèque est inactive.",
-                "Couleurs rétablies dès qu'elle redevient active.",
             ),
         ] {
             self.text(54, y, version, GOLD, 56);

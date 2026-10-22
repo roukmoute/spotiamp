@@ -1,6 +1,6 @@
 //! Docked native library. Its framebuffer and input queues exist only while open.
-use super::{MouseInput, TextInput, engine, library_ui, model::LibrarySnapshot};
-use minifb::{Key, KeyRepeat, MouseButton, MouseMode, Scale, Window, WindowOptions};
+use super::{MouseInput, TextInput, engine, library_ui, model::LibrarySnapshot, repeat_only};
+use minifb::{Key, MouseButton, MouseMode, Scale, Window, WindowOptions};
 use std::{cell::RefCell, rc::Rc};
 
 pub struct LibraryWindow {
@@ -18,6 +18,39 @@ pub struct LibraryWindow {
 #[cfg(all(test, target_os = "linux", feature = "spotify"))]
 #[path = "wheel_native_x11_tests.rs"]
 mod wheel_native_x11_tests;
+
+#[cfg(test)]
+#[path = "library_keyboard_tests.rs"]
+mod keyboard_tests;
+
+fn process_keyboard(
+    view: &mut library_ui::View,
+    snapshot: &LibrarySnapshot,
+    active: bool,
+    keys: &[(Key, bool, bool)],
+    repeat_up: bool,
+    repeat_down: bool,
+    actions: &mut Vec<library_ui::Action>,
+) {
+    if !active {
+        return;
+    }
+    for &(key, control, shift) in keys {
+        if key == Key::F3 {
+            actions.push(library_ui::Action::Close);
+        } else if let Some(action) = view.key(key, control, shift, snapshot) {
+            actions.push(action);
+        }
+    }
+    for (key, repeated) in [(Key::Up, repeat_up), (Key::Down, repeat_down)] {
+        if repeated
+            && !keys.iter().any(|(candidate, _, _)| *candidate == key)
+            && let Some(action) = view.key(key, false, false, snapshot)
+        {
+            actions.push(action);
+        }
+    }
+}
 
 pub(super) fn inside(x: f32, y: f32) -> Option<(usize, usize)> {
     (x >= 0.0 && y >= 0.0 && x < library_ui::WIDTH as f32 && y < library_ui::HEIGHT as f32)
@@ -103,23 +136,21 @@ impl LibraryWindow {
             .and_then(|(x, y)| inside(x, y));
         {
             let keys = self.keys.borrow();
+            let repeat = |key| {
+                repeat_only(self.window.is_key_down(key), |mode| {
+                    self.window.is_key_pressed(key, mode)
+                })
+            };
+            process_keyboard(
+                &mut self.view,
+                &self.snapshot,
+                active,
+                &keys,
+                repeat(Key::Up),
+                repeat(Key::Down),
+                &mut self.actions,
+            );
             if active {
-                for &(key, control, shift) in keys.iter() {
-                    if key == Key::F3 {
-                        self.actions.push(library_ui::Action::Close);
-                    } else if let Some(action) = self.view.key(key, control, shift, &self.snapshot)
-                    {
-                        self.actions.push(action);
-                    }
-                }
-                for key in [Key::Up, Key::Down] {
-                    if !keys.iter().any(|(candidate, _, _)| *candidate == key)
-                        && self.window.is_key_pressed(key, KeyRepeat::Yes)
-                        && let Some(action) = self.view.key(key, false, false, &self.snapshot)
-                    {
-                        self.actions.push(action);
-                    }
-                }
                 for &event in self.mouse.borrow().iter() {
                     let action = match event {
                         MouseInput::Button {

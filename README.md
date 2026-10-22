@@ -171,6 +171,10 @@ actualisations de position ne la recentrent pas pendant la lecture.
 
 La molette agit sur la liste survolée dans le lecteur ou la bibliothèque,
 même si sa fenêtre n'est pas active. Aucun clic préalable n'est nécessaire.
+Au clavier, un appui bref sur **Haut** ou **Bas** déplace la sélection d'une
+seule ligne dans le lecteur comme dans la bibliothèque. Garder la touche
+enfoncée conserve la répétition ; **Retour arrière** suit la même règle dans
+les champs de saisie.
 
 La playlist affichée et la file sont limitées à **500 titres accessibles**.
 Si la file contient déjà des titres, **À la file** ajoute seulement ce que les

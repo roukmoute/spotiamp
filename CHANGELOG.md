@@ -1,5 +1,14 @@
 # Changements
 
+## 0.2.5 — 22 octobre 2026
+
+- Un appui bref sur Haut ou Bas ne déplace plus la sélection de deux lignes
+  dans le lecteur ou la bibliothèque. Retour arrière ne traite plus deux fois
+  le premier effacement dans les champs de saisie.
+- La répétition lorsque la touche reste enfoncée conserve son fonctionnement.
+  L'appui initial n'est plus traité à la fois par l'événement clavier et par
+  la lecture de l'état des touches, sans nouvel état, timer ou thread.
+
 ## 0.2.4 — 22 octobre 2026
 
 - Pendant la lecture ou un chargement, les changements explicites de titre

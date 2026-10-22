@@ -134,6 +134,13 @@ struct FrameInput<'a> {
     repeat_down: bool,
 }
 
+fn repeat_only(is_down: bool, mut pressed: impl FnMut(KeyRepeat) -> bool) -> bool {
+    // Callbacks own every initial press, including taps released between frames.
+    // Native polling may expose that same edge one frame later, or retain a
+    // held duration until its next update after release. Accept only repeats.
+    is_down && pressed(KeyRepeat::Yes) && !pressed(KeyRepeat::No)
+}
+
 fn process_frame_input(
     view: &mut ui::View,
     snapshot: &model::Snapshot,
@@ -356,7 +363,12 @@ fn process_frame_input(
         if shortcut(Key::A) {
             view.select_all = true;
         }
-        if pressed(Key::Backspace) || input.repeat_backspace {
+        let backspaces = input
+            .keys
+            .iter()
+            .filter(|(key, _, _)| *key == Key::Backspace)
+            .count();
+        for _ in 0..backspaces.max(usize::from(input.repeat_backspace)) {
             if view.select_all {
                 view.input.clear();
                 view.select_all = false;
@@ -384,10 +396,19 @@ fn process_frame_input(
         {
             action = Some(ui::Action::Send(Command::Remove(i)));
         }
-        if pressed(Key::Down) || input.repeat_down {
+        // Keep true taps in callback order (notably Up/Down at a list edge).
+        // The poll below contributes only held repeats without another edge.
+        for &(key, _, _) in input.keys {
+            match key {
+                Key::Down => view.move_selection(1, snapshot.queue.len()),
+                Key::Up => view.move_selection(-1, snapshot.queue.len()),
+                _ => {}
+            }
+        }
+        if !pressed(Key::Down) && input.repeat_down {
             view.move_selection(1, snapshot.queue.len());
         }
-        if pressed(Key::Up) || input.repeat_up {
+        if !pressed(Key::Up) && input.repeat_up {
             view.move_selection(-1, snapshot.queue.len());
         }
     }
@@ -645,6 +666,11 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
             let mut keys = key_events.borrow_mut();
             let mut chars = input.borrow_mut();
             let mut mouse = mouse_events.borrow_mut();
+            let repeat = |key| {
+                repeat_only(window.is_key_down(key), |mode| {
+                    window.is_key_pressed(key, mode)
+                })
+            };
             process_frame_input(
                 &mut view,
                 &snapshot,
@@ -656,9 +682,9 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
                     mouse_down: window.get_mouse_down(MouseButton::Left),
                     active: window.is_active(),
                     wheel: window.get_scroll_wheel().map(|(_, y)| y),
-                    repeat_backspace: window.is_key_pressed(Key::Backspace, KeyRepeat::Yes),
-                    repeat_up: window.is_key_pressed(Key::Up, KeyRepeat::Yes),
-                    repeat_down: window.is_key_pressed(Key::Down, KeyRepeat::Yes),
+                    repeat_backspace: repeat(Key::Backspace),
+                    repeat_up: repeat(Key::Up),
+                    repeat_down: repeat(Key::Down),
                 },
                 &mut actions,
             );
@@ -813,6 +839,9 @@ mod playback_follow_input_tests;
 
 #[cfg(test)]
 mod wheel_input_tests;
+
+#[cfg(test)]
+mod keyboard_input_tests;
 
 #[cfg(all(test, target_os = "windows"))]
 mod wheel_native_windows_tests;
