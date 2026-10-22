@@ -1,9 +1,9 @@
 [package]
 name = "spotiamp"
-version = "0.2.7"
+version = "0.2.8"
 edition = "2024"
 rust-version = "1.89"
-description = "A small native, classic-style Spotify player — experimental"
+description = "A small native, classic-style Spotify player"
 license = "MIT"
 default-run = "spotiamp"
 

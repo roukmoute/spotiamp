@@ -573,7 +573,7 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
         println!(concat!(
             "Spotiamp ",
             env!("CARGO_PKG_VERSION"),
-            " experimental\n--scale 2        double-size bitmap UI\n--skin classic|modern   override the saved skin for this run\n--library        open the playlist library for this run (overrides saved layout)\n--no-library     start with the player only for this run; F3 opens the library\n--about [player|credits|shortcuts|history|updates]   open the About dialog\n--screenshot FILE.ppm   render the disconnected UI without opening a window\n--no-update-check       skip the automatic startup update check\n--quit-after SECONDS    automatic exit for reproducible idle measurements\nSpace: play/pause; Ctrl+V: paste URL; Enter: add/play; Delete: remove; F1: help; F2: About; F3: playlist library; F4: switch skin"
+            "\n--scale 2        double-size bitmap UI\n--skin classic|modern   override the saved skin for this run\n--library        open the playlist library for this run (overrides saved layout)\n--no-library     start with the player only for this run; F3 opens the library\n--about [player|credits|shortcuts|history|updates]   open the About dialog\n--screenshot FILE.ppm   render the disconnected UI without opening a window\n--no-update-check       skip the automatic startup update check\n--quit-after SECONDS    automatic exit for reproducible idle measurements\nSpace: play/pause; Ctrl+V: paste URL; Enter: add/play; Delete: remove; F1: help; F2: About; F3: playlist library; F4: switch skin"
         ));
         return Ok(());
     }
@@ -605,10 +605,7 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
         Scale::X1
     };
     let mut window = Window::new(
-        &format!(
-            "Spotiamp {} — lecteur Spotify expérimental",
-            env!("CARGO_PKG_VERSION")
-        ),
+        &format!("Spotiamp {} — lecteur Spotify", env!("CARGO_PKG_VERSION")),
         ui::WIDTH,
         ui::HEIGHT,
         WindowOptions {

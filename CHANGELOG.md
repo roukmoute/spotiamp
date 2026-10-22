@@ -1,5 +1,14 @@
 # Changements
 
+## 0.2.8 — 22 octobre 2026
+
+- Spotiamp est présenté comme un lecteur Spotify natif : retrait des mentions
+  « expérimental » et « prototype » dans l'interface, le titre de fenêtre,
+  À propos, l'aide, les métadonnées et la présentation du projet.
+- Aperçu du README actualisé et outils de validation adaptés au nouveau titre
+  de fenêtre, avec prise en charge des anciennes versions pour les comparaisons
+  de performances et les essais de mise à jour.
+
 ## 0.2.7 — 22 octobre 2026
 
 - La fermeture normale mémorise les positions du lecteur et de la bibliothèque,

@@ -144,7 +144,7 @@ impl View {
         self.about_centered(247, "Deux skins intégrés : Classique et Modern.", WHITE);
         self.rect(64, 269, 432, 1, 0x303042);
         self.about_centered(285, "Spotify Premium requis pour écouter.", WHITE);
-        self.about_centered(307, "Projet expérimental - Code sous licence MIT.", WHITE);
+        self.about_centered(307, "Logiciel libre sous licence MIT.", WHITE);
         self.about_centered(331, "github.com/roukmoute/spotiamp", GREEN);
         self.about_centered(353, "(c) 2026 Spotiamp contributors", DIM);
         self.about_centered(369, "Non affilié à Spotify ou à Winamp.", DIM);
@@ -236,39 +236,39 @@ impl View {
         for (y, version, first, second) in [
             (
                 109,
+                "0.2.8 / LECTEUR SPOTIFY NATIF",
+                "Présentation harmonisée dans le lecteur et l'aide.",
+                "À propos et documentation mis à jour.",
+            ),
+            (
+                154,
                 "0.2.7 / DISPOSITION MÉMORISÉE",
                 "Positions et fenêtres attachées ou libres mémorisées.",
                 "Bibliothèque ouverte ou fermée retrouvée au lancement.",
             ),
             (
-                154,
+                199,
                 "0.2.6 / FENÊTRES AIMANTÉES",
                 "Glisser la bibliothèque pour la détacher.",
                 "Rapprocher les bords et relâcher pour les recoller.",
             ),
             (
-                199,
+                244,
                 "0.2.5 / NAVIGATION AU CLAVIER",
                 "Un appui bref sur une flèche déplace une seule ligne.",
                 "Maintenir la touche conserve la répétition.",
             ),
             (
-                244,
+                289,
                 "0.2.4 / CHANGEMENTS RAPIDES DE TITRE",
                 "Dernier choix chargé après 200 ms sans nouveau clic.",
                 "Anciens chargements annulés ; clics conservés.",
             ),
             (
-                289,
+                334,
                 "0.2.3 / DÉFILEMENT PLUS SOUPLE",
                 "Molette sur la fenêtre survolée, même inactive.",
                 "Avance automatique : petit décalage si nécessaire.",
-            ),
-            (
-                334,
-                "0.2.2 / BOUTONS MODERN",
-                "Contours mieux lissés et relief cohérent.",
-                "Au repos comme pendant l'appui.",
             ),
         ] {
             self.text(54, y, version, GOLD, 56);

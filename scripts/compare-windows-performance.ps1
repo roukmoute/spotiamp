@@ -58,7 +58,8 @@ public static class SpotiampPerformanceWindow {
             var title = text.ToString();
             bool matches = library ? title == "Spotiamp — Bibliothèque Spotify"
                 : title.StartsWith("Spotiamp ", StringComparison.Ordinal)
-                    && title.EndsWith(" — lecteur Spotify expérimental", StringComparison.Ordinal);
+                    && (title.EndsWith(" — lecteur Spotify", StringComparison.Ordinal)
+                        || title.EndsWith(" — lecteur Spotify expérimental", StringComparison.Ordinal));
             if (matches) {
                 matchesCount++;
                 result = window;
@@ -67,6 +68,11 @@ public static class SpotiampPerformanceWindow {
         }, IntPtr.Zero);
         if (matchesCount > 1) throw new InvalidOperationException("Ambiguous Spotiamp window title");
         return result;
+    }
+    public static string WindowTitle(IntPtr window) {
+        var title = new StringBuilder(256);
+        GetWindowText(window, title, title.Capacity);
+        return title.ToString();
     }
     private static string Identity(IntPtr window) {
         var title = new StringBuilder(256); var name = new StringBuilder(256); uint pid;
@@ -224,7 +230,15 @@ $report = [ordered]@{
     default_layout_idle = $null
     skin_comparison = @()
 }
+function Assert-CandidateTitle([IntPtr]$Window) {
+    if ([SpotiampPerformanceWindow]::WindowTitle($Window) -cne $candidateTitle) {
+        throw "Unexpected candidate reader title; expected '$candidateTitle'"
+    }
+}
 try {
+    $candidateVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo($executables.candidate).ProductVersion
+    if ([string]::IsNullOrWhiteSpace($candidateVersion)) { throw 'Candidate ProductVersion is missing' }
+    $candidateTitle = "Spotiamp $candidateVersion — lecteur Spotify"
     foreach ($label in $executables.Keys) {
         $path = $executables[$label]
         $report.executables[$label] = @{
@@ -275,6 +289,7 @@ try {
                     throw "No painted reader observed within 15 seconds: $run"
                 }
                 $startup = $clock.Elapsed.TotalMilliseconds
+                if ($label -eq 'candidate') { Assert-CandidateTitle $player }
                 if ($round -eq 0 -or $defaultLayout) { Save-WindowDiagnostic $player "$run-painted" }
                 if ($defaultLayout) {
                     $library = [IntPtr]::Zero
@@ -383,6 +398,7 @@ try {
                     throw "No painted $skin reader and visible library within 15 seconds"
                 }
                 $skinRuns[$skin].startup_milliseconds += $clock.Elapsed.TotalMilliseconds
+                Assert-CandidateTitle $player
                 if ($round -eq 0) {
                     # Capture after the measured boundary so diagnostic overhead
                     # and the library's first paint do not distort launch timing.

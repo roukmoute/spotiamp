@@ -396,7 +396,7 @@ impl View {
             219,
             76,
             row.map(|r| r.artist.as_str())
-                .unwrap_or("LECTEUR CLASSIQUE / EXPERIMENTAL"),
+                .unwrap_or("LECTEUR SPOTIFY NATIF"),
             DIM,
             40,
         );
@@ -705,7 +705,7 @@ impl View {
             "Sans coffre disponible : connexion non memorisee.",
             "DECONNECTER oublie la session enregistree.",
             "Le moteur peut choisir un debit de repli.",
-            "Prototype : recherche et egaliseur non inclus.",
+            "Recherche et egaliseur non inclus.",
             "F1, Echap ou clic : fermer cette aide.",
         ]
         .iter()

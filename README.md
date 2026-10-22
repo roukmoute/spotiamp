@@ -9,8 +9,8 @@ Premium est nécessaire.
 
 Des binaires natifs sont publiés pour **Windows x64, macOS Apple Silicon et
 Linux x64**. La compilation, les tests et la création des paquets sont automatisés
-sur les trois systèmes. **Le projet reste expérimental** : les mesures, les
-essais de lecture et leurs limites sont détaillés dans [PERFORMANCE.md](PERFORMANCE.md).
+sur les trois systèmes. Les mesures de performances, les essais de lecture et
+leurs résultats sont détaillés dans [PERFORMANCE.md](PERFORMANCE.md).
 
 ## Télécharger et lancer
 
