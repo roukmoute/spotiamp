@@ -236,7 +236,9 @@ mod windows_native {
         fn ClientToScreen(window: *mut c_void, point: *mut Point) -> i32;
     }
 
-    fn post_wheel(window: &Window, delta: i16) {
+    fn post_wheel(window: &mut Window, delta: i16) {
+        let handle = window.get_window_handle();
+        crate::wheel_native_windows_tests::wait_for_wheel_target(window, 16, 16, handle);
         // Win32 packs the signed wheel delta into the high WORD of WPARAM.
         let wparam = usize::from(delta as u16) << 16;
         let mut point = Point { x: 16, y: 16 };
@@ -279,17 +281,18 @@ mod windows_native {
         // Registers the stable WindowState pointer used by the patched WndProc.
         window.update();
         assert!(!window.get_window_handle().is_null());
+        crate::wheel_native_windows_tests::show_for_wheel_test(&window);
 
         let mut view = View::default();
-        post_wheel(&window, -120);
+        post_wheel(&mut window, -120);
         let delta = collect_scroll(&mut window);
         assert_eq!(delta, -1.0, "one Win32 WHEEL_DELTA must become one notch");
         view.scroll(delta, 50);
         assert_eq!(view.offset, 1);
 
         // Both half-notch events arrive in one message pump iteration.
-        post_wheel(&window, -60);
-        post_wheel(&window, -60);
+        post_wheel(&mut window, -60);
+        post_wheel(&mut window, -60);
         let delta = collect_scroll(&mut window);
         assert_eq!(
             delta, -1.0,
@@ -300,7 +303,7 @@ mod windows_native {
 
         // High-resolution wheel fractions may also span several UI frames.
         for frame in 0..4 {
-            post_wheel(&window, -30);
+            post_wheel(&mut window, -30);
             let delta = collect_scroll(&mut window);
             assert_eq!(delta, -0.25);
             view.scroll(delta, 50);
@@ -309,10 +312,10 @@ mod windows_native {
 
         // These fractions are not exactly representable as f32, but their
         // raw Win32 deltas still add up to one complete notch.
-        post_wheel(&window, -70);
+        post_wheel(&mut window, -70);
         view.scroll(collect_scroll(&mut window), 50);
         assert_eq!(view.offset, 3);
-        post_wheel(&window, -50);
+        post_wheel(&mut window, -50);
         view.scroll(collect_scroll(&mut window), 50);
         assert_eq!(view.offset, 4);
 

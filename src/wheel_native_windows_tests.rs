@@ -1,6 +1,10 @@
 //! Native wheel dispatch to the window under the event, without activation.
 use minifb::{MouseMode, Scale, Window, WindowOptions};
-use std::{ffi::c_void, ptr};
+use std::{
+    ffi::c_void,
+    ptr,
+    time::{Duration, Instant},
+};
 
 type Hwnd = *mut c_void;
 #[repr(C)]
@@ -10,10 +14,32 @@ struct Point {
     y: i32,
 }
 
+#[repr(C)]
+#[derive(Default, Debug)]
+struct Rect {
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+}
+
 #[link(name = "user32")]
 unsafe extern "system" {
     fn ClientToScreen(window: Hwnd, point: *mut Point) -> i32;
     fn WindowFromPoint(point: Point) -> Hwnd;
+    fn GetClassNameW(window: Hwnd, class: *mut u16, capacity: i32) -> i32;
+    fn GetWindowRect(window: Hwnd, rect: *mut Rect) -> i32;
+    fn IsWindowVisible(window: Hwnd) -> i32;
+    fn ShowWindow(window: Hwnd, command: i32) -> i32;
+    fn SetWindowPos(
+        window: Hwnd,
+        insert_after: Hwnd,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        flags: u32,
+    ) -> i32;
     fn GetFocus() -> Hwnd;
     fn SetFocus(window: Hwnd) -> Hwnd;
     fn SendMessageW(window: Hwnd, message: u32, wparam: usize, lparam: isize) -> isize;
@@ -35,6 +61,67 @@ unsafe extern "system" {
     fn DestroyWindow(window: Hwnd) -> i32;
 }
 
+// Runner desktop windows can cover freshly created test windows. Only this
+// test module changes z-order; production routing must use the real hit test.
+pub(crate) fn show_for_wheel_test(window: &Window) {
+    unsafe {
+        ShowWindow(window.get_window_handle(), 4); // SW_SHOWNOACTIVATE
+        assert_ne!(
+            SetWindowPos(
+                window.get_window_handle(),
+                -1isize as Hwnd, // HWND_TOPMOST
+                0,
+                0,
+                0,
+                0,
+                0x0053, // SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW
+            ),
+            0,
+            "cannot expose wheel test window: {}",
+            std::io::Error::last_os_error()
+        );
+    }
+}
+
+fn describe(window: Hwnd) -> String {
+    let mut class = [0u16; 128];
+    let mut rect = Rect::default();
+    let length = unsafe { GetClassNameW(window, class.as_mut_ptr(), class.len() as i32) };
+    let valid_rect = unsafe { GetWindowRect(window, &mut rect) } != 0;
+    let visible = unsafe { IsWindowVisible(window) } != 0;
+    format!(
+        "HWND={window:p} class={:?} rect={rect:?} rect_valid={valid_rect} visible={visible}",
+        String::from_utf16_lossy(&class[..length.max(0) as usize]),
+    )
+}
+
+pub(crate) fn wait_for_wheel_target(
+    window: &mut Window,
+    client_x: i32,
+    client_y: i32,
+    expected: Hwnd,
+) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let point = screen_point(window, client_x, client_y);
+        let actual = unsafe { WindowFromPoint(point) };
+        if actual == expected {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "wheel test point ({}, {}) remains obstructed: expected [{}], actual [{}], host [{}]",
+            point.x,
+            point.y,
+            describe(expected),
+            describe(actual),
+            describe(window.get_window_handle()),
+        );
+        window.update();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
 fn window(name: &str, scale: Scale, x: isize) -> Window {
     let mut window = Window::new(
         name,
@@ -51,6 +138,7 @@ fn window(name: &str, scale: Scale, x: isize) -> Window {
     .expect("native wheel window");
     window.set_target_fps(0);
     window.set_position(x, 40);
+    show_for_wheel_test(&window);
     window.update();
     window
 }
@@ -102,6 +190,8 @@ fn win32_hover_wheel_routes_once_without_focus_and_keeps_event_coordinates() {
             SetFocus(a.get_window_handle());
         }
         assert_eq!(unsafe { GetFocus() }, a.get_window_handle());
+        let handle_b = b.get_window_handle();
+        wait_for_wheel_target(&mut b, 80 * factor, 40 * factor, handle_b);
         let point_b = screen_point(&b, 80 * factor, 40 * factor);
         assert_eq!(unsafe { WindowFromPoint(point_b) }, b.get_window_handle());
 
@@ -141,6 +231,8 @@ fn win32_hover_wheel_routes_once_without_focus_and_keeps_event_coordinates() {
             SetFocus(b.get_window_handle());
         }
         assert_eq!(unsafe { GetFocus() }, b.get_window_handle());
+        let handle_a = a.get_window_handle();
+        wait_for_wheel_target(&mut a, 30 * factor, 65 * factor, handle_a);
         let point_a = screen_point(&a, 30 * factor, 65 * factor);
         assert_eq!(unsafe { WindowFromPoint(point_a) }, a.get_window_handle());
         wheel(&b, 120, point_a);
@@ -188,6 +280,7 @@ fn win32_hover_wheel_does_not_read_foreign_window_state_or_scroll_the_focus_wind
     unsafe {
         SetFocus(a.get_window_handle());
     }
+    wait_for_wheel_target(&mut a, 40, 40, child.0);
     let point = screen_point(&a, 40, 40);
     assert_eq!(unsafe { WindowFromPoint(point) }, child.0);
     wheel(&a, -120, point);
