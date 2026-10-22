@@ -1,5 +1,6 @@
 //! Native, bounded handoff: the running application never overwrites itself.
 //! Only the files in a verified package are replaced; other files are untouched.
+use super::{error, in_languages};
 use crate::locale::Language;
 use crate::localized_text::LocalizedText;
 use serde::{Deserialize, Serialize};
@@ -438,47 +439,40 @@ fn install_and_restart(
         Ok(()) => Ok(()),
         Err(failure) => {
             if let Err(rollback) = transaction.rollback() {
-                let message = LocalizedText::new(
+                let message = in_languages(|language| {
                     format!(
-                        "Mise a jour echouee : {}\nRestauration incomplete : {}\nSauvegardes conservees dans {}",
-                        failure.text(Language::French),
-                        rollback.text(Language::French),
+                        "{} {}\n{} {}\n{} {}",
+                        language.text("Mise a jour echouee :", "Update failed:"),
+                        failure.text(language),
+                        language.text("Restauration incomplete :", "Rollback incomplete:"),
+                        rollback.text(language),
+                        language.text("Sauvegardes conservees dans", "Backups retained in"),
                         stage.display()
-                    ),
-                    format!(
-                        "Update failed: {}\nRollback incomplete: {}\nBackups retained in {}",
-                        failure.text(Language::English),
-                        rollback.text(Language::English),
-                        stage.display()
-                    ),
-                );
+                    )
+                });
                 let _ = write_notice(stage, "update-error.txt", &message);
                 return Err(message);
             }
-            let message = LocalizedText::new(
+            let message = in_languages(|language| {
                 format!(
-                    "Mise a jour annulee ; version precedente restauree. {}",
-                    failure.text(Language::French)
-                ),
-                format!(
-                    "Update cancelled; previous version restored. {}",
-                    failure.text(Language::English)
-                ),
-            );
+                    "{} {}",
+                    language.text(
+                        "Mise a jour annulee ; version precedente restauree.",
+                        "Update cancelled; previous version restored.",
+                    ),
+                    failure.text(language)
+                )
+            });
             write_notice(stage, "update-error.txt", &message)?;
             restart(stage, manifest, true, command).map_err(|e| {
-                LocalizedText::new(
+                in_languages(|language| {
                     format!(
-                        "{}\nRelancement impossible : {}",
-                        message.text(Language::French),
-                        e.text(Language::French)
-                    ),
-                    format!(
-                        "{}\nCould not restart: {}",
-                        message.text(Language::English),
-                        e.text(Language::English)
-                    ),
-                )
+                        "{}\n{} {}",
+                        message.text(language),
+                        language.text("Relancement impossible :", "Could not restart:"),
+                        e.text(language)
+                    )
+                })
             })
         }
     }
@@ -605,18 +599,17 @@ impl<'a> Transaction<'a> {
         if errors.is_empty() {
             Ok(())
         } else {
-            Err(LocalizedText::new(
+            Err(in_languages(|language| {
                 errors
                     .iter()
-                    .map(|e| e.text(Language::French))
+                    .map(|e| e.text(language))
                     .collect::<Vec<_>>()
-                    .join(" ; "),
-                errors
-                    .iter()
-                    .map(|e| e.text(Language::English))
-                    .collect::<Vec<_>>()
-                    .join("; "),
-            ))
+                    .join(if language == Language::French {
+                        " ; "
+                    } else {
+                        "; "
+                    })
+            }))
         }
     }
 }
@@ -1128,14 +1121,11 @@ fn now() -> u64 {
         .unwrap_or_default()
         .as_secs()
 }
-fn error(french: &str, english: &str, error: impl std::fmt::Display) -> LocalizedText {
-    LocalizedText::new(format!("{french} : {error}"), format!("{english}: {error}"))
-}
-
 fn helper_failure(diagnostic: String) -> LocalizedText {
-    LocalizedText::new(
-        format!("La mise a jour a echoue. Diagnostic : {diagnostic}"),
-        format!("The update failed. Diagnostic: {diagnostic}"),
+    error(
+        "La mise a jour a echoue. Diagnostic",
+        "The update failed. Diagnostic",
+        diagnostic,
     )
 }
 

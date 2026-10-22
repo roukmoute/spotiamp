@@ -68,6 +68,11 @@ mémorisés à la fermeture, puis la récupération d'un point de reprise pério
 après un arrêt forcé. Les URI sont synthétiques ; la reprise audio et la position
 transmise au lecteur sont vérifiées séparément par les tests Rust du transport.
 
+`test_language.py` vérifie les six langues dans les deux skins, les changements
+par clic dans À propos, leur persistance après redémarrage, les variantes
+régionales du système et le repli en anglais. Les choix temporaires de ligne de
+commande ne remplacent pas les préférences enregistrées.
+
 ```sh
 xvfb-run -a -s "-screen 0 1920x1080x24 -noreset" python3 scripts/test_playback_session.py --executable target/release/spotiamp
 ```

@@ -52,6 +52,10 @@ fn command_line_language_override_is_optional_and_rejects_invalid_values() {
         ("auto", LanguagePreference::Auto),
         ("fr", LanguagePreference::Specific(Language::French)),
         ("en", LanguagePreference::Specific(Language::English)),
+        ("de", LanguagePreference::Specific(Language::German)),
+        ("es", LanguagePreference::Specific(Language::Spanish)),
+        ("it", LanguagePreference::Specific(Language::Italian)),
+        ("pt", LanguagePreference::Specific(Language::Portuguese)),
     ] {
         assert_eq!(
             requested_language(&["--language".into(), value.into()]),

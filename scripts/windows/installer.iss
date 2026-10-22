@@ -67,12 +67,24 @@ VersionInfoDescription=Spotiamp Setup
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "french"; MessagesFile: "compiler:Languages\French.isl"
+Name: "german"; MessagesFile: "compiler:Languages\German.isl"
+Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
+Name: "italian"; MessagesFile: "compiler:Languages\Italian.isl"
+Name: "portuguese"; MessagesFile: "compiler:Languages\Portuguese.isl"
 
 [CustomMessages]
 english.InstallationBusy=Spotiamp is already being installed or removed. Close the other installer and try again.
 french.InstallationBusy=Une installation ou une désinstallation de Spotiamp est déjà en cours. Fermez l'autre assistant puis réessayez.
+german.InstallationBusy=Spotiamp wird bereits installiert oder entfernt. Schließen Sie das andere Installationsprogramm und versuchen Sie es erneut.
+spanish.InstallationBusy=Ya hay una instalación o desinstalación de Spotiamp en curso. Cierre el otro asistente e inténtelo de nuevo.
+italian.InstallationBusy=È già in corso un'installazione o disinstallazione di Spotiamp. Chiudere l'altra procedura e riprovare.
+portuguese.InstallationBusy=Já está em curso uma instalação ou desinstalação do Spotiamp. Feche o outro assistente e tente novamente.
 english.ApplicationRunning=Close Spotiamp before continuing the installation.
 french.ApplicationRunning=Fermez Spotiamp avant de poursuivre l'installation.
+german.ApplicationRunning=Schließen Sie Spotiamp, bevor Sie die Installation fortsetzen.
+spanish.ApplicationRunning=Cierre Spotiamp antes de continuar la instalación.
+italian.ApplicationRunning=Chiudere Spotiamp prima di continuare l'installazione.
+portuguese.ApplicationRunning=Feche o Spotiamp antes de continuar a instalação.
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked

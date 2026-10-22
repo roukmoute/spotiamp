@@ -8,20 +8,49 @@ pub enum Language {
     #[default]
     French,
     English,
+    German,
+    Spanish,
+    Italian,
+    Portuguese,
 }
 
 impl Language {
+    pub const ALL: [Self; 6] = [
+        Self::French,
+        Self::English,
+        Self::German,
+        Self::Spanish,
+        Self::Italian,
+        Self::Portuguese,
+    ];
+
     pub const fn code(self) -> &'static str {
         match self {
             Self::French => "fr",
             Self::English => "en",
+            Self::German => "de",
+            Self::Spanish => "es",
+            Self::Italian => "it",
+            Self::Portuguese => "pt",
         }
     }
 
-    pub const fn text<'a>(self, french: &'a str, english: &'a str) -> &'a str {
+    pub const fn native_name(self) -> &'static str {
+        match self {
+            Self::French => "Français",
+            Self::English => "English",
+            Self::German => "Deutsch",
+            Self::Spanish => "Español",
+            Self::Italian => "Italiano",
+            Self::Portuguese => "Português",
+        }
+    }
+
+    pub fn text<'a>(self, french: &'a str, english: &'a str) -> &'a str {
         match self {
             Self::French => french,
             Self::English => english,
+            _ => crate::translations::lookup(english, self).unwrap_or(english),
         }
     }
 
@@ -29,13 +58,9 @@ impl Language {
     /// mistake an unrelated language whose name happens to start with "fr".
     pub fn from_locale(locale: &str) -> Option<Self> {
         let language = locale.trim().split(['-', '_', '.', '@']).next()?;
-        if language.eq_ignore_ascii_case("fr") {
-            Some(Self::French)
-        } else if language.eq_ignore_ascii_case("en") {
-            Some(Self::English)
-        } else {
-            None
-        }
+        Self::ALL
+            .into_iter()
+            .find(|supported| language.eq_ignore_ascii_case(supported.code()))
     }
 
     pub fn detect_system() -> Self {
@@ -54,9 +79,10 @@ impl LanguagePreference {
     pub fn parse(value: &str) -> Option<Self> {
         match value.trim() {
             "auto" => Some(Self::Auto),
-            "fr" => Some(Self::Specific(Language::French)),
-            "en" => Some(Self::Specific(Language::English)),
-            _ => None,
+            code => Language::ALL
+                .into_iter()
+                .find(|language| language.code() == code)
+                .map(Self::Specific),
         }
     }
 
@@ -90,6 +116,10 @@ fn language_from_windows_id(language_id: u16) -> Language {
     // PRIMARYLANGID discards the region (France, Canada, Belgium, etc.).
     match language_id & 0x03ff {
         0x0c => Language::French,
+        0x07 => Language::German,
+        0x0a => Language::Spanish,
+        0x10 => Language::Italian,
+        0x16 => Language::Portuguese,
         _ => Language::English,
     }
 }
@@ -179,7 +209,31 @@ mod tests {
         for locale in ["en", "en-GB", "en_US.UTF-8", "EN-au"] {
             assert_eq!(Language::from_locale(locale), Some(Language::English));
         }
-        for locale in ["", "C", "C.UTF-8", "POSIX", "de_DE", "french", "france"] {
+        for (locale, language) in [
+            ("de-DE", Language::German),
+            ("de_AT.UTF-8", Language::German),
+            ("ES-mx", Language::Spanish),
+            ("es_AR.UTF-8", Language::Spanish),
+            ("it-CH", Language::Italian),
+            ("it_IT@euro", Language::Italian),
+            ("pt-BR", Language::Portuguese),
+            ("pt_PT.UTF-8", Language::Portuguese),
+        ] {
+            assert_eq!(Language::from_locale(locale), Some(language));
+        }
+        for locale in [
+            "",
+            "C",
+            "C.UTF-8",
+            "POSIX",
+            "nl_NL",
+            "french",
+            "france",
+            "deutsch",
+            "spanish",
+            "italiano",
+            "portugues",
+        ] {
             assert_eq!(Language::from_locale(locale), None);
         }
     }
@@ -199,7 +253,7 @@ mod tests {
             Language::French
         );
         assert_eq!(
-            language_from_environment(Some("de_DE"), Some("fr_FR"), Some("fr_CA")),
+            language_from_environment(Some("nl_NL"), Some("fr_FR"), Some("fr_CA")),
             Language::English
         );
         assert_eq!(
@@ -217,14 +271,24 @@ mod tests {
         for id in [0x040c, 0x080c, 0x0c0c, 0x100c] {
             assert_eq!(language_from_windows_id(id), Language::French);
         }
-        for id in [0, 0x0409, 0x0809, 0x0407, 0x1400] {
+        for (ids, language) in [
+            ([0x0407, 0x0807, 0x0c07], Language::German),
+            ([0x040a, 0x080a, 0x0c0a], Language::Spanish),
+            ([0x0410, 0x0810, 0x0410], Language::Italian),
+            ([0x0416, 0x0816, 0x0416], Language::Portuguese),
+        ] {
+            for id in ids {
+                assert_eq!(language_from_windows_id(id), language);
+            }
+        }
+        for id in [0, 0x0409, 0x0809, 0x0413, 0x1400] {
             assert_eq!(language_from_windows_id(id), Language::English);
         }
     }
 
     #[test]
     fn explicit_preferences_resolve_independently_of_the_host() {
-        for language in [Language::French, Language::English] {
+        for language in Language::ALL {
             let preference = LanguagePreference::Specific(language);
             assert_eq!(preference.resolve(), language);
             assert_eq!(

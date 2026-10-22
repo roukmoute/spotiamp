@@ -514,3 +514,19 @@ fn restored_source_playlist_waits_for_catalogue_and_user_browsing_takes_preceden
     assert!(worker.restore_library_selection.is_none());
     assert_eq!(worker.queue_playlist, Some(origin));
 }
+
+#[test]
+fn existing_playlist_notice_retains_count_in_all_six_languages() {
+    let notice = playlist_notice(42, true);
+    let expected = [
+        "42 titres; apercu limite a 500 ou tronque par Spotify",
+        "42 tracks; preview limited to 500 or truncated by Spotify",
+        "42 Titel; Vorschau auf 500 begrenzt oder von Spotify gekürzt",
+        "42 canciones; vista limitada a 500 o recortada por Spotify",
+        "42 brani; anteprima limitata a 500 o troncata da Spotify",
+        "42 faixas; prévia limitada a 500 ou truncada pelo Spotify",
+    ];
+    for (language, expected) in Language::ALL.into_iter().zip(expected) {
+        assert_eq!(notice.text(language), expected);
+    }
+}

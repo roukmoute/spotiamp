@@ -14,8 +14,14 @@ from test_window_layout import Fixture, wait_for
 
 
 def assert_titles(fixture, language):
-    reader = "lecteur Spotify" if language == "fr" else "Spotify player"
-    library = "Bibliothèque Spotify" if language == "fr" else "Spotify Library"
+    reader, library = {
+        "fr": ("lecteur Spotify", "Bibliothèque Spotify"),
+        "en": ("Spotify player", "Spotify Library"),
+        "de": ("Spotify-Player", "Spotify-Bibliothek"),
+        "es": ("reproductor de Spotify", "Biblioteca de Spotify"),
+        "it": ("lettore Spotify", "Libreria Spotify"),
+        "pt": ("leitor Spotify", "Biblioteca Spotify"),
+    }[language]
 
     def matches():
         title = fixture.command("xdotool", "getwindowname", fixture.player)
@@ -33,9 +39,12 @@ def assert_titles(fixture, language):
 def choose(fixture, preference):
     # The Player tab is already open. Exercise actual pointer press/release,
     # including the controls' hit-testing and settings write path.
-    x = {"auto": 216, "fr": 328, "en": 440}[preference]
+    x, y = {
+        "auto": (216, 211), "fr": (328, 211), "en": (440, 211),
+        "de": (106, 239), "es": (218, 239), "it": (330, 239), "pt": (442, 239),
+    }[preference]
     fixture.command("xdotool", "windowactivate", "--sync", fixture.player,
-                    "mousemove", "--window", fixture.player, x, 220,
+                    "mousemove", "--window", fixture.player, x, y,
                     "click", 1)
     path = fixture.path.parent / "language"
     wait_for(f"saved {preference} choice", lambda: path.exists() and path.read_text() == f"{preference}\n")
@@ -48,25 +57,27 @@ def run(fixture):
     skin_before = (skin.read_bytes(), skin.stat().st_mtime_ns)
     fixture.seed((60, 60), (620, 60))
 
-    for language in ("fr", "en"):
-        fixture.start("--language", language, "--about", "player")
-        assert_titles(fixture, language)
-        fixture.stop()
-        assert not preference.exists(), "A CLI language override was saved"
-    print("PASS: French and English CLI overrides update both titles without saving a preference", flush=True)
+    for appearance in ("classic", "modern"):
+        for language in ("fr", "en", "de", "es", "it", "pt"):
+            fixture.start("--skin", appearance, "--language", language, "--about", "player")
+            assert_titles(fixture, language)
+            fixture.stop()
+            assert not preference.exists(), "A CLI language override was saved"
+    print("PASS: all six CLI languages update both titles in both skins without saving a preference", flush=True)
 
     fixture.start("--about", "player")
     assert_titles(fixture, "en")  # Isolated fixture uses LC_ALL=C.
-    process, windows = fixture.app.pid, (fixture.player, fixture.library)
-    choose(fixture, "fr")
-    assert_titles(fixture, "fr")
-    assert fixture.app.poll() is None and fixture.app.pid == process and fixture.windows() == {
-        "player": windows[0], "library": windows[1]
-    }, "Switching language recreated the process or native windows"
-    fixture.stop()
-    fixture.start("--about", "player")
-    assert_titles(fixture, "fr")
-    print("PASS: a real About click updates both live windows and persists across process restart", flush=True)
+    for language in ("de", "es", "it", "pt", "en", "fr"):
+        process, windows = fixture.app.pid, (fixture.player, fixture.library)
+        choose(fixture, language)
+        assert_titles(fixture, language)
+        assert fixture.app.poll() is None and fixture.app.pid == process and fixture.windows() == {
+            "player": windows[0], "library": windows[1]
+        }, "Switching language recreated the process or native windows"
+        fixture.stop()
+        fixture.start("--about", "player")
+        assert_titles(fixture, language)
+    print("PASS: all six About choices update both live windows and persist across process restart", flush=True)
 
     choose(fixture, "en")
     assert_titles(fixture, "en")
@@ -96,7 +107,11 @@ def run(fixture):
     print("PASS: temporary overrides preserve a saved choice and Auto immediately restores the system language", flush=True)
 
     saved = (preference.read_bytes(), preference.stat().st_mtime_ns)
-    for system_locale, expected in (("fr_CA.UTF-8", "fr"), ("en_GB.UTF-8", "en"), ("de_DE.UTF-8", "en")):
+    for system_locale, expected in (
+        ("fr_CA.UTF-8", "fr"), ("en_GB.UTF-8", "en"), ("de_AT.UTF-8", "de"),
+        ("es_MX.UTF-8", "es"), ("it_CH.UTF-8", "it"), ("pt_BR.UTF-8", "pt"),
+        ("pt_PT.UTF-8", "pt"), ("ja_JP.UTF-8", "en"),
+    ):
         fixture.env["LC_ALL"] = system_locale
         fixture.start()
         assert_titles(fixture, expected)
@@ -108,7 +123,7 @@ def run(fixture):
         "Changing language modified the remembered skin"
     )
     assert not list(preference.parent.glob(".language-*.tmp")), "Temporary settings files were left behind"
-    print("PASS: Auto is remembered, detects French/English, falls back to English, and preserves the skin", flush=True)
+    print("PASS: Auto is remembered, detects all six languages and regional variants, falls back to English, and preserves the skin", flush=True)
 
 
 def main():

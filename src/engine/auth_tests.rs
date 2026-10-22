@@ -464,4 +464,24 @@ async fn nested_credential_errors_translate_without_losing_the_original_reason()
             .text(Language::French)
             .contains("Trousseau indisponible")
     );
+    for (language, expected) in [
+        (
+            Language::German,
+            "Verbunden; Anmeldespeicher nicht verfügbar: nur für diese Sitzung angemeldet",
+        ),
+        (
+            Language::Spanish,
+            "Conectado; Almacén de credenciales no disponible: conexión solo para esta sesión",
+        ),
+        (
+            Language::Italian,
+            "Connesso; Archivio credenziali non disponibile: accesso solo per questa sessione",
+        ),
+        (
+            Language::Portuguese,
+            "Ligado; Gestor de credenciais indisponível: ligação apenas nesta sessão",
+        ),
+    ] {
+        assert_eq!(notice.text(language), expected);
+    }
 }

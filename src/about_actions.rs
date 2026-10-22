@@ -27,24 +27,14 @@ pub fn diagnostic_info_in(snapshot: &Snapshot, language: Language) -> String {
             .to_owned(),
     );
 
-    let labels = match language {
-        Language::French => [
-            "Systeme",
-            "Architecture",
-            "Fonctionnalites",
-            "Moteur",
-            "Qualite preferee",
-            "Projet",
-        ],
-        Language::English => [
-            "System",
-            "Architecture",
-            "Features",
-            "Engine",
-            "Preferred quality",
-            "Project",
-        ],
-    };
+    let labels = [
+        language.text("Systeme", "System"),
+        language.text("Architecture", "Architecture"),
+        language.text("Fonctionnalites", "Features"),
+        language.text("Moteur", "Engine"),
+        language.text("Qualite preferee", "Preferred quality"),
+        language.text("Projet", "Project"),
+    ];
     format!(
         "Spotiamp {}\n{} : {}\n{} : {}\n{} : {}\n{} : {}\n{} : {} kbit/s\n{} : {}\n",
         env!("CARGO_PKG_VERSION"),

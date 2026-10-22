@@ -25,10 +25,14 @@ const BLACK: u32 = 0x050805;
 const GOLD: u32 = 0xb3a978;
 const ROWS: usize = 8;
 
-const LANGUAGE_CHOICES: [LanguagePreference; 3] = [
+const LANGUAGE_CHOICES: [LanguagePreference; 7] = [
     LanguagePreference::Auto,
     LanguagePreference::Specific(Language::French),
     LanguagePreference::Specific(Language::English),
+    LanguagePreference::Specific(Language::German),
+    LanguagePreference::Specific(Language::Spanish),
+    LanguagePreference::Specific(Language::Italian),
+    LanguagePreference::Specific(Language::Portuguese),
 ];
 
 fn language_index(preference: LanguagePreference) -> usize {
@@ -174,7 +178,7 @@ impl Button {
         Self::Quality320,
     ];
 
-    const MODAL: [Self; 15] = [
+    const MODAL: [Self; 19] = [
         Self::AboutTab(AboutTab::Player),
         Self::AboutTab(AboutTab::Credits),
         Self::AboutTab(AboutTab::Shortcuts),
@@ -190,6 +194,10 @@ impl Button {
         Self::Language(LanguagePreference::Auto),
         Self::Language(LanguagePreference::Specific(Language::French)),
         Self::Language(LanguagePreference::Specific(Language::English)),
+        Self::Language(LanguagePreference::Specific(Language::German)),
+        Self::Language(LanguagePreference::Specific(Language::Spanish)),
+        Self::Language(LanguagePreference::Specific(Language::Italian)),
+        Self::Language(LanguagePreference::Specific(Language::Portuguese)),
     ];
 
     fn rect(self) -> (usize, usize, usize, usize) {
@@ -223,7 +231,14 @@ impl Button {
             Self::Quality320 => (480, 417, 66, 21),
             Self::Skin(Skin::Classic) => (47, 146, 74, 16),
             Self::Skin(Skin::Modern) => (125, 146, 62, 16),
-            Self::Language(preference) => (164 + language_index(preference) * 112, 210, 104, 22),
+            Self::Language(preference) => {
+                let index = language_index(preference);
+                if index < 3 {
+                    (164 + index * 112, 200, 104, 22)
+                } else {
+                    (54 + (index - 3) * 112, 228, 104, 22)
+                }
+            }
         }
     }
 
@@ -520,7 +535,7 @@ impl View {
             }
             Key::Tab => {
                 let order: &[usize] = match tab {
-                    AboutTab::Player => &[0, 1, 2, 3, 4, 10, 11, 12, 5, 6, 7],
+                    AboutTab::Player => &[0, 1, 2, 3, 4, 10, 11, 12, 13, 14, 15, 16, 5, 6, 7],
                     AboutTab::Updates => &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
                     _ => &[0, 1, 2, 3, 4, 5, 6, 7],
                 };
@@ -552,7 +567,7 @@ impl View {
             5 => return Some(Action::OpenProject),
             6 => return Some(Action::CopyAboutInfo),
             7 => self.close_about(),
-            10..=12 if self.about == Some(AboutTab::Player) => {
+            10..=16 if self.about == Some(AboutTab::Player) => {
                 return Some(Action::SetLanguage(LANGUAGE_CHOICES[self.about_focus - 10]));
             }
             8 if self.about == Some(AboutTab::Updates) && self.can_check_update() => {

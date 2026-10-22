@@ -164,46 +164,45 @@ impl View {
         self.about_wordmark();
         self.rect(152, 174, 256, 1, 0x625a3c);
         self.rect(152, 176, 256, 1, GOLD);
-        self.about_centered(191, concat!("Version ", env!("CARGO_PKG_VERSION")), GREEN);
-        self.text(54, 218, self.language.text("LANGUE", "LANGUAGE"), WHITE, 12);
-        for (x, preference, label, focus) in [
-            (164, crate::locale::LanguagePreference::Auto, "Auto", 10),
-            (
-                276,
-                crate::locale::LanguagePreference::Specific(crate::locale::Language::French),
-                "Français",
-                11,
+        self.about_centered(
+            183,
+            &format!(
+                "{} {}",
+                self.language.text("Version", "Version"),
+                env!("CARGO_PKG_VERSION")
             ),
-            (
-                388,
-                crate::locale::LanguagePreference::Specific(crate::locale::Language::English),
-                "English",
-                12,
-            ),
-        ] {
-            let down = self.button_down(x, 210);
+            GREEN,
+        );
+        self.text(54, 207, self.language.text("LANGUE", "LANGUAGE"), WHITE, 12);
+        for (index, preference) in LANGUAGE_CHOICES.into_iter().enumerate() {
+            let (x, y, width, height) = Button::Language(preference).rect();
+            let label = match preference {
+                LanguagePreference::Auto => "Auto",
+                LanguagePreference::Specific(language) => language.native_name(),
+            };
+            let down = self.button_down(x, y);
             self.metal_face(
                 x,
-                210,
-                104,
-                22,
+                y,
+                width,
+                height,
                 true,
                 down || self.language_preference == preference,
             );
             let offset = usize::from(down);
             self.text(
-                x + (104 - label.chars().count() * 8) / 2 + offset,
-                217 + offset,
+                x + (width - label.chars().count() * 8) / 2 + offset,
+                y + 7 + offset,
                 label,
                 0x242b40,
                 12,
             );
-            if self.about_focus == focus {
-                self.about_focus_ring(x + 4, 214, 96, 14);
+            if self.about_focus == 10 + index {
+                self.about_focus_ring(x + 4, y + 4, width - 8, height - 8);
             }
         }
         self.about_centered(
-            244,
+            264,
             self.language.text(
                 "Un lecteur Spotify natif, léger et compact.",
                 "A small, lightweight native Spotify player.",
@@ -211,16 +210,16 @@ impl View {
             WHITE,
         );
         self.about_centered(
-            261,
+            281,
             self.language.text(
                 "Deux skins intégrés : Classique et Modern.",
                 "Two built-in skins: Classic and Modern.",
             ),
             WHITE,
         );
-        self.rect(64, 278, 432, 1, 0x303042);
+        self.rect(64, 296, 432, 1, 0x303042);
         self.about_centered(
-            294,
+            310,
             self.language.text(
                 "Spotify Premium requis pour écouter.",
                 "Spotify Premium is required to listen.",
@@ -228,15 +227,15 @@ impl View {
             WHITE,
         );
         self.about_centered(
-            311,
+            327,
             self.language.text(
                 "Logiciel libre sous licence MIT.",
                 "Free and open-source software. MIT license.",
             ),
             WHITE,
         );
-        self.about_centered(330, "github.com/roukmoute/spotiamp", GREEN);
-        self.about_centered(350, "(c) 2026 Spotiamp contributors", DIM);
+        self.about_centered(344, "github.com/roukmoute/spotiamp", GREEN);
+        self.about_centered(355, "(c) 2026 Spotiamp contributors", DIM);
         self.about_centered(
             369,
             self.language.text(
@@ -248,7 +247,14 @@ impl View {
     }
 
     fn about_credits(&mut self) {
-        self.text(54, 111, "SPOTIAMP CONTRIBUTORS", GREEN, 56);
+        self.text(
+            54,
+            111,
+            self.language
+                .text("CONTRIBUTEURS SPOTIAMP", "SPOTIAMP CONTRIBUTORS"),
+            GREEN,
+            56,
+        );
         self.text(
             54,
             132,
@@ -455,6 +461,19 @@ impl View {
             (
                 109,
                 self.language
+                    .text("0.2.11 / SIX LANGUES", "0.2.11 / SIX LANGUAGES"),
+                self.language.text(
+                    "Français, anglais, allemand, espagnol,",
+                    "French, English, German, Spanish,",
+                ),
+                self.language.text(
+                    "italien et portugais. Choix mémorisé.",
+                    "Italian and Portuguese. Remembered choice.",
+                ),
+            ),
+            (
+                154,
+                self.language
                     .text("0.2.10 / REPRISE MÉMORISÉE", "0.2.10 / REMEMBERED PLAYBACK"),
                 self.language.text(
                     "Playlist, morceau et position retrouvés au lancement.",
@@ -466,7 +485,7 @@ impl View {
                 ),
             ),
             (
-                154,
+                199,
                 self.language.text(
                     "0.2.9 / LANGUES DE L'INTERFACE",
                     "0.2.9 / INTERFACE LANGUAGES",
@@ -481,7 +500,7 @@ impl View {
                 ),
             ),
             (
-                199,
+                244,
                 self.language.text(
                     "0.2.8 / LECTEUR SPOTIFY NATIF",
                     "0.2.8 / NATIVE SPOTIFY PLAYER",
@@ -496,7 +515,7 @@ impl View {
                 ),
             ),
             (
-                244,
+                289,
                 self.language.text(
                     "0.2.7 / DISPOSITION MÉMORISÉE",
                     "0.2.7 / REMEMBERED WINDOW LAYOUT",
@@ -511,7 +530,7 @@ impl View {
                 ),
             ),
             (
-                289,
+                334,
                 self.language
                     .text("0.2.6 / FENÊTRES AIMANTÉES", "0.2.6 / MAGNETIC WINDOWS"),
                 self.language.text(
@@ -521,21 +540,6 @@ impl View {
                 self.language.text(
                     "Rapprocher les bords et relâcher pour les recoller.",
                     "Bring the edges together and release to attach them.",
-                ),
-            ),
-            (
-                334,
-                self.language.text(
-                    "0.2.5 / NAVIGATION AU CLAVIER",
-                    "0.2.5 / KEYBOARD NAVIGATION",
-                ),
-                self.language.text(
-                    "Un appui bref sur une flèche déplace une seule ligne.",
-                    "A brief arrow-key press moves exactly one row.",
-                ),
-                self.language.text(
-                    "Maintenir la touche conserve la répétition.",
-                    "Holding the key still repeats.",
                 ),
             ),
         ] {
@@ -564,15 +568,14 @@ impl View {
             GREEN,
             56,
         );
+        let version_label = self.language.text("Version actuelle :", "Current version:");
+        self.text(54, 132, version_label, WHITE, 40);
         self.text(
-            54,
+            54 + (version_label.chars().count() + 1) * 8,
             132,
-            self.language.text(
-                concat!("Version actuelle : ", env!("CARGO_PKG_VERSION")),
-                concat!("Current version: ", env!("CARGO_PKG_VERSION")),
-            ),
+            env!("CARGO_PKG_VERSION"),
             WHITE,
-            56,
+            15,
         );
         self.rect(54, 148, 452, 1, 0x303042);
 
@@ -618,6 +621,10 @@ impl View {
                 match self.language {
                     crate::locale::Language::French => format!("Version disponible : {version}"),
                     crate::locale::Language::English => format!("Available version: {version}"),
+                    crate::locale::Language::German => format!("Verfügbare Version: {version}"),
+                    crate::locale::Language::Spanish => format!("Versión disponible: {version}"),
+                    crate::locale::Language::Italian => format!("Versione disponibile: {version}"),
+                    crate::locale::Language::Portuguese => format!("Versão disponível: {version}"),
                 },
                 GREEN,
             ),
@@ -629,6 +636,18 @@ impl View {
                     crate::locale::Language::English => {
                         format!("Downloading package: {} %", (*percent).min(100))
                     }
+                    crate::locale::Language::German => {
+                        format!("Paket wird geladen: {} %", (*percent).min(100))
+                    }
+                    crate::locale::Language::Spanish => {
+                        format!("Descargando paquete: {} %", (*percent).min(100))
+                    }
+                    crate::locale::Language::Italian => {
+                        format!("Download del pacchetto: {} %", (*percent).min(100))
+                    }
+                    crate::locale::Language::Portuguese => {
+                        format!("A descarregar pacote: {} %", (*percent).min(100))
+                    }
                 },
                 GOLD,
             ),
@@ -639,6 +658,18 @@ impl View {
                     }
                     crate::locale::Language::English => {
                         format!("Version {version} is ready to install.")
+                    }
+                    crate::locale::Language::German => {
+                        format!("Version {version} ist bereit zur Installation.")
+                    }
+                    crate::locale::Language::Spanish => {
+                        format!("Versión {version} lista para instalar.")
+                    }
+                    crate::locale::Language::Italian => {
+                        format!("Versione {version} pronta da installare.")
+                    }
+                    crate::locale::Language::Portuguese => {
+                        format!("Versão {version} pronta a instalar.")
                     }
                 },
                 GREEN,
@@ -711,8 +742,8 @@ impl View {
             54,
             269,
             self.language.text(
-                "la lecture. La file n'est pas conservée.",
-                "playback. The play queue is not kept.",
+                "la lecture. La file et la position sont mémorisées.",
+                "playback. The queue and position are remembered.",
             ),
             GOLD,
             56,

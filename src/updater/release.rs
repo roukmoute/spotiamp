@@ -1,4 +1,5 @@
 //! Public GitHub releases and bounded, verified archive downloads.
+use super::{error, in_languages};
 use crate::localized_text::LocalizedText;
 
 use reqwest::{Url, blocking::Client, header, redirect};
@@ -110,10 +111,11 @@ fn client() -> Result<Client, LocalizedText> {
             }
         }))
         .build()
-        .map_err(|error| {
-            LocalizedText::new(
-                format!("Connexion GitHub indisponible : {error}"),
-                format!("GitHub connection unavailable: {error}"),
+        .map_err(|diagnostic| {
+            error(
+                "Connexion GitHub indisponible",
+                "GitHub connection unavailable",
+                diagnostic,
             )
         })
 }
@@ -197,10 +199,11 @@ fn read_json(mut reader: impl Read) -> Result<Vec<u8>, LocalizedText> {
         .by_ref()
         .take(MAX_JSON_BYTES + 1)
         .read_to_end(&mut bytes)
-        .map_err(|error| {
-            LocalizedText::new(
-                format!("Lecture des versions impossible : {error}"),
-                format!("Could not read releases: {error}"),
+        .map_err(|diagnostic| {
+            error(
+                "Lecture des versions impossible",
+                "Could not read releases",
+                diagnostic,
             )
         })?;
     if bytes.len() as u64 > MAX_JSON_BYTES {
@@ -229,17 +232,21 @@ pub fn check() -> Result<Option<Release>, LocalizedText> {
         // A per-request timeout also bounds the asynchronous body behind blocking Read.
         .timeout(REQUEST_TIMEOUT)
         .send()
-        .map_err(|error| {
-            LocalizedText::new(
-                format!("Recherche des versions impossible : {error}"),
-                format!("Could not check releases: {error}"),
+        .map_err(|diagnostic| {
+            error(
+                "Recherche des versions impossible",
+                "Could not check releases",
+                diagnostic,
             )
         })?;
     if !response.status().is_success() {
-        return Err(LocalizedText::new(
-            format!("GitHub a répondu HTTP {}", response.status()),
-            format!("GitHub returned HTTP {}", response.status()),
-        ));
+        return Err(in_languages(|language| {
+            format!(
+                "{} {}",
+                language.text("GitHub a répondu HTTP", "GitHub returned HTTP"),
+                response.status()
+            )
+        }));
     }
     if response
         .content_length()
@@ -277,10 +284,11 @@ fn receive_archive(
         .write(true)
         .create_new(true)
         .open(path)
-        .map_err(|error| {
-            LocalizedText::new(
-                format!("Création du fichier de mise à jour impossible : {error}"),
-                format!("Could not create the update file: {error}"),
+        .map_err(|diagnostic| {
+            error(
+                "Création du fichier de mise à jour impossible",
+                "Could not create the update file",
+                diagnostic,
             )
         })?;
     let result = (|| {
@@ -295,10 +303,11 @@ fn receive_archive(
             let count = match reader.read(&mut buffer[..capacity]) {
                 Ok(count) => count,
                 Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(error) => {
-                    return Err(LocalizedText::new(
-                        format!("Téléchargement interrompu : {error}"),
-                        format!("Download interrupted: {error}"),
+                Err(diagnostic) => {
+                    return Err(error(
+                        "Téléchargement interrompu",
+                        "Download interrupted",
+                        diagnostic,
                     ));
                 }
             };
@@ -312,10 +321,11 @@ fn receive_archive(
                     "The archive exceeds its advertised size",
                 ));
             }
-            file.write_all(&buffer[..count]).map_err(|error| {
-                LocalizedText::new(
-                    format!("Écriture de la mise à jour impossible : {error}"),
-                    format!("Could not write the update: {error}"),
+            file.write_all(&buffer[..count]).map_err(|diagnostic| {
+                error(
+                    "Écriture de la mise à jour impossible",
+                    "Could not write the update",
+                    diagnostic,
                 )
             })?;
             sha256.update(&buffer[..count]);
@@ -337,10 +347,11 @@ fn receive_archive(
                 "The archive SHA-256 checksum is incorrect",
             ));
         }
-        file.sync_all().map_err(|error| {
-            LocalizedText::new(
-                format!("Enregistrement de la mise à jour impossible : {error}"),
-                format!("Could not save the update: {error}"),
+        file.sync_all().map_err(|diagnostic| {
+            error(
+                "Enregistrement de la mise à jour impossible",
+                "Could not save the update",
+                diagnostic,
             )
         })?;
         progress(100);
@@ -377,17 +388,21 @@ pub fn download(
         .header(header::ACCEPT, "application/octet-stream")
         .timeout(REQUEST_TIMEOUT)
         .send()
-        .map_err(|error| {
-            LocalizedText::new(
-                format!("Téléchargement impossible : {error}"),
-                format!("Could not download the update: {error}"),
+        .map_err(|diagnostic| {
+            error(
+                "Téléchargement impossible",
+                "Could not download the update",
+                diagnostic,
             )
         })?;
     if !response.status().is_success() {
-        return Err(LocalizedText::new(
-            format!("GitHub a répondu HTTP {}", response.status()),
-            format!("GitHub returned HTTP {}", response.status()),
-        ));
+        return Err(in_languages(|language| {
+            format!(
+                "{} {}",
+                language.text("GitHub a répondu HTTP", "GitHub returned HTTP"),
+                response.status()
+            )
+        }));
     }
     if response
         .content_length()
@@ -607,7 +622,20 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("update.zip");
         let sha = format!("{:x}", Sha256::digest(b"a"));
-        assert!(receive_archive(BrokenReader, &path, 1, &sha, |_| {}).is_err());
+        let failure = receive_archive(BrokenReader, &path, 1, &sha, |_| {}).unwrap_err();
+        for (language, prefix) in crate::locale::Language::ALL.into_iter().zip([
+            "Téléchargement interrompu : ",
+            "Download interrupted: ",
+            "Download unterbrochen: ",
+            "Descarga interrumpida: ",
+            "Download interrotto: ",
+            "Transferência interrompida: ",
+        ]) {
+            assert_eq!(
+                failure.text(language),
+                format!("{prefix}fixture read failed")
+            );
+        }
         assert!(!path.exists());
         fs::write(&path, b"keep").unwrap();
         assert!(receive_archive(Cursor::new(b"a"), &path, 1, &sha, |_| {}).is_err());

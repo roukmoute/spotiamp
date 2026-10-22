@@ -470,9 +470,13 @@ impl Worker {
                 )
             })?;
         playback_settings::save(&saved).map_err(|error| {
-            LocalizedText::new(
+            LocalizedText::with_languages(
                 format!("Lecture non memorisee : {error}"),
                 format!("Playback could not be saved: {error}"),
+                format!("Wiedergabe konnte nicht gespeichert werden: {error}"),
+                format!("No se pudo guardar la reproducción: {error}"),
+                format!("Impossibile salvare la riproduzione: {error}"),
+                format!("Não foi possível guardar a reprodução: {error}"),
             )
         })?;
         self.saved_fingerprint = fingerprint;
@@ -851,9 +855,13 @@ impl Worker {
         // still-loading track retains its original requested stream quality.
         edit(&self.state, |s| {
             s.quality = quality;
-            s.status = LocalizedText::new(
+            s.status = LocalizedText::with_languages(
                 format!("Prochain chargement : {} kb/s demandes", quality.kbps()),
                 format!("Next load: {} kb/s requested", quality.kbps()),
+                format!("Nächster Ladevorgang: {} kb/s angefordert", quality.kbps()),
+                format!("Próxima carga: {} kb/s solicitados", quality.kbps()),
+                format!("Prossimo caricamento: {} kb/s richiesti", quality.kbps()),
+                format!("Próximo carregamento: {} kb/s pedidos", quality.kbps()),
             );
         });
     }
@@ -1109,13 +1117,29 @@ impl Worker {
                 edit(&self.state, |s| {
                     s.playing = true;
                     s.position_ms = position_ms;
-                    s.status = LocalizedText::new(
+                    s.status = LocalizedText::with_languages(
                         format!(
                             "Lecture - qualite demandee {} kb/s",
                             self.load_quality.kbps()
                         ),
                         format!(
                             "Playing - requested quality {} kb/s",
+                            self.load_quality.kbps()
+                        ),
+                        format!(
+                            "Wiedergabe - angeforderte Qualität {} kb/s",
+                            self.load_quality.kbps()
+                        ),
+                        format!(
+                            "Reproduciendo - calidad solicitada {} kb/s",
+                            self.load_quality.kbps()
+                        ),
+                        format!(
+                            "Riproduzione - qualità richiesta {} kb/s",
+                            self.load_quality.kbps()
+                        ),
+                        format!(
+                            "A reproduzir - qualidade pedida {} kb/s",
                             self.load_quality.kbps()
                         ),
                     );
@@ -1291,9 +1315,13 @@ impl Sink for NativeSink {
         if self.output.is_none() {
             let mut stream =
                 rodio::OutputStreamBuilder::open_default_stream().map_err(|error| {
-                    let message = LocalizedText::new(
+                    let message = LocalizedText::with_languages(
                         format!("Sortie audio indisponible : {error}"),
                         format!("Audio output unavailable: {error}"),
+                        format!("Audioausgabe nicht verfügbar: {error}"),
+                        format!("Salida de audio no disponible: {error}"),
+                        format!("Uscita audio non disponibile: {error}"),
+                        format!("Saída de áudio indisponível: {error}"),
                     );
                     if let Ok(mut shared) = self.error.lock() {
                         *shared = Some(message.clone());
@@ -1493,14 +1521,28 @@ async fn import(
         .collect();
     let count = rows.len();
     let notice = if truncated {
-        LocalizedText::new(
+        LocalizedText::with_languages(
             format!("{count} titres ajoutes; liste limitee a {MAX_QUEUE} ou tronquee par Spotify"),
             format!("{count} tracks added; list limited to {MAX_QUEUE} or truncated by Spotify"),
+            format!(
+                "{count} Titel hinzugefügt; Liste auf {MAX_QUEUE} begrenzt oder von Spotify gekürzt"
+            ),
+            format!(
+                "{count} canciones añadidas; lista limitada a {MAX_QUEUE} o recortada por Spotify"
+            ),
+            format!("{count} brani aggiunti; lista limitata a {MAX_QUEUE} o troncata da Spotify"),
+            format!(
+                "{count} faixas adicionadas; lista limitada a {MAX_QUEUE} ou truncada pelo Spotify"
+            ),
         )
     } else {
-        LocalizedText::new(
+        LocalizedText::with_languages(
             format!("{count} titre(s) ajoute(s). Double-cliquez pour lire."),
             format!("{count} track(s) added. Double-click to play."),
+            format!("{count} Titel hinzugefügt. Doppelklick zum Abspielen."),
+            format!("{count} canciones añadidas. Doble clic para reproducir."),
+            format!("{count} brani aggiunti. Doppio clic per riprodurre."),
+            format!("{count} faixas adicionadas. Duplo clique para reproduzir."),
         )
     };
     updates

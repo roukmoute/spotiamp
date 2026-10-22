@@ -193,11 +193,27 @@ pub(super) async fn connect(
         }
         Err(message) if mode == Mode::Automatic => {
             let message = LocalizedText::from(message);
-            return Err(LocalizedText::new(
+            return Err(LocalizedText::with_languages(
                 format!("{message}. Cliquez sur Connecter pour vous connecter."),
                 format!(
                     "{}. Click Connect to sign in.",
                     message.text(Language::English)
+                ),
+                format!(
+                    "{}. Zum Anmelden auf Verbinden klicken.",
+                    message.text(Language::German)
+                ),
+                format!(
+                    "{}. Pulsa Conectar para iniciar sesión.",
+                    message.text(Language::Spanish)
+                ),
+                format!(
+                    "{}. Premi Connetti per accedere.",
+                    message.text(Language::Italian)
+                ),
+                format!(
+                    "{}. Clica em Ligar para iniciar sessão.",
+                    message.text(Language::Portuguese)
                 ),
             ));
         }
@@ -225,9 +241,13 @@ pub(super) async fn connect(
         Err(STORE_TIMED_OUT) => Some(SAVE_UNCONFIRMED.into()),
         Err(message) => {
             let message = LocalizedText::from(message);
-            Some(LocalizedText::new(
+            Some(LocalizedText::with_languages(
                 format!("Connecte; {message}"),
                 format!("Connected; {}", message.text(Language::English)),
+                format!("Verbunden; {}", message.text(Language::German)),
+                format!("Conectado; {}", message.text(Language::Spanish)),
+                format!("Connesso; {}", message.text(Language::Italian)),
+                format!("Ligado; {}", message.text(Language::Portuguese)),
             ))
         }
     };

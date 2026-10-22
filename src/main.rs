@@ -28,6 +28,7 @@ mod settings;
 mod skin_settings;
 #[cfg(feature = "spotify")]
 mod spotify_library;
+mod translations;
 mod ui;
 mod updater;
 mod window_layout;
@@ -461,7 +462,7 @@ fn requested_language(args: &[String]) -> Result<Option<LanguagePreference>, &'s
     args.get(index + 1)
         .and_then(|value| LanguagePreference::parse(value))
         .map(Some)
-        .ok_or("--language expects auto, fr or en")
+        .ok_or("--language expects auto, fr, en, de, es, it or pt")
 }
 
 fn player_title(language: Language) -> String {
@@ -606,7 +607,7 @@ fn run(initial_notice: Option<LocalizedText>) -> Result<(), Box<dyn std::error::
         println!(concat!(
             "Spotiamp ",
             env!("CARGO_PKG_VERSION"),
-            "\n--scale 2        double-size bitmap UI\n--skin classic|modern   override the saved skin for this run\n--language auto|fr|en   override the saved language for this run\n--library        open the playlist library for this run (overrides saved layout)\n--no-library     start with the player only for this run; F3 opens the library\n--about [player|credits|shortcuts|history|updates]   open the About dialog\n--screenshot FILE.ppm   render the disconnected UI without opening a window\n--no-update-check       skip the automatic startup update check\n--quit-after SECONDS    automatic exit for reproducible idle measurements\nSpace: play/pause; Ctrl+V: paste URL; Enter: add/play; Delete: remove; F1: help; F2: About; F3: playlist library; F4: switch skin"
+            "\n--scale 2        double-size bitmap UI\n--skin classic|modern   override the saved skin for this run\n--language auto|fr|en|de|es|it|pt   override the saved language for this run\n--library        open the playlist library for this run (overrides saved layout)\n--no-library     start with the player only for this run; F3 opens the library\n--about [player|credits|shortcuts|history|updates]   open the About dialog\n--screenshot FILE.ppm   render the disconnected UI without opening a window\n--no-update-check       skip the automatic startup update check\n--quit-after SECONDS    automatic exit for reproducible idle measurements\nSpace: play/pause; Ctrl+V: paste URL; Enter: add/play; Delete: remove; F1: help; F2: About; F3: playlist library; F4: switch skin"
         ));
         return Ok(());
     }

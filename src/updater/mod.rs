@@ -31,6 +31,34 @@ mod package;
 #[cfg(feature = "updates")]
 mod release;
 
+/// Build event-time messages without translating embedded diagnostics or paths.
+#[cfg(feature = "updates")]
+fn in_languages(render: impl Fn(crate::locale::Language) -> String) -> LocalizedText {
+    use crate::locale::Language;
+    LocalizedText::with_languages(
+        render(Language::French),
+        render(Language::English),
+        render(Language::German),
+        render(Language::Spanish),
+        render(Language::Italian),
+        render(Language::Portuguese),
+    )
+}
+
+#[cfg(feature = "updates")]
+fn error(french: &str, english: &str, diagnostic: impl std::fmt::Display) -> LocalizedText {
+    let diagnostic = diagnostic.to_string();
+    in_languages(|language| {
+        let prefix = language.text(french, english);
+        let separator = if language == crate::locale::Language::French {
+            " : "
+        } else {
+            ": "
+        };
+        format!("{prefix}{separator}{diagnostic}")
+    })
+}
+
 #[cfg(feature = "updates")]
 mod worker {
     use super::{UpdateStatus, install, package, release};
@@ -207,22 +235,24 @@ mod worker {
             let (tx, rx) = mpsc::sync_channel(8);
             controller.pending = Some(rx);
             tx.send(Event::Checked(Err(LocalizedText::new(
-                "Reseau indisponible : connexion refusee",
-                "Network unavailable: connection refused",
+                "Impossible de lancer la mise a jour.",
+                "Could not start the update.",
             ))))
             .unwrap();
             assert!(!controller.poll());
             let UpdateStatus::Failed(message) = &controller.status else {
                 panic!("Expected an update failure");
             };
-            assert_eq!(
-                message.text(Language::French),
-                "Reseau indisponible : connexion refusee"
-            );
-            assert_eq!(
-                message.text(Language::English),
-                "Network unavailable: connection refused"
-            );
+            for (language, expected) in Language::ALL.into_iter().zip([
+                "Impossible de lancer la mise a jour.",
+                "Could not start the update.",
+                "Das Update konnte nicht gestartet werden.",
+                "No se pudo iniciar la actualización.",
+                "Impossibile avviare l'aggiornamento.",
+                "Não foi possível iniciar a atualização.",
+            ]) {
+                assert_eq!(message.text(language), expected);
+            }
             assert!(controller.pending.is_none());
         }
 

@@ -136,12 +136,14 @@ mod tests {
             fs::write(folder.join(name), bytes).unwrap();
         }
         assert_eq!(load_from(&path), LanguagePreference::Auto);
-        for preference in [
-            LanguagePreference::Specific(Language::English),
-            LanguagePreference::Specific(Language::French),
-            LanguagePreference::Auto,
-            LanguagePreference::Specific(Language::English),
-        ] {
+        for preference in Language::ALL
+            .into_iter()
+            .map(LanguagePreference::Specific)
+            .chain([
+                LanguagePreference::Auto,
+                LanguagePreference::Specific(Language::English),
+            ])
+        {
             save_to(&path, preference).unwrap();
             assert_eq!(load_from(&path), preference);
             assert_eq!(

@@ -1,5 +1,16 @@
 # Changements
 
+## 0.2.11 — 22 octobre 2026
+
+- Six langues disponibles : français, anglais, allemand, espagnol, italien et
+  portugais. Détection de la langue du système et de ses variantes régionales,
+  avec repli en anglais pour les langues non prises en charge.
+- Sélection immédiate et mémorisée dans À propos, accessible à la souris et au
+  clavier. Boutons, aide, bibliothèque, connexion, lecture et mises à jour traduits ;
+  titres, artistes, noms des playlists et diagnostics externes préservés.
+- Catalogues statiques intégrés, sans dépendance, téléchargement ou thread ajouté.
+  Tests du changement à chaud et de vrais redémarrages avec les six langues.
+
 ## 0.2.10 — 22 octobre 2026
 
 - File, morceau courant et position mémorisés dans les préférences. Au lancement,

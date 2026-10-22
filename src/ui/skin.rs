@@ -482,7 +482,7 @@ impl View {
         self.rect(340, 126, volume, 2, 0x76a631);
         let knob = (337 + volume).saturating_sub(5).clamp(337, 531);
         self.grip(knob, 118, 13, 18, self.dragging == 2);
-        self.tiny_text(410, 136, "VOLUME", WHITE);
+        self.tiny_text(410, 136, self.language.text("VOLUME", "VOLUME"), WHITE);
 
         self.rect(5, 142, WIDTH - 10, 1, 0x11121d);
         self.rect(5, 143, WIDTH - 10, 1, 0x656174);

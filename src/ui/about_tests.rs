@@ -114,7 +114,7 @@ fn all_tabs_work_with_mouse_and_keyboard_and_focus_wraps() {
     assert_eq!(view.about_focus, 7);
     view.about_key(Key::Tab, false);
     assert_eq!(view.about_focus, 0);
-    for _ in 0..9 {
+    for _ in 0..6 + LANGUAGE_CHOICES.len() {
         view.about_key(Key::Tab, false);
     }
     assert!(matches!(

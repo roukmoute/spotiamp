@@ -824,3 +824,28 @@ fn language_change_keeps_playback_and_pending_loads_untouched() {
     assert_eq!(worker.generation, generation);
     assert!(player.take().is_empty());
 }
+
+#[test]
+fn existing_playback_status_changes_language_without_reloading_or_reformatting() {
+    let (mut worker, player) = worker(true);
+    event(&mut worker, true);
+    let before = worker.snapshot();
+    let (updates, _) = mpsc::channel(1);
+    for (language, expected) in Language::ALL.into_iter().zip([
+        "Lecture - qualite demandee 160 kb/s",
+        "Playing - requested quality 160 kb/s",
+        "Wiedergabe - angeforderte Qualität 160 kb/s",
+        "Reproduciendo - calidad solicitada 160 kb/s",
+        "Riproduzione - qualità richiesta 160 kb/s",
+        "A reproduzir - qualidade pedida 160 kb/s",
+    ]) {
+        worker.command(Command::SetLanguage(language), &updates);
+        assert_eq!(before.status.text(language), expected);
+        assert_eq!(worker.snapshot(), before);
+        assert!(player.take().is_empty());
+    }
+    let named_like_ui = row("4uLU6hMCjMI75M1A2tKUQC", "Loading audio...");
+    for language in Language::ALL {
+        assert_eq!(named_like_ui.display_title(language), "Loading audio...");
+    }
+}

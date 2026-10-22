@@ -860,7 +860,7 @@ impl View {
         );
         c.button(
             Button::Append,
-            language.text("À LA FILE", "QUEUE"),
+            language.text("À LA FILE", "ADD TO QUEUE"),
             enabled[2],
             pressed == Some(Target::Button(Button::Append)),
         );

@@ -7,19 +7,17 @@ fn helper_notices_keep_raw_diagnostics_and_localized_context_across_restart() {
     write_notice(stage.path(), "helper-error.txt", &failure).unwrap();
     let raw = read_small(&stage.path().join("helper-error.txt"), 4096).unwrap();
     assert_eq!(raw, "The file is unreadable: fixture-42");
-    let recovered = helper_failure(raw);
-    assert!(
-        recovered
-            .text(Language::French)
-            .starts_with("La mise a jour a echoue.")
-    );
-    assert!(
-        recovered
-            .text(Language::English)
-            .starts_with("The update failed.")
-    );
-    assert!(recovered.text(Language::French).ends_with("fixture-42"));
-    assert!(recovered.text(Language::English).ends_with("fixture-42"));
+    let recovered = helper_failure(raw.clone());
+    for (language, prefix) in Language::ALL.into_iter().zip([
+        "La mise a jour a echoue. Diagnostic : ",
+        "The update failed. Diagnostic: ",
+        "Das Update ist fehlgeschlagen. Diagnose: ",
+        "La actualización ha fallado. Diagnóstico: ",
+        "L'aggiornamento non è riuscito. Diagnostica: ",
+        "A atualização falhou. Diagnóstico: ",
+    ]) {
+        assert_eq!(recovered.text(language), format!("{prefix}{raw}"));
+    }
 }
 
 #[test]
@@ -32,8 +30,24 @@ fn helper_notices_bound_utf8_diagnostics_without_splitting_characters() {
     assert_eq!(raw.chars().count(), 1024);
     assert!(raw.chars().all(|character| character == '\u{1f6ab}'));
     let recovered = helper_failure(raw.clone());
-    for language in [Language::French, Language::English] {
+    for language in Language::ALL {
         assert!(recovered.text(language).ends_with(&raw));
+    }
+}
+
+#[test]
+fn diagnostic_paths_and_catalog_looking_text_are_never_translated() {
+    let diagnostic = "C:\\Données\\The file is unreadable.txt\nInvalid directory.";
+    let message = error("Fichier illisible", "The file is unreadable", diagnostic);
+    for (language, prefix) in Language::ALL.into_iter().zip([
+        "Fichier illisible : ",
+        "The file is unreadable: ",
+        "Die Datei ist nicht lesbar: ",
+        "El archivo es ilegible: ",
+        "Il file è illeggibile: ",
+        "O ficheiro está ilegível: ",
+    ]) {
+        assert_eq!(message.text(language), format!("{prefix}{diagnostic}"));
     }
 }
 

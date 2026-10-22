@@ -277,7 +277,7 @@ impl View {
             ),
             self.dragging == 2,
         );
-        self.tiny_text(410, 136, "VOLUME", INK);
+        self.tiny_text(410, 136, self.language.text("VOLUME", "VOLUME"), INK);
 
         self.rect(4, 142, WIDTH - 8, 1, 0x667e94);
         self.rect(4, 143, WIDTH - 8, 1, 0xf1f8fe);

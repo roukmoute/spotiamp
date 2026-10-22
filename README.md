@@ -55,16 +55,20 @@ les mises à jour disponibles.
 
 ## Langue de l'interface
 
-Au premier lancement, Spotiamp utilise la langue du système : français ou anglais,
-avec l'anglais comme choix de repli pour les autres langues. Dans **À propos (F2)
-→ Spotiamp**, choisir **Auto**, **Français** ou **English**. Le changement s'applique
+Spotiamp propose **français, anglais, allemand, espagnol, italien et portugais**.
+Au premier lancement, il utilise la langue du système, avec l'anglais comme choix
+de repli pour les langues non prises en charge. Dans **À propos (F2) → Spotiamp**,
+choisir **Auto**, **Français**, **English**, **Deutsch**, **Español**, **Italiano** ou
+**Português**. Le changement s'applique
 immédiatement au lecteur, à la bibliothèque et aux messages, sans interrompre
 la musique. Les noms des playlists, titres et artistes restent ceux de Spotify.
 
 Le choix est conservé dans le petit fichier `Spotiamp/language`, à côté des autres
 préférences. **Auto** suit à nouveau la langue du système. Pour essayer une langue
-pendant un seul lancement, utiliser `spotiamp --language fr`, `--language en` ou
-`--language auto` (`.\spotiamp.exe` sous PowerShell, `./spotiamp` sous macOS/Linux).
+pendant un seul lancement, utiliser `spotiamp --language CODE`, avec `auto`, `fr`,
+`en`, `de`, `es`, `it` ou `pt` (`.\spotiamp.exe` sous PowerShell, `./spotiamp` sous
+macOS/Linux). Les variantes régionales, par exemple `de-AT`, `es-MX` ou `pt-BR`,
+utilisent la traduction commune de leur langue.
 Les textes sont intégrés au binaire : aucun téléchargement, moteur de traduction,
 thread ni dépendance supplémentaire. Les diagnostics techniques des bibliothèques
 externes gardent leur texte d'origine.

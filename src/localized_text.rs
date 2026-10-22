@@ -2,12 +2,13 @@
 //! strings; dynamic statuses are formatted only when the state changes, never
 //! while painting. Metadata and third-party diagnostic text remain untouched.
 use crate::locale::Language;
-use std::{borrow::Cow, fmt, ops::Deref};
+use std::{borrow::Cow, fmt, ops::Deref, sync::Arc};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct LocalizedText {
     french: Cow<'static, str>,
     english: Option<Cow<'static, str>>,
+    additional: Option<Arc<[String; 4]>>,
 }
 
 impl LocalizedText {
@@ -18,12 +19,48 @@ impl LocalizedText {
         Self {
             french: french.into(),
             english: Some(english.into()),
+            additional: None,
         }
     }
+    /// Dynamic application messages retain all translations once, at the
+    /// state change. Static messages use the shared catalogue without an allocation.
+    #[cfg(any(feature = "spotify", feature = "updates", test))]
+    pub fn with_languages(
+        french: impl Into<Cow<'static, str>>,
+        english: impl Into<Cow<'static, str>>,
+        german: String,
+        spanish: String,
+        italian: String,
+        portuguese: String,
+    ) -> Self {
+        Self {
+            french: french.into(),
+            english: Some(english.into()),
+            additional: Some(Arc::new([german, spanish, italian, portuguese])),
+        }
+    }
+
     pub fn text(&self, language: Language) -> &str {
         match language {
             Language::French => &self.french,
             Language::English => self.english.as_deref().unwrap_or(&self.french),
+            Language::German | Language::Spanish | Language::Italian | Language::Portuguese => {
+                if let Some(additional) = &self.additional {
+                    return &additional[match language {
+                        Language::German => 0,
+                        Language::Spanish => 1,
+                        Language::Italian => 2,
+                        Language::Portuguese => 3,
+                        _ => unreachable!(),
+                    }];
+                }
+                // Only a borrowed application key can enter the catalogue.
+                // Owned third-party diagnostics stay opaque in every language.
+                match &self.english {
+                    Some(Cow::Borrowed(english)) => language.text(&self.french, english),
+                    english => english.as_deref().unwrap_or(&self.french),
+                }
+            }
         }
     }
 }
@@ -238,6 +275,7 @@ impl From<&'static str> for LocalizedText {
                 return Self {
                     french: Cow::Borrowed(french),
                     english: None,
+                    additional: None,
                 };
             }
         };
@@ -252,6 +290,7 @@ impl From<String> for LocalizedText {
         Self {
             french: Cow::Owned(text),
             english: None,
+            additional: None,
         }
     }
 }
@@ -296,18 +335,58 @@ mod tests {
         let text = LocalizedText::from("Connectez Spotify pour lire la file");
         assert!(matches!(text.french, Cow::Borrowed(_)));
         assert!(matches!(text.english, Some(Cow::Borrowed(_))));
+        assert!(text.additional.is_none());
         assert_eq!(
             text.text(Language::French),
             "Connectez Spotify pour lire la file"
         );
-        assert_eq!(
-            text.text(Language::English),
-            "Connect Spotify to play the queue"
-        );
+        for (language, expected) in Language::ALL.into_iter().zip([
+            "Connectez Spotify pour lire la file",
+            "Connect Spotify to play the queue",
+            "Spotify verbinden, um die Warteschlange abzuspielen",
+            "Conecta Spotify para reproducir la cola",
+            "Collega Spotify per riprodurre la coda",
+            "Liga o Spotify para reproduzir a fila",
+        ]) {
+            assert_eq!(text.text(language), expected);
+        }
     }
     #[test]
-    fn owned_external_text_is_preserved_in_both_languages() {
-        let text = LocalizedText::from(String::from("Connectez Spotify pour lire la file"));
-        assert_eq!(text.text(Language::French), text.text(Language::English));
+    fn owned_external_text_is_preserved_in_every_language_even_if_it_matches_an_app_key() {
+        for original in [
+            "Connectez Spotify pour lire la file",
+            "Connect Spotify to play the queue",
+            "opaque/error: filename.txt",
+        ] {
+            let text = LocalizedText::from(original.to_owned());
+            assert!(text.additional.is_none());
+            for language in Language::ALL {
+                assert_eq!(text.text(language), original);
+            }
+        }
+    }
+    #[test]
+    fn dynamic_translation_clones_share_storage_in_ui_snapshots() {
+        let original = LocalizedText::with_languages(
+            String::from("1 titre"),
+            String::from("1 track"),
+            String::from("1 Titel"),
+            String::from("1 canción"),
+            String::from("1 brano"),
+            String::from("1 faixa"),
+        );
+        let copy = original.clone();
+        let original_storage = original.additional.as_ref().unwrap();
+        assert!(Arc::ptr_eq(
+            original_storage,
+            copy.additional.as_ref().unwrap()
+        ));
+        assert_eq!(Arc::strong_count(original_storage), 2);
+        for language in Language::ALL[2..].iter().copied() {
+            assert!(std::ptr::eq(
+                original.text(language).as_ptr(),
+                copy.text(language).as_ptr()
+            ));
+        }
     }
 }

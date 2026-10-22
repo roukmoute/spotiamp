@@ -17,6 +17,8 @@ mod playback_settings;
 mod settings;
 #[path = "../spotify_library.rs"]
 mod spotify_library;
+#[path = "../translations/mod.rs"]
+mod translations;
 
 use librespot_playback::{audio_backend::Sink, convert::Converter, decoder::AudioPacket};
 use std::{

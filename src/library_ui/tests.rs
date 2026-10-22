@@ -36,23 +36,25 @@ fn language_switch_preserves_scroll_selection_metadata_and_shared_storage() {
         let tracks = Arc::strong_count(&s.tracks);
         let french = view.pixels.clone();
         assert!(!view.render(&s));
-        view.set_language(Language::English);
-        assert!(view.render(&s));
-        assert_ne!(view.pixels, french);
-        assert!(!view.render(&s));
-        assert_eq!(view.pixels.as_ptr(), buffer);
-        assert_eq!(
-            (view.left_offset, view.right_offset, view.selected_track),
-            (7, 13, Some(16))
-        );
-        for y in 120..384 {
+        for language in Language::ALL.into_iter().skip(1) {
+            view.set_language(language);
+            assert!(view.render(&s));
+            assert_ne!(view.pixels, french);
+            assert!(!view.render(&s));
+            assert_eq!(view.pixels.as_ptr(), buffer);
             assert_eq!(
-                &view.pixels[y * WIDTH + 248..y * WIDTH + 734],
-                &french[y * WIDTH + 248..y * WIDTH + 734]
+                (view.left_offset, view.right_offset, view.selected_track),
+                (7, 13, Some(16))
             );
+            for y in 120..384 {
+                assert_eq!(
+                    &view.pixels[y * WIDTH + 248..y * WIDTH + 734],
+                    &french[y * WIDTH + 248..y * WIDTH + 734]
+                );
+            }
+            assert_eq!(Arc::strong_count(&s.entries), entries);
+            assert_eq!(Arc::strong_count(&s.tracks), tracks);
         }
-        assert_eq!(Arc::strong_count(&s.entries), entries);
-        assert_eq!(Arc::strong_count(&s.tracks), tracks);
     }
 }
 

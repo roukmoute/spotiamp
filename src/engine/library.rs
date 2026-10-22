@@ -291,13 +291,26 @@ impl Worker {
                     s.loading = false;
                     match result {
                         Ok(entries) => {
-                            s.status = LocalizedText::new(
+                            s.status = LocalizedText::with_languages(
                                 format!(
                                     "{} playlist(s) Spotify. Selectionnez une playlist.",
                                     entries.len()
                                 ),
                                 format!(
                                     "{} Spotify playlist(s). Select a playlist.",
+                                    entries.len()
+                                ),
+                                format!("{} Spotify-Playlists. Playlist auswählen.", entries.len()),
+                                format!(
+                                    "{} playlists de Spotify. Selecciona una playlist.",
+                                    entries.len()
+                                ),
+                                format!(
+                                    "{} playlist Spotify. Seleziona una playlist.",
+                                    entries.len()
+                                ),
+                                format!(
+                                    "{} playlists do Spotify. Seleciona uma playlist.",
                                     entries.len()
                                 ),
                             );
@@ -417,9 +430,13 @@ impl Worker {
                 s.duration_ms = 0;
             }
             s.queue.extend(rows.iter().take(count).cloned());
-            s.status = LocalizedText::new(
+            s.status = LocalizedText::with_languages(
                 format!("{count} titre(s) de la playlist ajoutes"),
                 format!("{count} playlist track(s) added"),
+                format!("{count} Playlist-Titel hinzugefügt"),
+                format!("{count} canciones de la playlist añadidas"),
+                format!("{count} brani della playlist aggiunti"),
+                format!("{count} faixas da playlist adicionadas"),
             );
         });
         if request.replace {
@@ -429,14 +446,22 @@ impl Worker {
         }
         self.library.edit(|s| {
             s.status = if count < rows.len() {
-                LocalizedText::new(
+                LocalizedText::with_languages(
                     format!("{count} titres ajoutes; file limitee a {MAX_QUEUE}"),
                     format!("{count} tracks added; queue limited to {MAX_QUEUE}"),
+                    format!("{count} Titel hinzugefügt; Warteschlange auf {MAX_QUEUE} begrenzt"),
+                    format!("{count} canciones añadidas; cola limitada a {MAX_QUEUE}"),
+                    format!("{count} brani aggiunti; coda limitata a {MAX_QUEUE}"),
+                    format!("{count} faixas adicionadas; fila limitada a {MAX_QUEUE}"),
                 )
             } else {
-                LocalizedText::new(
+                LocalizedText::with_languages(
                     format!("{count} titre(s) ajoutes a la file"),
                     format!("{count} track(s) added to the queue"),
+                    format!("{count} Titel zur Warteschlange hinzugefügt"),
+                    format!("{count} canciones añadidas a la cola"),
+                    format!("{count} brani aggiunti alla coda"),
+                    format!("{count} faixas adicionadas à fila"),
                 )
             }
         });
@@ -453,14 +478,22 @@ impl Worker {
 
 fn playlist_notice(count: usize, truncated: bool) -> LocalizedText {
     if truncated {
-        LocalizedText::new(
+        LocalizedText::with_languages(
             format!("{count} titres; apercu limite a 500 ou tronque par Spotify"),
             format!("{count} tracks; preview limited to 500 or truncated by Spotify"),
+            format!("{count} Titel; Vorschau auf 500 begrenzt oder von Spotify gekürzt"),
+            format!("{count} canciones; vista limitada a 500 o recortada por Spotify"),
+            format!("{count} brani; anteprima limitata a 500 o troncata da Spotify"),
+            format!("{count} faixas; prévia limitada a 500 ou truncada pelo Spotify"),
         )
     } else {
-        LocalizedText::new(
+        LocalizedText::with_languages(
             format!("{count} titre(s). Ajouter a la file ou Lire."),
             format!("{count} track(s). Add to queue or Play."),
+            format!("{count} Titel. Zur Warteschlange hinzufügen oder abspielen."),
+            format!("{count} canciones. Añadir a la cola o reproducir."),
+            format!("{count} brani. Aggiungi alla coda o riproduci."),
+            format!("{count} faixas. Adicionar à fila ou reproduzir."),
         )
     }
 }
