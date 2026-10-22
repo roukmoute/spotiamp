@@ -232,8 +232,25 @@ titre : le morceau en cours continue sans coupure. Pour l'appliquer immédiateme
 relancer le morceau par double-clic (il reprend au début). Pause/reprise et
 déplacement dans le morceau conservent la qualité de son chargement initial.
 
-**320 kb/s** est le maximum du moteur intégré actuellement ; le mode Spotify
-sans perte n'est pas pris en charge. Le moteur peut choisir un format de repli
+**320 kb/s** est le maximum du moteur intégré actuellement.
+
+**Limitation du mode sans perte.** Spotiamp utilise
+librespot 0.8, qui ne prend pas en charge l'accès aux flux Spotify sans perte.
+Cet accès dépend des protections techniques de Spotify : les mainteneurs de
+librespot ont indiqué, après un échange avec Spotify, qu'ils ne peuvent pas
+poursuivre les développements qui contournent ces protections
+([explication du projet librespot](https://github.com/librespot-org/librespot/issues/1583#issuecomment-3499343020)).
+Un abonnement Premium ou l'ajout d'un décodeur FLAC ne suffit donc pas à activer
+le sans-perte dans Spotiamp. Cette limitation existait déjà avant le retrait du
+décodeur FLAC inutilisé en version 0.1.6.
+
+Spotify propose le sans-perte dans ses applications officielles et sur certains
+appareils Spotify Connect compatibles
+([appareils pris en charge par Spotify](https://support.spotify.com/fr/article/lossless-audio-quality/)).
+Il s'agit d'une limitation de l'intégration actuelle de Spotiamp ; cela ne
+signifie pas que le sans-perte est impossible pour tout logiciel ou appareil tiers.
+
+Le moteur peut choisir un format de repli
 si le débit demandé n'existe pas pour ce titre. La barre d'état indique donc la
 **qualité demandée**, pas une mesure du débit réel. Le réglage est enregistré
 dans `%APPDATA%/Spotiamp/audio-quality` sous Windows,
