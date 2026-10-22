@@ -96,8 +96,9 @@ Les **mises à jour intégrées** restent accessibles dans l'onglet **Mise à jo
 du panneau **À propos** : détection d'une nouvelle version, téléchargement,
 puis installation et redémarrage à votre demande.
 Le skin Classique conserve les touches métalliques, les boutons enfoncés pendant
-l'appui, les cadres encastrés et les poignées rainurées. Les deux skins gardent
-la qualité **320 kb/s par défaut** et la molette d'un titre par cran.
+l'appui, les cadres encastrés et les poignées rainurées. Modern utilise des
+boutons aux contours lissés, avec un relief cohérent au repos et pendant l'appui.
+Les deux skins gardent la qualité **320 kb/s par défaut** et la molette d'un titre par cran.
 
 ![Interface de Spotiamp](preview.png)
 

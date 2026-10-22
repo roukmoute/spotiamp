@@ -64,37 +64,14 @@ impl View {
 
     fn modern_transport(&mut self, x: usize, icon: TransportIcon, enabled: bool) {
         let down = self.button_down(x, 116);
-        // Capsule profile stays wholly inside the original 38-by-22 hitbox.
-        for row in 0..22 {
-            let edge = row.min(21 - row);
-            let inset = [8, 5, 3, 2, 1, 1, 0, 0, 0, 0, 0][edge];
-            self.rect(x + inset, 116 + row, 38 - 2 * inset, 1, 0x567087);
-            if row > 0 && row < 21 {
-                let (top, bottom) = if !enabled {
-                    (0xd1dce5, 0xa2b2c2)
-                } else if down {
-                    (0x7d9ab2, 0xc8dce9)
-                } else if row < 10 {
-                    (0xffffff, 0xd4e7f2)
-                } else {
-                    (0xc0d5e5, 0x8ca8bf)
-                };
-                gradient(
-                    &mut self.pixels,
-                    WIDTH,
-                    (x + inset + 1, 116 + row, 36 - 2 * inset, 1),
-                    if row < 10 { top } else { bottom },
-                    bottom,
-                );
-            }
-        }
-        let d = usize::from(down);
-        self.transport_glyph(
-            x + 20 + d,
-            128 + d,
-            icon,
-            if enabled { 0xf2fcff } else { 0xc4d1dd },
+        crate::appearance::transport_button(
+            &mut self.pixels,
+            WIDTH,
+            (x, 116, 38, 22),
+            enabled,
+            down,
         );
+        let d = usize::from(down);
         self.transport_glyph(
             x + 19 + d,
             127 + d,
@@ -271,7 +248,6 @@ impl View {
         {
             for col in 0..9 {
                 if bits & (1 << (8 - col)) != 0 {
-                    self.rect(315 + col + d, 122 + row + d, 1, 1, 0xeafaff);
                     self.rect(314 + col + d, 121 + row + d, 1, 1, bolt);
                 }
             }

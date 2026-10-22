@@ -1,5 +1,12 @@
 # Changements
 
+## 0.2.2 — 22 octobre 2026
+
+- Boutons du skin Modern aux contours mieux lissés, avec un relief cohérent
+  au repos et pendant l'appui.
+- Le rendu réutilise les buffers existants, sans dépendance ni animation
+  périodique supplémentaire.
+
 ## 0.2.1 — 22 octobre 2026
 
 - Quand un titre démarre ou est relancé, le lecteur sélectionne sa ligne et
