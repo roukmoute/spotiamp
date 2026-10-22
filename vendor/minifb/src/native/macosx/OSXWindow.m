@@ -12,6 +12,10 @@
                     defer:(BOOL)flag {
     self = [super initWithContentRect:contentRect styleMask:style backing:backingStoreType defer:flag];
     if (self) {
+        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(dockWindowMoved:)
+            name:NSWindowDidMoveNotification object:self];
+        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(dockWindowRestored:)
+            name:NSWindowDidDeminiaturizeNotification object:self];
         // Install keyUp monitor to handle keyUp events when Command is pressed
         __block OSXWindow* blockSelf = self;
         keyUpMonitor = [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyUp
@@ -31,6 +35,7 @@
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 - (void)dealloc {
+    [self detachDock];
     if (keyUpMonitor) {
         [NSEvent removeMonitor:keyUpMonitor];
         keyUpMonitor = nil;
@@ -175,6 +180,75 @@
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+// NSWindowDidMove is delivered during the native drag loop, even when Rust's
+// frame loop is paused in performWindowDragWithEvent:. Do not use Cocoa child
+// windows here: their automatic parent-to-child displacement would apply a
+// second delta when the companion is the source of a bidirectional move.
+- (void)syncDockPosition {
+    if (docking_move || should_close) return;
+    OSXWindow* peer = docked_parent ? docked_parent : docked_child;
+    if (!peer || peer->should_close) return;
+    NSRect frame = [self frame];
+    NSRect target = [peer frame];
+    if (docked_parent) {
+        target.origin.x = frame.origin.x - dock_offset.x;
+        target.origin.y = NSMaxY(frame) + dock_offset.y - target.size.height;
+    } else {
+        target.origin.x = frame.origin.x + peer->dock_offset.x;
+        target.origin.y = NSMaxY(frame) - peer->dock_offset.y - target.size.height;
+    }
+    if (NSEqualPoints([peer frame].origin, target.origin)) return;
+    docking_move = true;
+    peer->docking_move = true;
+    [peer setFrameOrigin:target.origin];
+    peer->docking_move = false;
+    docking_move = false;
+}
+
+- (void)dockWindowMoved:(NSNotification*)notification {
+    (void)notification;
+    [self syncDockPosition];
+}
+
+- (void)miniaturize:(id)sender {
+    if (docked_parent) {
+        [docked_parent miniaturize:sender];
+        return;
+    }
+    if (docked_child && [docked_child isVisible]) {
+        dock_child_hidden = true;
+        [docked_child orderOut:nil];
+    }
+    [super miniaturize:sender];
+}
+
+- (void)dockWindowRestored:(NSNotification*)notification {
+    (void)notification;
+    if (dock_child_hidden && docked_child && !docked_child->should_close) {
+        dock_child_hidden = false;
+        [self syncDockPosition];
+        [docked_child orderFront:nil];
+    }
+}
+
+- (void)detachDock {
+    if (docked_parent) {
+        const bool wasHidden = docked_parent->dock_child_hidden;
+        docked_parent->docked_child = nil;
+        docked_parent->dock_child_hidden = false;
+        docked_parent = nil;
+        if (wasHidden && !should_close) [self orderFront:nil];
+    }
+    if (docked_child) {
+        docked_child->docked_parent = nil;
+        // Closing or detaching the parent must not strand a surviving hidden
+        // companion. orderFront does not activate the app or steal key focus.
+        if (dock_child_hidden && !docked_child->should_close) [docked_child orderFront:nil];
+        docked_child = nil;
+    }
+    dock_child_hidden = false;
+}
+
 - (void)windowWillClose:(NSNotification *)notification {
     (void)notification;
     should_close = true;
@@ -184,6 +258,7 @@
 // Track both the native close action and an explicit close without a delegate.
 - (void)close {
     should_close = true;
+    [self detachDock];
     [super close];
 }
 

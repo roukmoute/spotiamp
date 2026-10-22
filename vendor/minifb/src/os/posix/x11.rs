@@ -11,10 +11,11 @@ use raw_window_handle::{
     RawWindowHandle, WindowHandle, XlibDisplayHandle, XlibWindowHandle,
 };
 use std::{
+    cell::RefCell,
     convert::TryFrom,
     ffi::{c_char, c_int, c_long, c_uchar, c_uint, c_ulong, c_void, CStr, CString},
-    mem::MaybeUninit,
     ptr::NonNull,
+    rc::Rc,
     time::Duration,
 };
 use x11_dl::{
@@ -23,7 +24,7 @@ use x11_dl::{
     xlib::{
         self, KeyPressMask, KeyReleaseMask, KeySym, Status, XEvent, XIMPreeditNothing,
         XIMStatusNothing, XKeyEvent, XNClientWindow_0, XNFocusWindow_0, XNInputStyle_0,
-        XWindowAttributes, XrmDatabase, XIC, XIM,
+        XrmDatabase, XIC, XIM,
     },
 };
 
@@ -32,6 +33,8 @@ const Button6: c_uint = xlib::Button5 + 1;
 const Button7: c_uint = xlib::Button5 + 2;
 const Button8: c_uint = xlib::Button5 + 3;
 const Button9: c_uint = xlib::Button5 + 4;
+// ICCCM WM_STATE value; x11-dl does not expose Xutil IconicState.
+const ICONIC_STATE: c_ulong = 3;
 
 #[repr(C)]
 struct MwmHints {
@@ -40,6 +43,19 @@ struct MwmHints {
     decorations: c_ulong,
     input_mode: c_long,
     status: c_ulong,
+}
+
+// A pair owns only XIDs, never Rust Window pointers. Both endpoints mark the
+// shared relation inactive before native close/Drop, so a surviving window
+// cannot issue requests against a destroyed peer.
+struct DockPair {
+    active: bool,
+    parent: xlib::Window,
+    child: xlib::Window,
+    offset: (isize, isize),
+    displays: [*mut xlib::Display; 2],
+    positions: [(isize, isize); 2],
+    pending: [Option<((isize, isize), c_ulong)>; 2],
 }
 
 struct DisplayInfo {
@@ -281,6 +297,8 @@ pub struct Window {
     active: bool,
     titlebar_drag_region: Option<(usize, usize, usize, usize)>,
     titlebar_dragging: bool,
+    dock: Option<Rc<RefCell<DockPair>>>,
+    wm_frame: xlib::Window,
 
     should_close: bool, // received delete window message from X server
 
@@ -423,7 +441,8 @@ impl Window {
                     | xlib::KeyReleaseMask
                     | xlib::ButtonPressMask
                     | xlib::ButtonReleaseMask
-                    | xlib::FocusChangeMask,
+                    | xlib::FocusChangeMask
+                    | xlib::PropertyChangeMask,
             );
 
             if !opts.resize || opts.none {
@@ -503,6 +522,8 @@ impl Window {
                 active: false,
                 titlebar_drag_region: None,
                 titlebar_dragging: false,
+                dock: None,
+                wm_frame: 0,
                 key_handler: KeyHandler::new(),
                 update_rate: UpdateRate::new(),
                 menu_counter: MenuHandle(0),
@@ -589,9 +610,144 @@ impl Window {
         self.titlebar_drag_region = region;
     }
 
-    pub fn minimize(&mut self) {
+    pub fn set_docked_parent(
+        &mut self,
+        parent: Option<&mut Window>,
+        offset_x: isize,
+        offset_y: isize,
+    ) -> Result<()> {
+        self.detach_dock();
+        let Some(parent) = parent else {
+            return Ok(());
+        };
+        if self.should_close || parent.should_close {
+            return Err(Error::UpdateFailed("Cannot dock a closed window".into()));
+        }
+        // Docking is deliberately one pair, not an ownership tree.
+        parent.detach_dock();
+        let origin = parent.get_position();
+        let child_origin = (
+            origin.0.saturating_add(offset_x),
+            origin.1.saturating_add(offset_y),
+        );
+        let pair = Rc::new(RefCell::new(DockPair {
+            active: true,
+            parent: parent.handle,
+            child: self.handle,
+            offset: (offset_x, offset_y),
+            displays: [parent.d.display, self.d.display],
+            positions: [origin, child_origin],
+            pending: [None, None],
+        }));
         unsafe {
-            (self.d.lib.XIconifyWindow)(self.d.display, self.handle, self.d.screen);
+            // Do not let the WM infer a modal/dialog window from the transient
+            // hint. It is a persistent companion, minimized with its owner.
+            let kind = self.d.intern_atom(b"_NET_WM_WINDOW_TYPE_NORMAL\0", false);
+            (self.d.lib.XChangeProperty)(
+                self.d.display,
+                self.handle,
+                self.d.intern_atom(b"_NET_WM_WINDOW_TYPE\0", false),
+                xlib::XA_ATOM,
+                32,
+                xlib::PropModeReplace,
+                &kind as *const _ as *const c_uchar,
+                1,
+            );
+            (self.d.lib.XSetTransientForHint)(self.d.display, self.handle, parent.handle);
+            pair.borrow_mut().pending[1] =
+                Some((child_origin, (self.d.lib.XNextRequest)(self.d.display)));
+            (self.d.lib.XMoveWindow)(
+                self.d.display,
+                self.handle,
+                child_origin.0 as i32,
+                child_origin.1 as i32,
+            );
+            (self.d.lib.XFlush)(self.d.display);
+        }
+        self.dock = Some(Rc::clone(&pair));
+        parent.dock = Some(pair);
+        Ok(())
+    }
+
+    fn detach_dock(&mut self) {
+        if let Some(shared) = self.dock.take() {
+            let mut pair = shared.borrow_mut();
+            if pair.active {
+                pair.active = false;
+                unsafe {
+                    (self.d.lib.XDeleteProperty)(
+                        self.d.display,
+                        pair.child,
+                        self.d.intern_atom(b"WM_TRANSIENT_FOR\0", false),
+                    );
+                    (self.d.lib.XFlush)(self.d.display);
+                }
+            }
+        }
+    }
+
+    // Called only for move events. The peer's expected position is recorded
+    // before sending its request, suppressing feedback from asynchronous WM
+    // ConfigureNotify replies (including older replies already in the queue).
+    fn follow_dock_move(&mut self, serial: c_ulong) {
+        let Some(shared) = self.dock.as_ref() else {
+            return;
+        };
+        let mut pair = shared.borrow_mut();
+        if !pair.active {
+            return;
+        }
+        let index = usize::from(self.handle == pair.child);
+        let position = self.get_position();
+        if let Some((expected, requested)) = pair.pending[index] {
+            if position == expected {
+                pair.pending[index] = None;
+                return;
+            }
+            if serial < requested {
+                return;
+            }
+            // The WM processed our request but chose a different location.
+            // Accept that location rather than waiting forever for a target
+            // that may be clamped by monitor/work-area policy.
+            pair.pending[index] = None;
+        }
+        if position == pair.positions[index] {
+            return;
+        }
+        let target = if index == 0 {
+            (
+                position.0.saturating_add(pair.offset.0),
+                position.1.saturating_add(pair.offset.1),
+            )
+        } else {
+            (
+                position.0.saturating_sub(pair.offset.0),
+                position.1.saturating_sub(pair.offset.1),
+            )
+        };
+        pair.positions[index] = position;
+        pair.positions[1 - index] = target;
+        let display = pair.displays[1 - index];
+        let peer = if index == 0 { pair.child } else { pair.parent };
+        unsafe {
+            pair.pending[1 - index] = Some((target, (self.d.lib.XNextRequest)(display)));
+            (self.d.lib.XMoveWindow)(display, peer, target.0 as i32, target.1 as i32);
+            (self.d.lib.XFlush)(display);
+        }
+    }
+
+    pub fn minimize(&mut self) {
+        let handle = self
+            .dock
+            .as_ref()
+            .and_then(|dock| {
+                let pair = dock.borrow();
+                pair.active.then_some(pair.parent)
+            })
+            .unwrap_or(self.handle);
+        unsafe {
+            (self.d.lib.XIconifyWindow)(self.d.display, handle, self.d.screen);
             (self.d.lib.XFlush)(self.d.display);
         }
     }
@@ -744,6 +900,12 @@ impl Window {
 
     #[inline]
     pub fn set_position(&mut self, x: isize, y: isize) {
+        // Explicit moves may supersede a pending WM response.
+        if let Some(shared) = &self.dock {
+            let mut pair = shared.borrow_mut();
+            let index = usize::from(self.handle == pair.child);
+            pair.pending[index] = None;
+        }
         unsafe {
             (self.d.lib.XMoveWindow)(self.d.display, self.handle, x as i32, y as i32);
             (self.d.lib.XFlush)(self.d.display);
@@ -752,33 +914,131 @@ impl Window {
 
     #[inline]
     pub fn get_position(&self) -> (isize, isize) {
-        let (x, y);
-        let (mut nx, mut ny) = (0, 0);
-
-        // Create dummy window for child_return value
-        let mut dummy_window: MaybeUninit<Window> = MaybeUninit::uninit();
-        let mut attributes: MaybeUninit<XWindowAttributes> = MaybeUninit::uninit();
-
+        let (mut x, mut y, mut child) = (0, 0, 0);
         unsafe {
-            let root = (self.d.lib.XDefaultRootWindow)(self.d.display);
-
-            (self.d.lib.XGetWindowAttributes)(self.d.display, self.handle, attributes.as_mut_ptr());
-            x = attributes.assume_init().x;
-            y = attributes.assume_init().y;
-
+            // Translate the client origin, not its parent-relative x/y twice.
             (self.d.lib.XTranslateCoordinates)(
                 self.d.display,
                 self.handle,
-                root,
-                x,
-                y,
-                &mut nx,
-                &mut ny,
-                dummy_window.as_mut_ptr() as *mut c_ulong,
+                (self.d.lib.XDefaultRootWindow)(self.d.display),
+                0,
+                0,
+                &mut x,
+                &mut y,
+                &mut child,
             );
         }
+        (x as isize, y as isize)
+    }
 
-        (nx as isize, ny as isize)
+    pub fn get_work_area(&self) -> Option<(isize, isize, usize, usize)> {
+        let mut area = (0isize, 0isize, self.d.screen_width, self.d.screen_height);
+        let position = self.get_position();
+        let center = (
+            position.0 + self.width as isize / 2,
+            position.1 + self.height as isize / 2,
+        );
+        unsafe {
+            // Optional runtime library, already exposed by x11-dl. Fall back to
+            // the root screen when Xinerama is absent (no added dependency).
+            if let Ok(xinerama) = x11_dl::xinerama::Xlib::open() {
+                let mut count = 0;
+                let screens = (xinerama.XineramaQueryScreens)(self.d.display, &mut count);
+                if !screens.is_null() {
+                    let mut best_distance = isize::MAX;
+                    for screen in std::slice::from_raw_parts(screens, count.max(0) as usize) {
+                        let bounds = (
+                            screen.x_org as isize,
+                            screen.y_org as isize,
+                            screen.width.max(0) as usize,
+                            screen.height.max(0) as usize,
+                        );
+                        let dx = (bounds.0 - center.0)
+                            .max(0)
+                            .max(center.0 - (bounds.0 + bounds.2 as isize));
+                        let dy = (bounds.1 - center.1)
+                            .max(0)
+                            .max(center.1 - (bounds.1 + bounds.3 as isize));
+                        let distance = dx.saturating_add(dy);
+                        if distance < best_distance && bounds.2 > 0 && bounds.3 > 0 {
+                            area = bounds;
+                            best_distance = distance;
+                        }
+                    }
+                    (self.d.lib.XFree)(screens as *mut c_void);
+                }
+            }
+            // EWMH work area includes task bars/panels. It is desktop-wide;
+            // intersect it with the selected monitor instead of using the
+            // entire multi-monitor desktop for placement decisions.
+            let root = (self.d.lib.XDefaultRootWindow)(self.d.display);
+            let desktop = self
+                .cardinal_property(root, b"_NET_CURRENT_DESKTOP\0", 0, 1)
+                .and_then(|values| values.first().copied())
+                .unwrap_or(0);
+            if let Some(values) = self.cardinal_property(
+                root,
+                b"_NET_WORKAREA\0",
+                desktop.saturating_mul(4) as c_long,
+                4,
+            ) {
+                if values.len() == 4 {
+                    let (left, top) = (
+                        values[0] as u32 as i32 as isize,
+                        values[1] as u32 as i32 as isize,
+                    );
+                    let right = left.saturating_add(values[2] as isize);
+                    let bottom = top.saturating_add(values[3] as isize);
+                    let x = area.0.max(left);
+                    let y = area.1.max(top);
+                    let width = (area.0 + area.2 as isize).min(right) - x;
+                    let height = (area.1 + area.3 as isize).min(bottom) - y;
+                    if width > 0 && height > 0 {
+                        area = (x, y, width as usize, height as usize);
+                    }
+                }
+            }
+        }
+        (area.2 > 0 && area.3 > 0).then_some(area)
+    }
+
+    unsafe fn cardinal_property(
+        &self,
+        window: xlib::Window,
+        name: &[u8],
+        offset: c_long,
+        length: c_long,
+    ) -> Option<Vec<c_ulong>> {
+        let (mut actual_type, mut format, mut count, mut remaining) = (0, 0, 0, 0);
+        let mut data = std::ptr::null_mut();
+        let result = (self.d.lib.XGetWindowProperty)(
+            self.d.display,
+            window,
+            (self.d.lib.XInternAtom)(self.d.display, name.as_ptr() as *const c_char, xlib::False),
+            offset,
+            length,
+            xlib::False,
+            xlib::XA_CARDINAL,
+            &mut actual_type,
+            &mut format,
+            &mut count,
+            &mut remaining,
+            &mut data,
+        );
+        let value = if result == xlib::Success as i32
+            && actual_type == xlib::XA_CARDINAL
+            && format == 32
+            && !data.is_null()
+            && count <= length as u64
+        {
+            Some(std::slice::from_raw_parts(data as *const c_ulong, count as usize).to_vec())
+        } else {
+            None
+        };
+        if !data.is_null() {
+            (self.d.lib.XFree)(data as *mut c_void);
+        }
+        value
     }
 
     #[inline]
@@ -1097,7 +1357,51 @@ impl Window {
     }
 
     unsafe fn raw_process_one_event(&mut self, mut ev: xlib::XEvent) -> ProcessEventResult {
-        // FIXME: we cannot handle multiple windows here!
+        // A reparenting WM moves its outer frame during an interactive drag.
+        // Some WMs (including Openbox) send the client's synthetic configure
+        // only after release. Subscribe to that native frame as well, so the
+        // companion follows while the mouse remains down, without polling.
+        if ev.type_ == xlib::ReparentNotify && ev.reparent.window == self.handle {
+            // The event can name an old frame already destroyed by a WM
+            // restart. Query the CURRENT parent and select atomically under a
+            // brief server grab, instead of risking Xlib's fatal BadWindow.
+            // No callbacks, allocations or early returns occur while grabbed.
+            let (mut root, mut parent, mut count) = (0, 0, 0);
+            let mut children = std::ptr::null_mut();
+            (self.d.lib.XGrabServer)(self.d.display);
+            let found = (self.d.lib.XQueryTree)(
+                self.d.display,
+                self.handle,
+                &mut root,
+                &mut parent,
+                &mut children,
+                &mut count,
+            );
+            self.wm_frame = if found != 0 && parent != root {
+                parent
+            } else {
+                0
+            };
+            if self.wm_frame != 0 {
+                (self.d.lib.XSelectInput)(self.d.display, self.wm_frame, xlib::StructureNotifyMask);
+            }
+            if !children.is_null() {
+                (self.d.lib.XFree)(children as *mut c_void);
+            }
+            (self.d.lib.XUngrabServer)(self.d.display);
+            (self.d.lib.XFlush)(self.d.display);
+            // ReparentWindow can change root coordinates without a separate
+            // ConfigureNotify (notably while a WM restarts).
+            self.follow_dock_move(ev.reparent.serial);
+        }
+        if self.wm_frame != 0 && ev.any.window == self.wm_frame {
+            if ev.type_ == xlib::ConfigureNotify {
+                self.follow_dock_move(ev.configure.serial);
+            } else if ev.type_ == xlib::DestroyNotify {
+                self.wm_frame = 0;
+            }
+            return ProcessEventResult::Ok;
+        }
         if ev.any.window != self.handle {
             return ProcessEventResult::Ok;
         }
@@ -1108,6 +1412,7 @@ impl Window {
                 if ev.client_message.format == 32 /* i.e. longs */ &&
                    ev.client_message.data.get_long(0) as xlib::Atom == self.d.wm_delete_window
                 {
+                    self.detach_dock();
                     self.should_close = true;
                     return ProcessEventResult::Termination;
                 }
@@ -1147,6 +1452,11 @@ impl Window {
 
             xlib::ButtonPress => {
                 self.titlebar_dragging = false;
+                if let Some(shared) = &self.dock {
+                    let mut pair = shared.borrow_mut();
+                    let index = usize::from(self.handle == pair.child);
+                    pair.pending[index] = None;
+                }
                 if ev.button.button == xlib::Button1
                     && self.in_titlebar_drag_region(ev.button.x, ev.button.y)
                 {
@@ -1172,6 +1482,7 @@ impl Window {
             }
 
             xlib::ConfigureNotify => {
+                self.follow_dock_move(ev.configure.serial);
                 let width = ev.configure.width as u32;
                 let height = ev.configure.height as u32;
                 // ConfigureNotify also reports moves and restacking. Keep the
@@ -1187,6 +1498,43 @@ impl Window {
                         &mut self.draw_buffer,
                     )
                     .expect("todo");
+                }
+            }
+            xlib::PropertyNotify => {
+                let wm_state = self.d.intern_atom(b"WM_STATE\0", false);
+                if ev.property.atom == wm_state
+                    && self.dock.as_ref().is_some_and(|shared| {
+                        let pair = shared.borrow();
+                        pair.active && pair.child == self.handle
+                    })
+                {
+                    let (mut actual_type, mut format, mut count, mut remaining) = (0, 0, 0, 0);
+                    let mut data = std::ptr::null_mut();
+                    let status = (self.d.lib.XGetWindowProperty)(
+                        self.d.display,
+                        self.handle,
+                        wm_state,
+                        0,
+                        2,
+                        xlib::False,
+                        wm_state,
+                        &mut actual_type,
+                        &mut format,
+                        &mut count,
+                        &mut remaining,
+                        &mut data,
+                    );
+                    let iconic = status == xlib::Success as i32
+                        && format == 32
+                        && count >= 1
+                        && !data.is_null()
+                        && *(data as *const c_ulong) == ICONIC_STATE;
+                    if !data.is_null() {
+                        (self.d.lib.XFree)(data as *mut c_void);
+                    }
+                    if iconic {
+                        self.minimize();
+                    }
                 }
             }
             xlib::Expose if ev.expose.count == 0 => {
@@ -1451,6 +1799,7 @@ impl Window {
 
 impl Drop for Window {
     fn drop(&mut self) {
+        self.detach_dock();
         unsafe {
             self.free_image();
 

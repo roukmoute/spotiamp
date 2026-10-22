@@ -57,11 +57,169 @@ unsafe extern "system" {
     fn PostMessageW(window: Hwnd, message: u32, wparam: usize, lparam: isize) -> i32;
     fn GetSystemMenu(window: Hwnd, revert: i32) -> Hwnd;
     fn IsWindow(window: Hwnd) -> i32;
+    fn IsWindowVisible(window: Hwnd) -> i32;
+    fn GetWindow(window: Hwnd, command: u32) -> Hwnd;
     fn IsIconic(window: Hwnd) -> i32;
     fn IsZoomed(window: Hwnd) -> i32;
     fn ShowWindow(window: Hwnd, command: i32) -> i32;
     fn GetWindowThreadProcessId(window: Hwnd, process: *mut u32) -> u32;
     fn GetGUIThreadInfo(thread_id: u32, info: *mut GuiThreadInfo) -> i32;
+}
+
+fn dock_window(scale: Scale) -> Window {
+    Window::new(
+        "Spotiamp native docking test",
+        120,
+        80,
+        WindowOptions {
+            borderless: true,
+            title: false,
+            resize: false,
+            scale,
+            ..WindowOptions::default()
+        },
+    )
+    .expect("Windows CI must allow creating docked native windows")
+}
+
+#[test]
+fn native_docked_windows_follow_both_directions_without_frame_polling() {
+    let _serial = WINDOWS.lock().unwrap_or_else(|e| e.into_inner());
+    for scale in [Scale::X1, Scale::X2] {
+        let mut player = dock_window(scale);
+        let mut library = dock_window(scale);
+        player.set_position(-80, 45);
+        let offset = player.get_size().0 as isize;
+        let size = library.get_size();
+        library
+            .set_docked_parent(Some(&mut player), offset, 0)
+            .unwrap();
+        let main = player.get_window_handle();
+        let child = library.get_window_handle();
+        assert_eq!(
+            unsafe { GetWindow(child, 4) },
+            main,
+            "GW_OWNER groups native visibility"
+        );
+        assert_eq!(library.get_position(), (-80 + offset, 45));
+        let (_, _, width, height) = player.get_work_area().expect("monitor work area");
+        assert!(width > 0 && height > 0);
+
+        // No update() calls: ordinary native position events must move the peer
+        // synchronously, independent of the application's polling cadence.
+        player.set_position(-100, -40);
+        assert_eq!(library.get_position(), (-100 + offset, -40));
+        library.set_position(70, 90);
+        assert_eq!(player.get_position(), (70 - offset, 90));
+        assert_eq!(library.get_size(), size);
+
+        // WM_MOVING is the native modal move loop's proposed screen rectangle.
+        // The companion must move before the dragged rectangle is committed.
+        let mut proposed = Rect {
+            left: -250,
+            top: 100,
+            right: -250 + offset as i32,
+            bottom: 100 + player.get_size().1 as i32,
+        };
+        unsafe {
+            SendMessageW(main, 0x0216, 0, (&mut proposed as *mut Rect) as isize);
+        }
+        assert_eq!(library.get_position(), (-250 + offset, 100));
+        player.set_position(-250, 100);
+        proposed = Rect {
+            left: 100,
+            top: -20,
+            right: 100 + size.0 as i32,
+            bottom: -20 + size.1 as i32,
+        };
+        unsafe {
+            SendMessageW(child, 0x0216, 0, (&mut proposed as *mut Rect) as isize);
+        }
+        assert_eq!(player.get_position(), (100 - offset, -20));
+        library.set_position(100, -20);
+
+        library.minimize();
+        assert_ne!(
+            unsafe { IsIconic(main) },
+            0,
+            "minimizing either window minimizes the group"
+        );
+        assert_eq!(
+            unsafe { IsWindowVisible(child) },
+            0,
+            "owned companion hides with owner"
+        );
+        unsafe {
+            ShowWindow(main, 9);
+        } // SW_RESTORE
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline
+            && unsafe { IsWindowVisible(child) == 0 || IsIconic(main) != 0 }
+        {
+            player.update();
+            library.update();
+        }
+        assert_eq!(unsafe { IsIconic(main) }, 0);
+        assert_ne!(
+            unsafe { IsWindowVisible(child) },
+            0,
+            "restoring player restores companion"
+        );
+        let p = player.get_position();
+        assert_eq!(library.get_position(), (p.0 + offset, p.1));
+
+        library.set_docked_parent(None, 0, 0).unwrap();
+        assert!(unsafe { GetWindow(child, 4) }.is_null());
+        let detached = library.get_position();
+        player.set_position(30, 40);
+        assert_eq!(
+            library.get_position(),
+            detached,
+            "explicit detach stops following"
+        );
+    }
+}
+
+#[test]
+fn native_docking_cleans_up_closed_reopened_and_dropped_windows() {
+    let _serial = WINDOWS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut player = dock_window(Scale::X1);
+    let main = player.get_window_handle();
+    for _ in 0..3 {
+        let mut library = dock_window(Scale::X1);
+        library
+            .set_docked_parent(Some(&mut player), 120, 0)
+            .unwrap();
+        unsafe {
+            SendMessageW(library.get_window_handle(), 0x0010, 0, 0);
+        } // WM_CLOSE
+        assert!(!library.is_open());
+        assert_ne!(
+            unsafe { IsWindow(main) },
+            0,
+            "closing companion preserves player"
+        );
+        player.set_position(20, 30); // must not retain the closed/reusable HWND.
+    }
+    let mut library = dock_window(Scale::X1);
+    library
+        .set_docked_parent(Some(&mut player), -120, 15)
+        .unwrap();
+    assert_eq!(
+        library.get_position(),
+        (-100, 45),
+        "signed offsets remain signed"
+    );
+    let child = library.get_window_handle();
+    drop(player);
+    assert_ne!(
+        unsafe { IsWindow(child) },
+        0,
+        "Drop defensively detaches before native owner destruction"
+    );
+    assert!(unsafe { GetWindow(child, 4) }.is_null());
+    library.set_position(-50, -30);
+    assert_eq!(library.get_position(), (-50, -30));
 }
 
 fn window(scale: Scale) -> Window {

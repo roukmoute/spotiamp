@@ -100,6 +100,41 @@ impl Window {
         }
     }
 
+    pub fn set_docked_parent(
+        &mut self,
+        parent: Option<&mut Window>,
+        offset_x: isize,
+        offset_y: isize,
+    ) -> Result<()> {
+        match (self, parent) {
+            #[cfg(feature = "x11")]
+            (Window::X11(child), Some(Window::X11(parent))) => {
+                child.set_docked_parent(Some(parent), offset_x, offset_y)
+            }
+            #[cfg(feature = "x11")]
+            (Window::X11(child), None) => child.set_docked_parent(None, offset_x, offset_y),
+            #[cfg(feature = "wayland")]
+            (Window::Wayland(child), Some(Window::Wayland(parent))) => {
+                child.set_docked_parent(Some(parent), offset_x, offset_y)
+            }
+            #[cfg(feature = "wayland")]
+            (Window::Wayland(child), None) => child.set_docked_parent(None, offset_x, offset_y),
+            #[cfg(all(feature = "wayland", feature = "x11"))]
+            _ => Err(crate::Error::UpdateFailed(
+                "Cannot dock windows from different backends".into(),
+            )),
+        }
+    }
+
+    pub fn get_work_area(&self) -> Option<(isize, isize, usize, usize)> {
+        match self {
+            #[cfg(feature = "x11")]
+            Window::X11(window) => window.get_work_area(),
+            #[cfg(feature = "wayland")]
+            Window::Wayland(window) => window.get_work_area(),
+        }
+    }
+
     pub fn minimize(&mut self) {
         match self {
             #[cfg(feature = "x11")]

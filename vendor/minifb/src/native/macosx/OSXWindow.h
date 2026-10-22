@@ -54,6 +54,13 @@ void build_submenu(NSMenu* menu, MenuDesc* desc);
     @public NSRect titlebar_drag_region;
     @public bool titlebar_drag_enabled;
     @public bool titlebar_dragging;
+    // Non-owning pair. close/dealloc clears BOTH endpoints before either
+    // NSWindow can be released; Rust owns each native window independently.
+    @public OSXWindow* docked_parent;
+    @public OSXWindow* docked_child;
+    @public NSPoint dock_offset;
+    @public bool docking_move;
+    @public bool dock_child_hidden;
     @public int active_menu_id;
     @public int prev_cursor;
     @public MenuData* menu_data;
@@ -64,4 +71,6 @@ void build_submenu(NSMenu* menu, MenuDesc* desc);
     @public id view_controller;
     @public id keyUpMonitor;
 }
+- (void)detachDock;
+- (void)syncDockPosition;
 @end

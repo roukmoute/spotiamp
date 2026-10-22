@@ -235,51 +235,51 @@ impl View {
         for (y, version, first, second) in [
             (
                 109,
+                "0.1.7 / FENÊTRES ATTACHÉES",
+                "Bibliothèque ouverte avec le lecteur.",
+                "Déplacement et réduction des fenêtres ensemble.",
+            ),
+            (
+                142,
                 "0.1.6 / BINAIRE ALLÉGÉ",
                 "Optimisation globale, priorité à la vitesse.",
                 "Code inutilisé retiré, formats audio conservés.",
             ),
             (
-                142,
+                175,
                 "0.1.5 / ALERTE DE MISE À JOUR",
                 "L'éclair clignote en vert si une mise à jour attend.",
                 "L'infobulle indique si elle est prête à installer.",
             ),
             (
-                175,
+                208,
                 "0.1.4 / ICÔNE WINDOWS",
                 "Le S doré identifie le lecteur et sa bibliothèque.",
                 "Barre des tâches et Alt+Tab, icône intégrée.",
             ),
             (
-                208,
+                241,
                 "0.1.3 / RECONNEXION AUTOMATIQUE",
                 "Session mémorisée réutilisée au lancement.",
                 "Déconnecter efface la session enregistrée.",
             ),
             (
-                241,
+                274,
                 "0.1.2 / SHUFFLE ET REPEAT",
                 "Ordre aléatoire et répétition de la file.",
                 "Boutons classiques, voyants verts et relief.",
             ),
             (
-                274,
+                307,
                 "0.1.1 / BOUTON LECTURE",
                 "En pause : reprise à la même position.",
                 "En lecture : retour au début du morceau.",
             ),
             (
-                307,
+                340,
                 "0.1.0 / INSTALLATEUR WINDOWS",
                 "Installation par utilisateur et raccourcis.",
                 "Désinstallation et mises à jour intégrées.",
-            ),
-            (
-                340,
-                "ALPHA.8 / PLAYLISTS SPOTIFY",
-                "Bibliothèque native, playlists du compte.",
-                "Titres à la demande, lecture et ajout à la file.",
             ),
         ] {
             self.text(54, y, version, GOLD, 56);

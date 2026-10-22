@@ -874,6 +874,25 @@ impl Window {
         // move needs a live seat/button serial; do not emulate it with window positions.
     }
 
+    pub fn set_docked_parent(
+        &mut self,
+        parent: Option<&mut Window>,
+        _offset_x: isize,
+        _offset_y: isize,
+    ) -> Result<()> {
+        if parent.is_some() {
+            Err(Error::UpdateFailed(
+                "Native window docking is unavailable on Wayland".into(),
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn get_work_area(&self) -> Option<(isize, isize, usize, usize)> {
+        None
+    }
+
     pub fn minimize(&mut self) {
         self.display.toplevel.set_minimized();
         let _ = self.display.conn.flush();

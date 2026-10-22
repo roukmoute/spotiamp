@@ -238,6 +238,18 @@ et [mémoire privée résidente et commit](https://learn.microsoft.com/en-us/tro
 
 ## Mesurer sur Windows
 
+Depuis la version 0.1.7, la bibliothèque est ouverte par défaut et attachée au
+lecteur. Les mesures antérieures du lecteur seul n'incluent pas ses buffers ni
+son catalogue. Notez donc si elle est ouverte pendant chaque mesure ; fermez-la
+avec F3 ou lancez `spotiamp.exe --no-library` pour reproduire le périmètre du
+lecteur seul. L'accrochage utilise les événements de fenêtre existants, sans
+thread supplémentaire ni redessin périodique.
+
+La comparaison automatique Windows conserve cinq démarrages et deux mesures
+au repos pour chaque version, bibliothèque fermée. Elle mesure aussi le
+candidat avec ses deux fenêtres ouvertes dans un essai distinct. Tous ces
+essais CI restent hors connexion et sans lecture audio.
+
 Décompresser le paquet et ouvrir PowerShell dans son dossier :
 
 ```powershell

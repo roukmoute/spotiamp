@@ -36,6 +36,8 @@ use winapi::{
 
 const INVALID_ACCEL: usize = 0xffffffff;
 
+mod docking;
+
 // Wrap this so we can have a proper numbef of bmiColors to write in
 #[repr(C)]
 struct BitmapInfo {
@@ -220,6 +222,31 @@ unsafe extern "system" fn wnd_proc(
     let wnd: &mut WindowState = &mut *(user_data as *mut WindowState);
 
     match msg {
+        winuser::WM_MOVING => {
+            // Runs inside Windows' native modal move loop, even while the
+            // application's normal frame loop is suspended.
+            docking::follow(window, Some(&*(lparam as *const windef::RECT)));
+            return 1;
+        }
+
+        winuser::WM_WINDOWPOSCHANGED => {
+            docking::follow(window, None);
+            // DefWindowProc must still emit WM_SIZE/WM_MOVE.
+            return winuser::DefWindowProcW(window, msg, wparam, lparam);
+        }
+
+        winuser::WM_SYSCOMMAND if wparam & 0xfff0 == winuser::SC_MINIMIZE as usize => {
+            if let Some(parent) = docking::parent(window) {
+                winuser::ShowWindow(parent, winuser::SW_MINIMIZE);
+                return 0;
+            }
+        }
+
+        winuser::WM_NCDESTROY => {
+            docking::detach(window);
+            return winuser::DefWindowProcW(window, msg, wparam, lparam);
+        }
+
         // Keep the system menu and minimize/close styles, while allocating
         // the whole window to the framebuffer (no native caption or border).
         winuser::WM_NCCALCSIZE if wnd.frameless => return 0,
@@ -398,6 +425,8 @@ unsafe extern "system" fn wnd_proc(
 
         winuser::WM_CLOSE => {
             wnd.is_open = false;
+            docking::detach(window);
+            return winuser::DefWindowProcW(window, msg, wparam, lparam);
         }
 
         winuser::WM_KEYUP => {
@@ -967,10 +996,28 @@ impl Window {
 
     #[inline]
     pub fn minimize(&mut self) {
-        let window = self.hwnd;
+        let window = docking::parent(self.hwnd).unwrap_or(self.hwnd);
         unsafe {
             winuser::ShowWindow(window, winuser::SW_MINIMIZE);
         }
+    }
+
+    pub fn set_docked_parent(
+        &mut self,
+        parent: Option<&mut Window>,
+        offset_x: isize,
+        offset_y: isize,
+    ) -> Result<()> {
+        docking::attach(
+            self.hwnd,
+            parent.map(|parent| parent.hwnd),
+            offset_x,
+            offset_y,
+        )
+    }
+
+    pub fn get_work_area(&self) -> Option<(isize, isize, usize, usize)> {
+        docking::work_area(self.hwnd)
     }
 
     #[inline]
@@ -1672,6 +1719,7 @@ impl Menu {
 impl Drop for Window {
     fn drop(&mut self) {
         unsafe {
+            docking::detach(self.hwnd);
             // Clear the user-data pointer before destroying the window so any
             // message dispatched during teardown (e.g. WM_DESTROY) falls through
             // to `DefWindowProcW` instead of dereferencing freed state.

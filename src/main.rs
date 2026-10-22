@@ -3,6 +3,8 @@
 mod about_actions;
 #[cfg(feature = "spotify")]
 mod credentials;
+#[cfg(any(test, target_os = "macos"))]
+mod docking_native_tests;
 #[cfg(feature = "spotify")]
 mod engine;
 #[cfg(not(feature = "spotify"))]
@@ -19,6 +21,7 @@ mod settings;
 mod spotify_library;
 mod ui;
 mod updater;
+mod window_layout;
 #[cfg(target_os = "windows")]
 mod windows_icon;
 #[cfg(target_os = "windows")]
@@ -326,7 +329,7 @@ fn toggle_library(
     library: &mut Option<library_window::LibraryWindow>,
     close_pending: &mut bool,
     scale: Scale,
-    parent: &Window,
+    parent: &mut Window,
     engine: &engine::Engine,
     view: &mut ui::View,
 ) {
@@ -389,7 +392,9 @@ fn main() {
     };
     #[cfg(target_os = "macos")]
     if std::env::args_os().any(|arg| arg == "--test-library-windows") {
-        if let Err(error) = library_native_tests::smoke() {
+        if let Err(error) =
+            library_native_tests::smoke().and_then(|_| docking_native_tests::smoke())
+        {
             eprintln!("Spotiamp: {error}");
             std::process::exit(1);
         }
@@ -430,7 +435,7 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
         println!(concat!(
             "Spotiamp ",
             env!("CARGO_PKG_VERSION"),
-            " experimental\n--scale 2        double-size bitmap UI\n--library        open the Spotify playlist library\n--about [player|credits|shortcuts|history|updates]   open the About dialog\n--screenshot FILE.ppm   render the disconnected UI without opening a window\n--no-update-check       skip the automatic startup update check\n--quit-after SECONDS    automatic exit for reproducible idle measurements\nSpace: play/pause; Ctrl+V: paste URL; Enter: add/play; Delete: remove; F1: help; F2: About; F3: playlist library"
+            " experimental\n--scale 2        double-size bitmap UI\n--library        open the Spotify playlist library (default)\n--no-library     start with the player only; F3 opens the library\n--about [player|credits|shortcuts|history|updates]   open the About dialog\n--screenshot FILE.ppm   render the disconnected UI without opening a window\n--no-update-check       skip the automatic startup update check\n--quit-after SECONDS    automatic exit for reproducible idle measurements\nSpace: play/pause; Ctrl+V: paste URL; Enter: add/play; Delete: remove; F1: help; F2: About; F3: playlist library"
         ));
         return Ok(());
     }
@@ -493,12 +498,12 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
     let engine = engine::Engine::spawn();
     let mut library = None;
     let mut library_close_pending = false;
-    if args.iter().any(|arg| arg == "--library") {
+    if !args.iter().any(|arg| arg == "--no-library") {
         toggle_library(
             &mut library,
             &mut library_close_pending,
             scale,
-            &window,
+            &mut window,
             &engine,
             &mut view,
         );
@@ -577,7 +582,7 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
                         &mut library,
                         &mut library_close_pending,
                         scale,
-                        &window,
+                        &mut window,
                         &engine,
                         &mut view,
                     );

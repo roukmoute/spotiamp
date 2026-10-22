@@ -1,4 +1,4 @@
-//! Optional native window. Its framebuffer and input queues exist only while open.
+//! Docked native library. Its framebuffer and input queues exist only while open.
 use super::{MouseInput, TextInput, engine, library_ui, model::LibrarySnapshot};
 use minifb::{Key, KeyRepeat, MouseButton, MouseMode, Scale, Window, WindowOptions};
 use std::{cell::RefCell, rc::Rc};
@@ -21,7 +21,7 @@ pub(super) fn inside(x: f32, y: f32) -> Option<(usize, usize)> {
 }
 
 impl LibraryWindow {
-    pub fn new(scale: Scale, parent: &Window) -> Result<Self, minifb::Error> {
+    pub fn new(scale: Scale, parent: &mut Window) -> Result<Self, minifb::Error> {
         let mut window = Window::new(
             "Spotiamp — Bibliothèque Spotify",
             library_ui::WIDTH,
@@ -39,8 +39,16 @@ impl LibraryWindow {
         window.set_titlebar_drag_region(Some(library_ui::TITLEBAR_DRAG_REGION));
         // The player already paces the shared UI loop at 30 Hz.
         window.set_target_fps(0);
-        let (x, y) = parent.get_position();
-        window.set_position(x + 24, y + 24);
+        let placement = crate::window_layout::place(
+            parent.get_position(),
+            parent.get_size(),
+            window.get_size(),
+            parent.get_work_area(),
+        );
+        if parent.get_position() != placement.player {
+            parent.set_position(placement.player.0, placement.player.1);
+        }
+        window.set_docked_parent(Some(parent), placement.offset.0, placement.offset.1)?;
         let chars = Rc::new(RefCell::new(Vec::new()));
         let keys = Rc::new(RefCell::new(Vec::new()));
         let mouse = Rc::new(RefCell::new(Vec::with_capacity(16)));

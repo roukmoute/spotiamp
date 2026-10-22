@@ -581,6 +581,38 @@ void mfb_set_titlebar_drag_region(void* window, bool enabled, double x, double y
     win->titlebar_drag_enabled = enabled && width > 0 && height > 0;
 }
 
+bool mfb_set_docked_parent(void* window, void* parent, double offset_x, double offset_y) {
+    OSXWindow* child = (OSXWindow*)window;
+    OSXWindow* owner = (OSXWindow*)parent;
+    if (!child || child == owner || child->should_close || (owner && owner->should_close)) return false;
+    [child detachDock];
+    if (owner) {
+        [owner detachDock];
+        child->docked_parent = owner;
+        owner->docked_child = child;
+        child->dock_offset = NSMakePoint(offset_x, offset_y);
+        [owner syncDockPosition];
+        if ([owner isMiniaturized]) {
+            owner->dock_child_hidden = true;
+            [child orderOut:nil];
+        }
+    }
+    return true;
+}
+
+bool mfb_get_work_area(const void* window, double* x, double* y, double* width, double* height) {
+    OSXWindow* win = (OSXWindow*)window;
+    NSScreen* screen = [win screen];
+    if (!screen) screen = [NSScreen mainScreen];
+    if (!screen) return false;
+    const NSRect frame = [screen visibleFrame];
+    *x = frame.origin.x;
+    *y = transformY(NSMaxY(frame));
+    *width = frame.size.width;
+    *height = frame.size.height;
+    return true;
+}
+
 void mfb_minimize(void* window) {
     OSXWindow* win = (OSXWindow*)window;
     [win miniaturize:nil];
@@ -595,11 +627,9 @@ void mfb_get_position(const void* window, int *px, int *py) {
         *px = rectW.origin.x;
     }
     if (py != NULL) {
-        const NSScreen *screen = [win screen];
-        const NSRect wsf = [screen frame];
-        const float height = wsf.size.height;
-        const float h = rectW.size.height;
-        *py = height - ( rectW.origin.y + h ); // origin is from bottom
+        // Use the same primary-screen top-left coordinate space as set_position,
+        // including monitors above/left of the primary (negative coordinates).
+        *py = transformY(NSMaxY(rectW));
     }
 }
 

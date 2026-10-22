@@ -559,6 +559,78 @@ impl Window {
         self.0.set_position(x, y)
     }
 
+    /// Attaches this window to one companion, following moves from either
+    /// window and the parent's native minimization/restoration. Offsets use
+    /// the signed screen-coordinate units returned by `get_position` and
+    /// `get_size`, including the window's scale. Pass `None` to detach.
+    /// Only one parent/companion pair is supported. Windows, macOS and X11
+    /// implement docking; unsupported backends return an error.
+    pub fn set_docked_parent(
+        &mut self,
+        parent: Option<&mut Window>,
+        offset_x: isize,
+        offset_y: isize,
+    ) -> Result<()> {
+        #[cfg(any(
+            target_os = "windows",
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "dragonfly",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        ))]
+        {
+            self.0
+                .set_docked_parent(parent.map(|parent| &mut parent.0), offset_x, offset_y)
+        }
+        #[cfg(not(any(
+            target_os = "windows",
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "dragonfly",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        )))]
+        {
+            let _ = (parent, offset_x, offset_y);
+            Err(Error::UpdateFailed(
+                "Window docking is not supported".into(),
+            ))
+        }
+    }
+
+    /// Returns the current monitor's usable area, excluding system panels,
+    /// as `(x, y, width, height)` in the same coordinates as `get_position`.
+    /// Negative monitor origins are preserved. Unsupported backends return None.
+    pub fn get_work_area(&self) -> Option<(isize, isize, usize, usize)> {
+        #[cfg(any(
+            target_os = "windows",
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "dragonfly",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        ))]
+        {
+            self.0.get_work_area()
+        }
+        #[cfg(not(any(
+            target_os = "windows",
+            target_os = "macos",
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "dragonfly",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        )))]
+        {
+            None
+        }
+    }
+
     /// Sets the draggable title-bar rectangle `(x, y, width, height)` in buffer
     /// pixels, before [`Scale`] is applied. `None` disables custom dragging.
     /// Keep interactive controls outside this rectangle. Supported on Windows,

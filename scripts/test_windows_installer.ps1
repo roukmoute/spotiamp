@@ -61,6 +61,7 @@ $report = [ordered]@{
     installation_directory = $installDirectory
     checks = $checks
     window_icons = @()
+    window_layouts = @()
     error = $null
     cleanup_errors = @()
 }
@@ -147,6 +148,21 @@ function Wait-Window([Diagnostics.Process]$Process) {
         return $false
     }
 }
+function Wait-ReaderWindow([Diagnostics.Process]$Process, [switch]$Library) {
+    $description = if ($Library) { 'Spotify library' } else { 'Spotiamp reader' }
+    return Wait-Until "$description for PID $($Process.Id)" {
+        $Process.Refresh()
+        if ($Process.HasExited) { throw "Reader exited before showing $description`: $($Process.ExitCode)" }
+        $matches = @([SpotiampInstallerWindow]::VisibleWindows($Process.Id) | Where-Object {
+            $title = [SpotiampInstallerWindow]::WindowTitle($_)
+            if ($Library) { $title -eq 'Spotiamp — Bibliothèque Spotify' }
+            else { $title.StartsWith('Spotiamp ', [StringComparison]::Ordinal) -and $title.EndsWith(' — lecteur Spotify expérimental', [StringComparison]::Ordinal) }
+        })
+        Assert-That ($matches.Count -le 1) "Ambiguous $description windows for PID $($Process.Id)"
+        if ($matches.Count -eq 1) { return $matches[0] }
+        return $false
+    }
+}
 function Close-Reader([Diagnostics.Process]$Process) {
     # Objects obtained by PID do not initially own a native handle. Retain one
     # before WM_CLOSE so Windows can still provide the actual exit code after
@@ -154,7 +170,7 @@ function Close-Reader([Diagnostics.Process]$Process) {
     [void]$Process.Handle
     $Process.Refresh()
     if (-not $Process.HasExited) {
-        $handle = Wait-Window $Process
+        $handle = Wait-ReaderWindow $Process
         Assert-That ([SpotiampInstallerWindow]::PostMessage($handle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) 'WM_CLOSE failed'
         Wait-Success $Process 10
     }
@@ -270,31 +286,47 @@ function Assert-NativeWindowIcons([IntPtr]$Window, [string]$Label) {
     }
 }
 function Assert-ReaderWindowIcons([Diagnostics.Process]$Process, [string]$Label) {
-    $player = Wait-Window $Process
+    $player = Wait-ReaderWindow $Process
+    Assert-That ([SpotiampInstallerWindow]::WindowTitle($player) -eq "Spotiamp $ExpectedVersion — lecteur Spotify expérimental") 'Unexpected installed reader window title'
+    # Both windows now open by default. Process.MainWindowHandle may identify
+    # either one; select by PID/title and do not toggle F3 before checking it.
+    $library = Wait-ReaderWindow $Process -Library
     Assert-NativeWindowIcons $player "$Label-player"
-    Assert-That ([SpotiampInstallerWindow]::SetForegroundWindow($player)) 'Cannot focus player for F3'
-    [void](Wait-Until 'player foreground before F3' { [SpotiampInstallerWindow]::GetForegroundWindow() -eq $player })
-    # Exercise the normal native shortcut, so the lazily created library gets
-    # its own icon check. Both messages preserve real F3 scan/transition flags.
-    Assert-That ([SpotiampInstallerWindow]::PostMessage($player, 0x0100, [IntPtr]0x72, [IntPtr]0x003D0001)) 'Cannot press F3'
-    Assert-That ([SpotiampInstallerWindow]::PostMessage($player, 0x0101, [IntPtr]0x72, [IntPtr]0xC03D0001L)) 'Cannot release F3'
-    $library = Wait-Until 'Spotify library opened by F3' {
-        $Process.Refresh()
-        Assert-That (-not $Process.HasExited) 'Reader exited while opening the library'
-        foreach ($window in [SpotiampInstallerWindow]::VisibleWindows($Process.Id)) {
-            if ($window -ne $player -and [SpotiampInstallerWindow]::WindowTitle($window) -eq 'Spotiamp — Bibliothèque Spotify') { return $window }
-        }
-        return $false
-    }
-    try { Assert-NativeWindowIcons $library "$Label-library" }
-    finally {
-        if ([SpotiampInstallerWindow]::IsWindow($library)) {
-            Assert-That ([SpotiampInstallerWindow]::PostMessage($library, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) 'Cannot close the test library'
-            [void](Wait-Until 'test library destroyed' { -not [SpotiampInstallerWindow]::IsWindow($library) })
-        }
-    }
+    Assert-NativeWindowIcons $library "$Label-library"
+    Assert-AdjacentWindows $player $library "$Label-default"
+    Assert-That ([SpotiampInstallerWindow]::PostMessage($library, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) 'Cannot close the default library'
+    [void](Wait-Until 'default library destroyed' { -not [SpotiampInstallerWindow]::IsWindow($library) })
     $Process.Refresh()
     Assert-That (-not $Process.HasExited -and [SpotiampInstallerWindow]::IsWindowVisible($player)) 'Closing library also closed the player'
+    Assert-That ([SpotiampInstallerWindow]::SetForegroundWindow($player)) 'Cannot focus player for F3'
+    [void](Wait-Until 'player foreground before F3' { [SpotiampInstallerWindow]::GetForegroundWindow() -eq $player })
+    # Reopen through the actual native shortcut. Leave this second library
+    # open so Close-Reader must terminate the whole two-window application.
+    Assert-That ([SpotiampInstallerWindow]::PostMessage($player, 0x0100, [IntPtr]0x72, [IntPtr]0x003D0001)) 'Cannot press F3'
+    Assert-That ([SpotiampInstallerWindow]::PostMessage($player, 0x0101, [IntPtr]0x72, [IntPtr]0xC03D0001L)) 'Cannot release F3'
+    $library = Wait-ReaderWindow $Process -Library
+    Assert-NativeWindowIcons $library "$Label-reopened-library"
+    Assert-AdjacentWindows $player $library "$Label-reopened"
+}
+function Assert-AdjacentWindows([IntPtr]$Player, [IntPtr]$Library, [string]$Label) {
+    $placement = Wait-Until "$Label library attached to the reader" {
+        $playerRect = [SpotiampInstallerWindow+Rect]::new()
+        $libraryRect = [SpotiampInstallerWindow+Rect]::new()
+        Assert-That ([SpotiampInstallerWindow]::GetWindowRect($Player, [ref]$playerRect)) 'Cannot read player bounds'
+        Assert-That ([SpotiampInstallerWindow]::GetWindowRect($Library, [ref]$libraryRect)) 'Cannot read library bounds'
+        # A narrow CI desktop stacks the pair vertically. Both layouts must
+        # touch exactly; neither a gap nor overlapping windows is acceptable.
+        $right = $libraryRect.Left -eq $playerRect.Right -and $libraryRect.Top -eq $playerRect.Top
+        $below = $libraryRect.Top -eq $playerRect.Bottom -and $libraryRect.Left -eq $playerRect.Left
+        if (-not ($right -or $below)) { return $false }
+        return @{
+            label = $Label
+            orientation = if ($right) { 'right' } else { 'below' }
+            player = @($playerRect.Left, $playerRect.Top, $playerRect.Right, $playerRect.Bottom)
+            library = @($libraryRect.Left, $libraryRect.Top, $libraryRect.Right, $libraryRect.Bottom)
+        }
+    }
+    $report.window_layouts += $placement
 }
 function Assert-Registration([string]$Version) {
     $registration = Read-Registration
@@ -562,11 +594,11 @@ try {
     # Bounded waits below and the global finally own process cleanup. Avoid an
     # independent quit timer racing the library/icon checks on a slow runner.
     $reader = Start-Native $installedExe @('--no-update-check')
-    [void](Wait-Window $reader)
+    [void](Wait-ReaderWindow $reader)
     Assert-ApplicationMutex
     Assert-ReaderWindowIcons $reader 'installed'
     Close-Reader $reader
-    Add-Check 'Installed executable holds the application mutex; player/library small and big window icons match the gold S asset, and both windows close normally'
+    Add-Check 'Installed executable holds the application mutex; default and F3-reopened libraries are adjacent, player/library icons match the gold S asset, and closing the player exits both windows'
 
     $personalFile = Join-Path $installDirectory "my-file-$testToken.txt"
     Write-Utf8 $personalFile "personal-$testToken"
@@ -581,7 +613,7 @@ try {
     Assert-Registration $baselineInfo.app_version
     $uninstallerHash = Get-Hash $uninstaller
     $oldReader = Start-Native $installedExe @('--no-update-check')
-    [void](Wait-Window $oldReader)
+    [void](Wait-ReaderWindow $oldReader)
     $stage = Join-Path $installDirectory ".spotiamp-update-ci-$testToken"
     $package = Join-Path $stage 'package'
     [IO.Compression.ZipFile]::ExtractToDirectory($PortableZip, $package)
@@ -636,7 +668,7 @@ try {
         return $false
     }
     $running.Add($newReader)
-    [void](Wait-Window $newReader)
+    [void](Wait-ReaderWindow $newReader)
     Assert-ApplicationMutex
     Assert-ReaderWindowIcons $newReader 'updated'
     Assert-That ((Get-Hash $installedExe) -eq $currentInfo.binary_sha256) 'The native updater did not install the new executable bytes'

@@ -177,6 +177,19 @@ extern "C" {
         width: f64,
         height: f64,
     );
+    fn mfb_set_docked_parent(
+        window: *mut c_void,
+        parent: *mut c_void,
+        offset_x: f64,
+        offset_y: f64,
+    ) -> bool;
+    fn mfb_get_work_area(
+        window: *const c_void,
+        x: *mut f64,
+        y: *mut f64,
+        width: *mut f64,
+        height: *mut f64,
+    ) -> bool;
     fn mfb_minimize(window: *mut c_void);
     fn mfb_get_position(window: *const c_void, x: *mut i32, y: *mut i32);
     fn mfb_set_key_callback(
@@ -439,6 +452,34 @@ impl Window {
                 width as f64,
                 height as f64,
             );
+        }
+    }
+
+    pub fn set_docked_parent(
+        &mut self,
+        parent: Option<&mut Window>,
+        offset_x: isize,
+        offset_y: isize,
+    ) -> Result<()> {
+        let parent = parent.map_or(std::ptr::null_mut(), |window| window.window_handle);
+        if unsafe {
+            mfb_set_docked_parent(self.window_handle, parent, offset_x as f64, offset_y as f64)
+        } {
+            Ok(())
+        } else {
+            Err(Error::UpdateFailed("Cannot dock a closed window".into()))
+        }
+    }
+
+    pub fn get_work_area(&self) -> Option<(isize, isize, usize, usize)> {
+        let (mut x, mut y, mut width, mut height) = (0.0, 0.0, 0.0, 0.0);
+        if unsafe { mfb_get_work_area(self.window_handle, &mut x, &mut y, &mut width, &mut height) }
+            && width > 0.0
+            && height > 0.0
+        {
+            Some((x as isize, y as isize, width as usize, height as usize))
+        } else {
+            None
         }
     }
 

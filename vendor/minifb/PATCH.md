@@ -154,7 +154,8 @@ maximize styles, and caption double-click does not maximize it.
 of inheriting desktop-sized tracking limits; an explicit scale-2 window is not
 silently reduced on a small display. These limits are stored independently of
 the current `WM_SIZE`, which can report a minimized or initially clamped size. The window
-remains an ordinary unowned top-level window eligible for the taskbar.
+remains an ordinary unowned top-level window eligible for the taskbar until an
+application explicitly attaches it as a docked companion.
 
 `WM_NCHITTEST` decodes signed screen coordinates, converts them to client
 coordinates with `ScreenToClient`, then divides by minifb's scale. Only the
@@ -196,6 +197,66 @@ Native behavior references:
 - https://specifications.freedesktop.org/wm/latest/ar01s04.html
 - https://developer.apple.com/documentation/appkit/nswindow/performdrag(with:)
 - https://developer.apple.com/documentation/appkit/nswindow/miniaturize(_:)
+
+## Docked window pairs
+
+`set_docked_parent(Some(&mut parent), x, y)` attaches one companion at a signed
+offset from the parent's upper-left corner. Offsets and `get_work_area()` use
+native screen-coordinate units, matching `get_position()` and `get_size()`;
+applications must not apply the framebuffer scale a second time. Passing `None`
+detaches. Destruction also defensively detaches, so native handles are not retained
+after a companion closes. Unsupported backends return an explicit error.
+
+Windows uses reciprocal HWND properties containing handles and integer offsets,
+never additional Rust state pointers. `WM_MOVING` moves the other window during
+the native modal move loop; `WM_WINDOWPOSCHANGED` follows programmatic moves as
+well. A bounded per-pair reentrancy guard prevents feedback when SetWindowPos
+synchronously sends the peer's position messages. Either window can initiate a
+move. The companion is an owned top-level window (GWLP_HWNDPARENT), so minimizing
+the parent hides the companion and restoring it shows the companion again.
+Minimizing the companion forwards to the parent. Detachment restores its original
+owner. No background thread, periodic repaint or application frame is needed for
+Windows movement. `MonitorFromWindow`/`GetMonitorInfoW` report the current monitor's
+work area, preserving negative desktop coordinates.
+
+macOS follows `NSWindowDidMoveNotification` during AppKit's native drag. A small
+reentrancy guard suppresses reciprocal moves; non-owning links are cleared on
+close and deallocation, and notification observers are removed on deallocation.
+Minimization from either window routes to the parent and hides the companion;
+`NSWindowDidDeminiaturizeNotification` restores it after the native transition.
+`NSScreen.visibleFrame` supplies the usable monitor bounds. Position conversion
+uses the same primary-screen top-left origin for placement and querying.
+
+X11 follows `ConfigureNotify` on the client and its window-manager frame, and uses
+`WM_TRANSIENT_FOR` for group minimization/restoration. Observing the frame also
+covers managers that defer the client's synthetic configure event until the end
+of an interactive drag. Frame events never change the client's framebuffer size.
+Pending move serials and expected positions avoid
+feedback from asynchronous window-manager replies. The shared relation contains
+XIDs and connections, not pointers into Rust windows, and becomes inactive before
+either endpoint closes. Monitor bounds come from optional Xinerama intersected
+with the EWMH work area, falling back to the root-screen bounds. There is no timer
+or new thread; native events are processed by the existing event loop. Wayland
+does not expose global window placement and returns an explicit docking error;
+Spotiamp's Linux build uses X11, including through XWayland where available.
+
+Application-native Windows tests exercise both scales, negative positions and
+offsets, native WM_MOVING proposals without frame polling, movement in both
+directions, minimize/restore, explicit detachment, closure/reopening and parent
+destruction. The movement test sends the same WM_MOVING message as the system's
+modal drag loop; it does not synthesize a full physical pointer gesture.
+
+Native docking references:
+- https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-moving
+- https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-windowposchanged
+- https://learn.microsoft.com/en-us/windows/win32/winmsg/window-features#owned-windows
+- https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowlongptrw
+- https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getmonitorinfow
+- https://developer.apple.com/documentation/appkit/nswindow/didmovenotification
+- https://developer.apple.com/documentation/appkit/nswindow/diddeminiaturizenotification
+- https://developer.apple.com/documentation/appkit/nsscreen/visibleframe
+- https://specifications.freedesktop.org/wm-spec/latest/ar01s03.html
+- https://www.x.org/releases/current/doc/xorg-docs/icccm/icccm.html
 
 Upstream source: https://crates.io/crates/minifb/0.29.0
 Original licenses are preserved in this directory.

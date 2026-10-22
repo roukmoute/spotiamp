@@ -1,5 +1,18 @@
 # Changements
 
+## 0.1.7 — 22 octobre 2026
+
+- Bibliothèque Spotify ouverte automatiquement avec le lecteur, accolée à sa
+  droite ; placement en dessous sur les écrans trop étroits.
+- Déplacement des deux fenêtres ensemble depuis l'un ou l'autre bandeau,
+  avec réduction et restauration groupées. L'accrochage utilise les événements
+  natifs de Windows, macOS et X11, sans thread supplémentaire.
+- F3, Échap ou la croix ferment la bibliothèque en conservant la lecture ;
+  F3 depuis le lecteur la rouvre attachée. `--no-library` démarre le lecteur
+  seul et évite d'allouer les buffers de la bibliothèque.
+- Placement tenant compte de la zone utile de l'écran, des coordonnées
+  négatives des écrans secondaires et de l'échelle 2×.
+
 ## 0.1.6 — 22 octobre 2026
 
 - Optimisation globale à l’édition de liens (LTO complet), avec le niveau

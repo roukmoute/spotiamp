@@ -67,9 +67,12 @@ La différence avec Spotifast se situe aussi dans ce choix d'affichage :
 tandis que Spotiamp utilise le rendu logiciel et GDI sous Windows.
 Les [détails techniques et les mesures](PERFORMANCE.md) expliquent cette approche.
 
-La **bibliothèque de vos playlists Spotify** est accessible
-en lecture seule, dans une fenêtre au style classique. **BIBLIO. F3** ou **F3**
-l'ouvre : playlists et dossiers à gauche, titres de la playlist choisie à droite.
+La **bibliothèque de vos playlists Spotify** s'ouvre automatiquement avec le
+lecteur, dans une fenêtre au style classique **collée à sa droite**. Les deux
+fenêtres se déplacent ensemble en faisant glisser l'un de leurs bandeaux et
+se réduisent ensemble. Sur un écran trop étroit, la bibliothèque se place
+juste en dessous. **BIBLIO. F3** ou **F3** la ferme ou la rouvre : playlists
+et dossiers à gauche, titres de la playlist choisie à droite, en lecture seule.
 Le catalogue est chargé à l'ouverture et les titres seulement à la sélection.
 La découverte de bibliothèque reste à vérifier avec un compte Spotify réel ;
 ses tests automatisés fonctionnent hors connexion.
@@ -121,8 +124,8 @@ ordre est préparé à chaque tour. Sans Repeat, la lecture s'arrête à la fin.
 Avec un seul titre et Repeat activé, ce titre joue en boucle.
 Les deux modes sont désactivés au lancement et n'altèrent pas vos playlists Spotify.
 
-Pour retrouver vos playlists sans copier de lien, ouvrir **BIBLIO. F3** après
-la connexion. La fenêtre affiche les playlists enregistrées ou suivies de votre
+Pour retrouver vos playlists sans copier de lien, connectez Spotify : la
+bibliothèque déjà ouverte affiche les playlists enregistrées ou suivies de votre
 compte, avec leur dossier en sous-titre. Cliquer sur une playlist charge ses
 titres ; **Actualiser** ou **F5** recharge le catalogue Spotify.
 
@@ -148,6 +151,9 @@ Dans la bibliothèque, **Tab** ou **Gauche/Droite** change de panneau ;
 déplace d'une ligne par cran le panneau survolé. **F3**, **Échap** ou la croix
 ferme cette fenêtre. La lecture du lecteur continue ; les données de bibliothèque
 et son buffer graphique sont relâchés à la fermeture.
+**F3** depuis le lecteur la rouvre accolée à celui-ci. Pour démarrer avec le
+lecteur seul, utilisez `--no-library` ; `--library` reste accepté pour les
+raccourcis existants. Fermer le lecteur ferme également la bibliothèque.
 Les touches **Ctrl**, **F3** et les **flèches** sont réinitialisées aux changements
 de focus entre les deux fenêtres. Sous Linux, restaurer une fenêtre réduite
 réaffiche l'image conservée, même si son contenu n'a pas changé. La fermeture
@@ -157,10 +163,12 @@ Les boutons s'activent au relâchement de la souris dans le bouton pressé.
 Relâcher à l'extérieur annule le clic ; une perte de focus annule aussi l'appui.
 Les barres de volume et de position réagissent dès l'appui et pendant le glissement.
 
-Pour déplacer la fenêtre, maintenir le bouton gauche de la souris sur une zone
-libre du bandeau supérieur et la faire glisser. **Réduire** et **Fermer**, à
+Pour déplacer les fenêtres ensemble, maintenir le bouton gauche de la souris
+sur une zone libre de l'un des bandeaux supérieurs et la faire glisser.
+**Réduire** et **Fermer**, à
 droite du bandeau, remplacent les boutons du cadre système. **Alt+F4** continue
-de fermer le lecteur sous Windows. La fenêtre garde une taille fixe, à
+de fermer la fenêtre active sous Windows : la bibliothèque seule si elle a le
+focus, ou l'ensemble si le lecteur a le focus. La fenêtre garde une taille fixe, à
 l'échelle **1×** ou **2×** avec `--scale 2` ; la maximisation est désactivée.
 
 Le bouton **À propos**, près du volume, ou **F2** ouvre un panneau à cinq
@@ -301,10 +309,14 @@ une petite police bitmap : les glyphes absents sont affichés avec `?`.
 - Pas de pochettes, de visualiseur, de cache audio persistant ni de téléchargement
   des titres de toutes les playlists. Le catalogue de playlists est paginé,
   et une seule playlist est chargée pour l'affichage à la fois.
-- Fenêtre de bibliothèque créée uniquement à son ouverture. Son framebuffer,
-  le catalogue et les titres affichés sont relâchés à la fermeture ; la file
+- Bibliothèque ouverte au lancement, désactivable avec `--no-library`. Son
+  framebuffer, le catalogue et les titres affichés sont relâchés à la fermeture ; la file
   du lecteur reste indépendante. Les données partagées utilisent des `Arc` et
   une révision évite de recopier ou parcourir les titres à chaque image.
+- Accrochage des fenêtres géré par les événements natifs, sans thread ni
+  redessin périodique supplémentaire. Garder la bibliothèque ouverte consomme
+  ses buffers graphiques et les données du catalogue affiché ; les mesures du
+  lecteur seul doivent donc préciser que la bibliothèque est fermée.
 - File limitée à 500 titres, deux requêtes de métadonnées simultanées.
 - Buffer graphique réutilisé ; rendu seulement lorsque l'état visible change.
 - Pas de préchargement du morceau suivant ; cela peut introduire un silence

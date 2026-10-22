@@ -33,6 +33,8 @@ using System.Collections.Generic;
 public static class SpotiampPerformanceWindow {
     [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] public struct Point { public int X, Y; }
+    private delegate bool EnumWindowCallback(IntPtr window, IntPtr parameter);
+    [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowCallback callback, IntPtr parameter);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr window, out Rect rect);
     [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr window, out Rect rect);
     [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr window, ref Point point);
@@ -46,6 +48,26 @@ public static class SpotiampPerformanceWindow {
     [DllImport("user32.dll", EntryPoint="SendMessageTimeoutW")]
     private static extern IntPtr SendMessageTimeout(IntPtr window, uint message, IntPtr w, IntPtr l, uint flags, uint timeout, out IntPtr result);
     [DllImport("gdi32.dll")] private static extern bool BitBlt(IntPtr target, int x, int y, int width, int height, IntPtr source, int sx, int sy, uint operation);
+    public static IntPtr NamedWindow(int processId, bool library) {
+        var result = IntPtr.Zero;
+        int matchesCount = 0;
+        EnumWindows((window, parameter) => {
+            uint owner; GetWindowThreadProcessId(window, out owner);
+            if (owner != processId || !IsWindowVisible(window)) return true;
+            var text = new StringBuilder(256); GetWindowText(window, text, text.Capacity);
+            var title = text.ToString();
+            bool matches = library ? title == "Spotiamp — Bibliothèque Spotify"
+                : title.StartsWith("Spotiamp ", StringComparison.Ordinal)
+                    && title.EndsWith(" — lecteur Spotify expérimental", StringComparison.Ordinal);
+            if (matches) {
+                matchesCount++;
+                result = window;
+            }
+            return true;
+        }, IntPtr.Zero);
+        if (matchesCount > 1) throw new InvalidOperationException("Ambiguous Spotiamp window title");
+        return result;
+    }
     private static string Identity(IntPtr window) {
         var title = new StringBuilder(256); var name = new StringBuilder(256); uint pid;
         GetWindowText(window, title, title.Capacity); GetClassName(window, name, name.Capacity);
@@ -136,7 +158,8 @@ function Median($Values) {
 function Close-OwnedProcess([Diagnostics.Process]$Process) {
     if (-not $Process.HasExited) {
         $Process.Refresh()
-        if (-not [SpotiampPerformanceWindow]::PostMessage($Process.MainWindowHandle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) {
+        $player = [SpotiampPerformanceWindow]::NamedWindow($Process.Id, $false)
+        if ($player -eq [IntPtr]::Zero -or -not [SpotiampPerformanceWindow]::PostMessage($player, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) {
             throw 'Cannot close benchmark window'
         }
         if (-not $Process.WaitForExit(10000)) { throw 'Benchmark process did not close normally' }
@@ -144,17 +167,18 @@ function Close-OwnedProcess([Diagnostics.Process]$Process) {
     if ($Process.ExitCode -ne 0) { throw "Benchmark process exit code: $($Process.ExitCode)" }
 }
 $report = [ordered]@{
-    schema_version = 2
+    schema_version = 3
     recorded_at_utc = [DateTime]::UtcNow.ToString('o')
     platform = [Environment]::OSVersion.VersionString
     logical_processors = [Environment]::ProcessorCount
-    scope = 'Disconnected native UI, no playback, no update check, no Spotify account; one process at a time'
+    scope = 'Comparable reader-only startup/idle pairs; separate candidate default two-window idle. Disconnected native UI, no playback, no update check, no Spotify account; one process at a time'
     startup_note = 'Launch to painted client observed on the screen with occlusion checked; screen DC only, 5ms polling, warm filesystem cache; shared CI runner'
     memory_note = 'Working Set includes shared resident pages; Private Bytes is private committed memory. Do not add them.'
     success = $false
     executables = @{}
     startups = @()
     idle = @()
+    default_layout_idle = $null
 }
 try {
     foreach ($label in $executables.Keys) {
@@ -162,14 +186,18 @@ try {
         $report.executables[$label] = @{
             bytes = (Get-Item -LiteralPath $path).Length
             sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            comparison_arguments = if ($label -eq 'candidate') { @('--no-update-check', '--no-library') } else { @('--no-update-check') }
         }
     }
     # Five startup pairs, then two idle pairs. Alternate order to reduce cache
     # and scheduling bias; each launch receives empty private configuration.
-    for ($round = 0; $round -lt 7; $round++) {
-        $order = if ($round % 2) { @('candidate', 'baseline') } else { @('baseline', 'candidate') }
+    # The final candidate-only run measures its default two-window layout
+    # separately, without changing the reader-only comparison above.
+    for ($round = 0; $round -lt 8; $round++) {
+        $defaultLayout = $round -eq 7
+        $order = if ($defaultLayout) { @('candidate') } elseif ($round % 2) { @('candidate', 'baseline') } else { @('baseline', 'candidate') }
         foreach ($label in $order) {
-            $run = "$label-$round"
+            $run = if ($defaultLayout) { 'candidate-default-layout' } else { "$label-$round" }
             $config = Join-Path $scratch $run
             [IO.Directory]::CreateDirectory($config) | Out-Null
             $info = [Diagnostics.ProcessStartInfo]::new()
@@ -177,6 +205,7 @@ try {
             $info.WorkingDirectory = $config
             $info.UseShellExecute = $false
             $info.ArgumentList.Add('--no-update-check')
+            if ($label -eq 'candidate' -and -not $defaultLayout) { $info.ArgumentList.Add('--no-library') }
             $info.Environment['APPDATA'] = $config
             $info.Environment['LOCALAPPDATA'] = $config
             $process = $null
@@ -185,31 +214,47 @@ try {
                 $process = [Diagnostics.Process]::Start($info)
                 [void]$process.Handle
                 $painted = $false
+                $player = [IntPtr]::Zero
                 while ($clock.Elapsed.TotalSeconds -lt 15) {
                     $process.Refresh()
                     if ($process.HasExited) { throw 'Reader exited before first paint' }
-                    if ([SpotiampPerformanceWindow]::Painted($process.MainWindowHandle)) { $painted = $true; break }
+                    if ($player -eq [IntPtr]::Zero) { $player = [SpotiampPerformanceWindow]::NamedWindow($process.Id, $false) }
+                    if ([SpotiampPerformanceWindow]::Painted($player)) { $painted = $true; break }
                     Start-Sleep -Milliseconds 5
                 }
                 if (-not $painted) {
-                    Save-WindowDiagnostic $process.MainWindowHandle "$run-before-activation"
+                    Save-WindowDiagnostic $player "$run-before-activation"
                     # Diagnostic only: an activated window never rescues a failed measurement.
-                    [void][SpotiampPerformanceWindow]::SetForegroundWindow($process.MainWindowHandle)
+                    [void][SpotiampPerformanceWindow]::SetForegroundWindow($player)
                     Start-Sleep -Milliseconds 300
-                    Save-WindowDiagnostic $process.MainWindowHandle "$run-after-activation"
+                    Save-WindowDiagnostic $player "$run-after-activation"
                     throw "No painted reader observed within 15 seconds: $run"
                 }
                 $startup = $clock.Elapsed.TotalMilliseconds
-                if ($round -eq 0) { Save-WindowDiagnostic $process.MainWindowHandle "$run-painted" }
+                if ($round -eq 0 -or $defaultLayout) { Save-WindowDiagnostic $player "$run-painted" }
+                if ($defaultLayout) {
+                    $library = [IntPtr]::Zero
+                    $libraryClock = [Diagnostics.Stopwatch]::StartNew()
+                    while ($libraryClock.Elapsed.TotalSeconds -lt 15) {
+                        $process.Refresh()
+                        if ($process.HasExited) { throw 'Reader exited before opening its default library' }
+                        $library = [SpotiampPerformanceWindow]::NamedWindow($process.Id, $true)
+                        if ($library -ne [IntPtr]::Zero) { break }
+                        Start-Sleep -Milliseconds 20
+                    }
+                    if ($library -eq [IntPtr]::Zero) { throw 'Default Spotify library did not open' }
+                    Save-WindowDiagnostic $library "$run-library"
+                }
                 if ($round -lt 5) {
                     $report.startups += @{ label = $label; round = $round; milliseconds = $startup }
                 } else {
                     $result = Join-Path $OutputDirectory "$run-idle.json"
-                    & (Join-Path $PSScriptRoot 'measure-windows.ps1') -TargetProcessId $process.Id -Scenario idle -Seconds 30 -WarmupSeconds 10 -IntervalMs 500 -OutputPath $result
+                    $seconds = if ($defaultLayout) { 20 } else { 30 }
+                    & (Join-Path $PSScriptRoot 'measure-windows.ps1') -TargetProcessId $process.Id -Scenario idle -Seconds $seconds -WarmupSeconds 10 -IntervalMs 500 -OutputPath $result
                     $idle = Get-Content -LiteralPath $result -Raw | ConvertFrom-Json
-                    if ($idle.completion -ne 'duration_elapsed' -or $idle.sample_count -lt 55) { throw 'Incomplete idle measurement' }
+                    if ($idle.completion -ne 'duration_elapsed' -or $idle.sample_count -lt ($seconds * 2 - 5)) { throw 'Incomplete idle measurement' }
                     $first = $idle.samples[0]; $last = $idle.samples[-1]
-                    $report.idle += @{
+                    $measurement = @{
                         label = $label; round = $round; samples = $idle.sample_count
                         working_set_median_bytes = $idle.summary.working_set_bytes.median_bytes
                         private_median_bytes = $idle.summary.private_bytes.median_bytes
@@ -217,6 +262,15 @@ try {
                         measured_seconds = $last.elapsed_seconds - $first.elapsed_seconds
                         threads = @($idle.samples.threads | Sort-Object -Unique)
                         raw_file = [IO.Path]::GetFileName($result)
+                    }
+                    if ($defaultLayout) {
+                        if ([SpotiampPerformanceWindow]::NamedWindow($process.Id, $true) -ne $library) { throw 'Default library disappeared during idle measurement' }
+                        $measurement.arguments = @('--no-update-check')
+                        $measurement.window_count = 2
+                        $report.default_layout_idle = $measurement
+                    } else {
+                        if ([SpotiampPerformanceWindow]::NamedWindow($process.Id, $true) -ne [IntPtr]::Zero) { throw 'Reader-only comparison unexpectedly opened the library' }
+                        $report.idle += $measurement
                     }
                 }
                 Close-OwnedProcess $process
