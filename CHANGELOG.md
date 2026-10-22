@@ -1,5 +1,22 @@
 # Changements
 
+## 0.2.4 — 22 octobre 2026
+
+- Pendant la lecture ou un chargement, les changements explicites de titre
+  affichent immédiatement la sélection et regroupent les demandes : après
+  200 ms sans nouveau choix, seul le dernier est chargé. Le premier lancement
+  à l'arrêt et l'avance naturelle restent immédiats ; Pause et Arrêt restent
+  disponibles.
+- Les anciens chargements reçoivent une annulation lors d'un remplacement ou
+  d'un arrêt. La fermeture libère les récepteurs avant d'attendre les tâches,
+  et le suivi des tâches évite de perdre un chargement terminé simultanément.
+  L'annulation est coopérative : elle n'interrompt pas une section synchrone
+  de décodage ou de recherche de position déjà en cours.
+- Les boutons de lecture conservent les clics lorsque la file se recentre
+  pendant l'appui. Les clics sur une ancienne ligne de file restent protégés.
+- Une seule demande de lecture différée est conservée, sans nouveau thread
+  ni sondage périodique.
+
 ## 0.2.3 — 22 octobre 2026
 
 - La molette fait défiler la liste survolée dans le lecteur ou la bibliothèque,

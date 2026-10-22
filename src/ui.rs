@@ -127,6 +127,13 @@ enum Button {
 
 impl Button {
     const TITLEBAR: [Self; 3] = [Self::Help, Self::Minimize, Self::Close];
+    const TRANSPORT: [Self; 5] = [
+        Self::Previous,
+        Self::Play,
+        Self::Pause,
+        Self::Stop,
+        Self::Next,
+    ];
 
     const ALL: [Self; 19] = [
         Self::Skin(Skin::Classic),
@@ -309,9 +316,17 @@ impl View {
         else {
             return false;
         };
-        // A captured action or old double-click must not target a different row
-        // after changing the selection and the visible portion of the queue.
+        // Row actions and double-clicks must not target the newly followed row.
+        // The fixed transport buttons retain their meaning across a track change.
+        let transport = self
+            .pressed_button
+            .filter(|b| Button::TRANSPORT.contains(b));
+        let hovered = self.hovered_button;
         self.cancel_pointer();
+        if transport.is_some() {
+            self.pressed_button = transport;
+            self.hovered_button = hovered;
+        }
         self.last_click = None;
         self.scroll_remainder = 0.0;
         self.selected = Some(index);
@@ -539,6 +554,18 @@ impl View {
             return None;
         }
         self.click(x, y, s)
+    }
+
+    pub fn transport_pointer_down(&mut self, x: usize, y: usize, s: &Snapshot) {
+        if !self.help
+            && self.about.is_none()
+            && Button::at(x, y, None, &self.update)
+                .is_some_and(|button| Button::TRANSPORT.contains(&button))
+        {
+            self.pointer_down(x, y, s);
+        } else {
+            self.cancel_pointer();
+        }
     }
 
     pub fn pointer_move(&mut self, position: Option<(usize, usize)>) {

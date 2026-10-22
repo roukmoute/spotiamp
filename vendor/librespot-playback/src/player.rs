@@ -9,8 +9,8 @@ use std::{
     process::exit,
     sync::Mutex,
     sync::{
-        Arc,
         atomic::{AtomicUsize, Ordering},
+        Arc,
     },
     task::{Context, Poll},
     thread,
@@ -24,15 +24,15 @@ use crate::{
     audio_backend::Sink,
     config::{Bitrate, NormalisationMethod, NormalisationType, PlayerConfig},
     convert::Converter,
-    core::{Error, Session, SpotifyId, SpotifyUri, util::SeqGenerator},
+    core::{util::SeqGenerator, Error, Session, SpotifyId, SpotifyUri},
     decoder::{AudioDecoder, AudioPacket, AudioPacketPosition, SymphoniaDecoder},
-    local_file::{LocalFileLookup, create_local_file_lookup},
+    local_file::{create_local_file_lookup, LocalFileLookup},
     metadata::audio::{AudioFileFormat, AudioFiles, AudioItem},
     mixer::VolumeGetter,
 };
 use futures_util::{
-    StreamExt, TryFutureExt, future, future::FusedFuture,
-    stream::futures_unordered::FuturesUnordered,
+    future, future::FusedFuture, stream::futures_unordered::FuturesUnordered, StreamExt,
+    TryFutureExt,
 };
 use librespot_metadata::{audio::UniqueFields, track::Tracks};
 
@@ -51,6 +51,48 @@ pub const PCM_AT_0DBFS: f64 = 1.0;
 const SPOTIFY_OGG_HEADER_END: u64 = 0xa7;
 
 const LOAD_HANDLES_POISON_MSG: &str = "load handles mutex should not be poisoned";
+
+type LoadHandles = Arc<Mutex<HashMap<thread::ThreadId, thread::JoinHandle<()>>>>;
+
+async fn complete_load<T>(
+    mut result_tx: oneshot::Sender<T>,
+    load: impl Future<Output = Option<T>>,
+) {
+    let data = {
+        // select polls its first future first: an already-cancelled request
+        // must not start network work. Reuse the existing oneshot, with no
+        // extra task, timer, channel or Tokio feature requirement.
+        let cancelled = std::pin::pin!(result_tx.closed());
+        let load = std::pin::pin!(load);
+        match future::select(cancelled, load).await {
+            future::Either::Left(_) => return,
+            future::Either::Right((data, _)) => data,
+        }
+    };
+    if let Some(data) = data {
+        let _ = result_tx.send(data);
+    }
+}
+
+fn spawn_load<T: Send + 'static>(
+    handles: &LoadHandles,
+    load: impl Future<Output = Option<T>> + Send + 'static,
+) -> oneshot::Receiver<T> {
+    let (result_tx, result_rx) = oneshot::channel();
+    let handles_clone = handles.clone();
+    let runtime = tokio::runtime::Handle::current();
+
+    // A cancelled/ready future can finish immediately. Hold the inventory lock
+    // across spawn+insert so its cleanup cannot run before registration.
+    let mut handles = handles.lock().expect(LOAD_HANDLES_POISON_MSG);
+    let load_handle = thread::spawn(move || {
+        runtime.block_on(complete_load(result_tx, load));
+        let mut handles = handles_clone.lock().expect(LOAD_HANDLES_POISON_MSG);
+        handles.remove(&thread::current().id());
+    });
+    handles.insert(load_handle.thread().id(), load_handle);
+    result_rx
+}
 
 pub type PlayerResult = Result<(), Error>;
 
@@ -72,7 +114,7 @@ struct PlayerInternal {
     session: Session,
     config: PlayerConfig,
     commands: mpsc::UnboundedReceiver<PlayerCommand>,
-    load_handles: Arc<Mutex<HashMap<thread::ThreadId, thread::JoinHandle<()>>>>,
+    load_handles: LoadHandles,
 
     state: PlayerState,
     preload: PlayerPreload,
@@ -2448,23 +2490,9 @@ impl PlayerInternal {
             local_file_lookup: self.local_file_lookup.clone(),
         };
 
-        let (result_tx, result_rx) = oneshot::channel();
-
-        let load_handles_clone = self.load_handles.clone();
-        let handle = tokio::runtime::Handle::current();
-
-        let load_handle = thread::spawn(move || {
-            let data = handle.block_on(loader.load_track(spotify_uri, position_ms));
-            if let Some(data) = data {
-                let _ = result_tx.send(data);
-            }
-
-            let mut load_handles = load_handles_clone.lock().expect(LOAD_HANDLES_POISON_MSG);
-            load_handles.remove(&thread::current().id());
+        let result_rx = spawn_load(&self.load_handles, async move {
+            loader.load_track(spotify_uri, position_ms).await
         });
-
-        let mut load_handles = self.load_handles.lock().expect(LOAD_HANDLES_POISON_MSG);
-        load_handles.insert(load_handle.thread().id(), load_handle);
 
         result_rx.map_err(|_| ())
     }
@@ -2495,6 +2523,11 @@ impl PlayerInternal {
 impl Drop for PlayerInternal {
     fn drop(&mut self) {
         debug!("drop PlayerInternal[{}]", self.player_id);
+
+        // Close the result receivers before joining: keeping Loading alive
+        // here would prevent cooperative cancellation of its async work.
+        self.state = PlayerState::Stopped;
+        self.preload = PlayerPreload::None;
 
         let handles: Vec<thread::JoinHandle<()>> = {
             // waiting for the thread while holding the mutex would result in a deadlock
@@ -2699,6 +2732,10 @@ where
         Some(self.length)
     }
 }
+
+#[cfg(test)]
+#[path = "player/load_cancellation_tests.rs"]
+mod load_cancellation_tests;
 
 #[cfg(test)]
 mod quality_tests {

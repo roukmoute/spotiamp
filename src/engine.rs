@@ -44,6 +44,7 @@ mod transport_tests;
 
 pub const MAX_QUEUE: usize = 500;
 const NETWORK_TIMEOUT: Duration = Duration::from_secs(20);
+const LOAD_SETTLE_TIME: Duration = Duration::from_millis(200);
 
 // Keep transport decisions testable at the actual player-call boundary without
 // opening audio, authenticating, or adding another runtime to the application.
@@ -174,6 +175,13 @@ enum Update {
     },
 }
 
+struct DeferredLoad {
+    uri: SpotifyUri,
+    quality: AudioQuality,
+    position_ms: u32,
+    deadline: tokio::time::Instant,
+}
+
 struct Worker {
     state: Arc<Mutex<Snapshot>>,
     library: library::State,
@@ -195,6 +203,7 @@ struct Worker {
     // a delayed Playing/Paused event reverse a newer button press's intent.
     wants_playback: bool,
     loading_audio: bool,
+    deferred_load: Option<DeferredLoad>,
     order: order::Order,
     pending_loads: usize,
     request_id: Option<u64>,
@@ -227,6 +236,7 @@ impl Worker {
             stopped: true,
             wants_playback,
             loading_audio: false,
+            deferred_load: None,
             order: order::Order::default(),
             pending_loads: 0,
             request_id: None,
@@ -245,6 +255,8 @@ impl Worker {
         health.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             tokio::select! {
+                // Drain already-queued input before an expired debounce timer.
+                biased;
                 command = commands.recv() => {
                     match command {
                         None | Some(Command::Shutdown) => break,
@@ -255,6 +267,9 @@ impl Worker {
                 event = receive_event(&mut self.events) => {
                     if let Some(event) = event { self.player_event(event); }
                     else { self.events = None; }
+                }
+                _ = wait_for_load(self.deferred_load.as_ref().map(|load| load.deadline)) => {
+                    self.dispatch_due_load(tokio::time::Instant::now());
                 }
                 _ = health.tick() => {
                     let audio_error = self.audio_error.lock().ok().and_then(|mut error| error.take());
@@ -422,7 +437,11 @@ impl Worker {
                     } else if self.stopped {
                         self.play(snapshot.current.unwrap_or(0));
                     } else {
-                        player.play();
+                        // A queued selection has no decoder yet. Remember the
+                        // intent without resuming the previous track instead.
+                        if self.deferred_load.is_none() {
+                            player.play();
+                        }
                         self.wants_playback = true;
                     }
                 } else {
@@ -440,9 +459,12 @@ impl Worker {
             Command::Next => self.next(PlaybackOrigin::Explicit),
             Command::Previous => self.previous(),
             Command::Seek(position) => {
-                if let Some(player) = &self.player {
-                    let duration = self.snapshot().duration_ms;
-                    player.seek(position.min(duration));
+                let position = position.min(self.snapshot().duration_ms);
+                if let Some(load) = &mut self.deferred_load {
+                    load.position_ms = position;
+                    edit(&self.state, |s| s.position_ms = position);
+                } else if let Some(player) = &self.player {
+                    player.seek(position);
                 }
             }
             Command::Volume(volume) => {
@@ -622,19 +644,29 @@ impl Worker {
         let Some(row) = snapshot.queue.get(index) else {
             return false;
         };
-        let Some(player) = &self.player else {
+        if self.player.is_none() {
             edit(&self.state, |s| {
                 s.status = "Connectez Spotify pour lire la file".into()
             });
             return false;
-        };
+        }
         if let Ok(uri) = SpotifyUri::from_uri(&row.uri) {
-            // Each load is acknowledged by PlayRequestIdChanged. Until the
-            // newest load is acknowledged, ignore older events, even when both
-            // queue rows contain the same Spotify URI.
-            self.pending_loads += 1;
-            self.load_quality = snapshot.quality;
-            player.load_with_bitrate(uri.clone(), true, 0, requested_bitrate(self.load_quality));
+            let immediate =
+                self.stopped || self.current_uri.is_none() || origin == PlaybackOrigin::Automatic;
+            let now = tokio::time::Instant::now();
+            // Navigation remains immediate in the queue, while only the last
+            // selection in a burst reaches the network/audio loader.
+            self.deferred_load = Some(DeferredLoad {
+                uri: uri.clone(),
+                quality: snapshot.quality,
+                position_ms: 0,
+                deadline: now
+                    + if immediate {
+                        Duration::ZERO
+                    } else {
+                        LOAD_SETTLE_TIME
+                    },
+            });
             self.current_uri = Some(uri);
             self.stopped = false;
             self.wants_playback = true;
@@ -648,9 +680,34 @@ impl Worker {
                 s.playing = false;
                 s.status = "Chargement audio...".into();
             });
+            self.dispatch_due_load(now);
             return true;
         }
         false
+    }
+
+    fn dispatch_due_load(&mut self, now: tokio::time::Instant) {
+        if !self
+            .deferred_load
+            .as_ref()
+            .is_some_and(|load| load.deadline <= now)
+        {
+            return;
+        }
+        let load = self.deferred_load.take().unwrap();
+        if let Some(player) = &self.player {
+            // Count only actual loads: coalesced selections produce no ACK.
+            // Older events stay blocked until every dispatched Load is ACKed,
+            // including duplicates of the same Spotify URI.
+            self.pending_loads += 1;
+            self.load_quality = load.quality;
+            player.load_with_bitrate(
+                load.uri,
+                self.wants_playback,
+                load.position_ms,
+                requested_bitrate(load.quality),
+            );
+        }
     }
 
     fn press_play(&mut self, start_index: usize) {
@@ -658,7 +715,9 @@ impl Worker {
             self.play(start_index);
         } else if let Some(player) = &self.player {
             if !self.wants_playback {
-                player.play();
+                if self.deferred_load.is_none() {
+                    player.play();
+                }
                 self.wants_playback = true;
             } else if !self.loading_audio {
                 // Seeking keeps the loaded decoder and its requested quality.
@@ -709,7 +768,12 @@ impl Worker {
             return;
         };
         if snapshot.position_ms > 3_000 && !self.stopped {
-            player.seek(0);
+            if let Some(load) = &mut self.deferred_load {
+                load.position_ms = 0;
+                edit(&self.state, |s| s.position_ms = 0);
+            } else {
+                player.seek(0);
+            }
             edit(&self.state, |s| {
                 s.playback_revision = s.playback_revision.wrapping_add(1);
                 s.playback_origin = PlaybackOrigin::Explicit;
@@ -750,6 +814,7 @@ impl Worker {
     }
 
     fn stop(&mut self) {
+        self.deferred_load = None;
         self.stopped = true;
         self.wants_playback = false;
         self.loading_audio = false;
@@ -783,6 +848,7 @@ impl Worker {
         let active = |uri: &SpotifyUri| {
             self.current_uri.as_ref() == Some(uri)
                 && !self.stopped
+                && self.deferred_load.is_none()
                 && self.pending_loads == 0
                 && (event_request.is_none() || event_request == self.request_id)
         };
@@ -924,6 +990,13 @@ impl Worker {
 async fn receive_event(events: &mut Option<PlayerEventChannel>) -> Option<PlayerEvent> {
     match events {
         Some(events) => events.recv().await,
+        None => std::future::pending().await,
+    }
+}
+
+async fn wait_for_load(deadline: Option<tokio::time::Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(deadline).await,
         None => std::future::pending().await,
     }
 }

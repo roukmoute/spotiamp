@@ -1,6 +1,6 @@
 [package]
 name = "spotiamp"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2024"
 rust-version = "1.89"
 description = "A small native, classic-style Spotify player — experimental"
@@ -39,6 +39,10 @@ tokio = { version = "1", features = ["rt", "sync", "time", "net", "macros"], opt
 serde_json = { version = "1", optional = true }
 url = { version = "2", optional = true }
 rodio = { version = "0.21", default-features = false, features = ["playback"], optional = true }
+
+[dev-dependencies]
+# Virtual time for transport scheduling tests; excluded from release builds.
+tokio = { version = "1", features = ["test-util"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3.6.3", default-features = false, features = ["windows-native"], optional = true }

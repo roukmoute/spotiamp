@@ -55,8 +55,8 @@ jobs:
         run: python scripts/generate_windows_icon.py --check
       - name: Test
         run: cargo test --locked --target ${{ matrix.target }}
-      - name: Test playback quality changes
-        run: cargo test --locked -p librespot-playback --lib quality_tests --target ${{ matrix.target }}
+      - name: Test playback quality and cancelled loads
+        run: cargo test --locked -p librespot-playback --lib --target ${{ matrix.target }}
       - name: Test native X11 window controls, pointer and wheel events
         if: runner.os == 'Linux'
         run: LC_ALL=C XMODIFIERS=@im=none xvfb-run -a cargo test --locked --bin spotiamp --target ${{ matrix.target }} x11_ -- --ignored --test-threads=1

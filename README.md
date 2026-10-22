@@ -128,6 +128,15 @@ ainsi que sa qualité audio. Après **Arrêt**, le bouton démarre le titre sél
 Un double-clic sur une ligne ou **Entrée** lance explicitement ce titre depuis
 le début. **Pause (Ⅱ)** et **Espace** alternent entre pause et reprise.
 
+Pendant la lecture ou un chargement, la navigation affiche immédiatement le
+titre choisi. Le moteur attend **200 ms sans nouveau choix** avant de charger
+le dernier demandé : plusieurs clics rapides sur **Suivant** ne lancent donc
+pas tous les titres intermédiaires. Le premier lancement à l'arrêt et l'avance
+naturelle vers le titre suivant restent immédiats. **Pause** et **Arrêt**
+restent disponibles ; les chargements remplacés ou arrêtés sont annulés lorsque
+leur exécution le permet. Un recentrage de la file pendant l'appui n'annule
+pas les clics sur les boutons de lecture.
+
 Les boutons **Shuffle** et **Repeat (↻)** se trouvent après **Suivant**.
 Un voyant vert indique qu'un mode est actif ; cliquer à nouveau le désactive.
 **Shuffle** parcourt les titres dans un ordre mélangé, sans rejouer une entrée

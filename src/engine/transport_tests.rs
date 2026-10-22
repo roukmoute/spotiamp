@@ -1,6 +1,9 @@
 use super::*;
 use crate::model::{LibraryCommand, PlaylistEntry, PlaylistId};
 
+#[path = "load_tests.rs"]
+mod load_tests;
+
 #[derive(Debug, PartialEq)]
 enum Call {
     Load(SpotifyUri, bool, u32, Bitrate),
@@ -74,6 +77,11 @@ fn worker(playing: bool) -> (Worker, Arc<RecordingPlayer>) {
 fn send(worker: &mut Worker, command: Command) {
     let (updates, _) = mpsc::channel(1);
     worker.command(command, &updates);
+    // These existing transport/order tests model separated user actions. The
+    // burst/timer tests below leave the real debounce window unflushed.
+    if let Some(load) = &worker.deferred_load {
+        worker.dispatch_due_load(load.deadline);
+    }
 }
 
 fn event(worker: &mut Worker, playing: bool) {

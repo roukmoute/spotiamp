@@ -144,9 +144,50 @@ fn process_frame_input(
     let playback_started = view.sync_playback(snapshot);
     view.set_focus(input.active);
     if playback_started {
-        // Native callbacks were collected while the old queue was visible.
-        // Paint the followed row before accepting another batch, so a queued
-        // click/Delete/Enter cannot be redirected to the new selection.
+        // Queue callbacks were collected before following the new row. Only
+        // fixed transport controls remain safe: rapid Next and Stop presses
+        // must not disappear simply because a new selection just arrived.
+        if input.active
+            && view.about.is_none()
+            && !view.help
+            && !input.keys.iter().any(|(key, _, _)| {
+                matches!(
+                    key,
+                    Key::F1 | Key::F2 | Key::F3 | Key::F4 | Key::Escape | Key::Tab
+                )
+            })
+        {
+            let allow_space = !view.input_active;
+            for &event in input.mouse {
+                match event {
+                    MouseInput::Button {
+                        button: MouseButton::Left,
+                        down,
+                        x,
+                        y,
+                    } => {
+                        let position = inside_window(x, y);
+                        if down {
+                            if let Some((x, y)) = position {
+                                view.transport_pointer_down(x, y, snapshot);
+                            } else {
+                                view.cancel_pointer();
+                            }
+                        } else if let Some(action) = view.pointer_up(position, snapshot) {
+                            actions.push(action);
+                        }
+                    }
+                    MouseInput::Cancel => view.cancel_pointer(),
+                    _ => {}
+                }
+            }
+            view.pointer_move(input.pointer.and_then(|(x, y)| inside_window(x, y)));
+            if allow_space && input.keys.iter().any(|(key, _, _)| *key == Key::Space) {
+                actions.push(ui::Action::Send(Command::Toggle));
+            }
+        } else {
+            view.cancel_pointer();
+        }
         return;
     }
     if !input.active {

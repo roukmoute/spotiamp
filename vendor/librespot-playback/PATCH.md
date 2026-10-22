@@ -45,10 +45,43 @@ or seek. Run them from the Spotiamp project root (they are dependency tests and
 are not included by a plain root `cargo test`):
 
 ```sh
-cargo test -p librespot-playback --lib quality_tests
+cargo test -p librespot-playback --lib
 ```
 
 The tests do not connect to Spotify or verify which audio format Spotify serves.
+
+## Abandoned track loads
+
+Upstream creates a dedicated thread for each track loader and returns only its
+oneshot result receiver to `PlayerState::Loading`. Replacing that state previously
+dropped the receiver while the old thread continued its metadata, CDN, audio-key
+and decoder work. Rapid navigation could therefore leave several unwanted loads
+running concurrently; the receiver alone did not cancel them.
+
+The existing loader thread now races its load future against the existing Tokio
+oneshot sender's `closed()` future. The cancellation future is polled first by
+`futures_util::future::select`, so an already-abandoned load does not start work.
+Dropping a loading state, replacing a preload or stopping the player cancels
+outstanding asynchronous waits at the next yield. No extra thread, timer, channel,
+buffer or dependency is introduced. Synchronous stream reads, decoder setup and
+seeks remain non-preemptible; this does **not** promise instantaneous cancellation
+inside those sections or cancel bytes already sent to Spotify.
+
+The loader-handle inventory lock is held across spawn and insertion. This closes
+the pre-existing race in which an immediately completed thread removed its entry
+before it had been inserted, leaving a finished handle behind. Player destruction
+drops both loading-state and preload receivers before draining/joining the loader
+threads, and never joins while holding the inventory lock.
+
+Offline tests execute the production cancellation bridge on real loader threads:
+already-closed receivers skip work, a dropped receiver wakes a pending load,
+successful and failed loads keep their result semantics, replacement and Stop
+discard only abandoned work, and PlayerInternal destruction releases both a load
+and preload before joining. A real failed result still emits one `Unavailable`
+event with its request ID; cancellation of an obsolete receiver does not emit
+one. Tests use controlled futures and a sink that rejects audio, without network
+requests or a Spotify account. Authenticated server behavior and the cause of a
+particular upstream `Unavailable` error still require playback logs.
 
 Upstream commit recorded by the published crate:
 `d36f9f1907e8cc9d68a93f8ebc6b627b1bf7267d` (subdirectory `playback`).
