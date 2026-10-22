@@ -224,15 +224,29 @@ mod windows_native {
 
     const WM_MOUSEWHEEL: u32 = 0x020A;
 
+    #[repr(C)]
+    struct Point {
+        x: i32,
+        y: i32,
+    }
+
     #[link(name = "user32")]
     unsafe extern "system" {
         fn PostMessageW(window: *mut c_void, message: u32, wparam: usize, lparam: isize) -> i32;
+        fn ClientToScreen(window: *mut c_void, point: *mut Point) -> i32;
     }
 
     fn post_wheel(window: &Window, delta: i16) {
         // Win32 packs the signed wheel delta into the high WORD of WPARAM.
         let wparam = usize::from(delta as u16) << 16;
-        let result = unsafe { PostMessageW(window.get_window_handle(), WM_MOUSEWHEEL, wparam, 0) };
+        let mut point = Point { x: 16, y: 16 };
+        assert_ne!(
+            unsafe { ClientToScreen(window.get_window_handle(), &mut point) },
+            0
+        );
+        let lparam = (point.x as u16 as u32 | ((point.y as u16 as u32) << 16)) as isize;
+        let result =
+            unsafe { PostMessageW(window.get_window_handle(), WM_MOUSEWHEEL, wparam, lparam) };
         assert_ne!(
             result,
             0,

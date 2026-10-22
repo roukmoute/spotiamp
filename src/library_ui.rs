@@ -518,10 +518,14 @@ impl View {
     }
     pub fn scroll(&mut self, y: f32, position: Option<(usize, usize)>, s: &LibrarySnapshot) {
         self.sync(s);
-        if !self.focused || !y.is_finite() {
+        if !y.is_finite() {
             return;
         }
-        let left = position.map_or(self.left_focus, |(x, _)| x < 238);
+        let left = match position {
+            Some((x, y)) if (12..230).contains(&x) && (90..427).contains(&y) => true,
+            Some((x, y)) if (246..746).contains(&x) && (119..384).contains(&y) => false,
+            _ => return,
+        };
         let len = if left {
             s.entries.len()
         } else if self.tracks_ready(s) {

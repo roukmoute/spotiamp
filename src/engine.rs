@@ -28,7 +28,7 @@ use tokio::{
 pub use crate::model::{Command, Snapshot, TrackRow};
 use crate::{
     credentials,
-    model::{AudioQuality, LibrarySnapshot},
+    model::{AudioQuality, LibrarySnapshot, PlaybackOrigin},
     settings,
 };
 
@@ -437,7 +437,7 @@ impl Worker {
             }
             Command::ToggleRepeat => edit(&self.state, |s| s.repeat = !s.repeat),
             Command::Stop => self.stop(),
-            Command::Next => self.next(),
+            Command::Next => self.next(PlaybackOrigin::Explicit),
             Command::Previous => self.previous(),
             Command::Seek(position) => {
                 if let Some(player) = &self.player {
@@ -611,13 +611,13 @@ impl Worker {
     }
 
     fn play(&mut self, index: usize) {
-        if self.load(index) {
+        if self.load(index, PlaybackOrigin::Explicit) {
             // Explicit selection starts a new cycle anchored at that row.
             self.reset_order(Some(index));
         }
     }
 
-    fn load(&mut self, index: usize) -> bool {
+    fn load(&mut self, index: usize, origin: PlaybackOrigin) -> bool {
         let snapshot = self.snapshot();
         let Some(row) = snapshot.queue.get(index) else {
             return false;
@@ -642,6 +642,7 @@ impl Worker {
             edit(&self.state, |s| {
                 s.current = Some(index);
                 s.playback_revision = s.playback_revision.wrapping_add(1);
+                s.playback_origin = origin;
                 s.position_ms = 0;
                 s.duration_ms = row.duration_ms;
                 s.playing = false;
@@ -664,13 +665,14 @@ impl Worker {
                 // Repeated Play while Loading must not restart network work.
                 player.seek(0);
                 edit(&self.state, |s| {
-                    s.playback_revision = s.playback_revision.wrapping_add(1)
+                    s.playback_revision = s.playback_revision.wrapping_add(1);
+                    s.playback_origin = PlaybackOrigin::Explicit;
                 });
             }
         }
     }
 
-    fn next(&mut self) {
+    fn next(&mut self, origin: PlaybackOrigin) {
         let snapshot = self.snapshot();
         if self.player.is_none() {
             edit(&self.state, |s| {
@@ -691,7 +693,7 @@ impl Worker {
             }
         };
         if let Some(index) = next {
-            self.load(index);
+            self.load(index, origin);
         } else {
             self.stop();
             edit(&self.state, |s| s.status = "Fin de la file".into());
@@ -709,7 +711,8 @@ impl Worker {
         if snapshot.position_ms > 3_000 && !self.stopped {
             player.seek(0);
             edit(&self.state, |s| {
-                s.playback_revision = s.playback_revision.wrapping_add(1)
+                s.playback_revision = s.playback_revision.wrapping_add(1);
+                s.playback_origin = PlaybackOrigin::Explicit;
             });
             return;
         }
@@ -723,7 +726,7 @@ impl Worker {
             Some(snapshot.current.unwrap_or(0).saturating_sub(1))
         };
         if let Some(index) = previous {
-            self.load(index);
+            self.load(index, PlaybackOrigin::Explicit);
         }
     }
 
@@ -860,7 +863,9 @@ impl Worker {
                     }
                 });
             }
-            EndOfTrack { track_id, .. } if active(&track_id) => self.next(),
+            EndOfTrack { track_id, .. } if active(&track_id) => {
+                self.next(PlaybackOrigin::Automatic)
+            }
             Unavailable { track_id, .. } if active(&track_id) => {
                 self.stopped = true;
                 self.wants_playback = false;

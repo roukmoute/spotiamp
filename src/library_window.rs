@@ -15,6 +15,10 @@ pub struct LibraryWindow {
     actions: Vec<library_ui::Action>,
 }
 
+#[cfg(all(test, target_os = "linux", feature = "spotify"))]
+#[path = "wheel_native_x11_tests.rs"]
+mod wheel_native_x11_tests;
+
 pub(super) fn inside(x: f32, y: f32) -> Option<(usize, usize)> {
     (x >= 0.0 && y >= 0.0 && x < library_ui::WIDTH as f32 && y < library_ui::HEIGHT as f32)
         .then_some((x as usize, y as usize))
@@ -143,10 +147,11 @@ impl LibraryWindow {
                     }
                 }
                 self.view.pointer_move(pointer);
-                if let Some((_, delta)) = self.window.get_scroll_wheel() {
-                    self.view.scroll(delta, pointer, &self.snapshot);
-                }
             }
+        }
+        // Scrolling does not activate this window or change keyboard focus.
+        if let Some((_, delta)) = self.window.get_scroll_wheel() {
+            self.view.scroll(delta, pointer, &self.snapshot);
         }
         self.keys.borrow_mut().clear();
         self.chars.borrow_mut().clear();

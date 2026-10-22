@@ -263,5 +263,41 @@ Native docking references:
 - https://specifications.freedesktop.org/wm-spec/latest/ar01s03.html
 - https://www.x.org/releases/current/doc/xorg-docs/icccm/icccm.html
 
+## Wheel input over an inactive companion
+
+Windows routes `WM_MOUSEWHEEL` using the message's signed screen coordinates and
+`WindowFromPoint`. Only a window of the same minifb class on the same native
+thread can receive the delta. Its userdata is inspected only after those checks,
+and no Rust window-state reference is held during target resolution. A single
+direct accumulation replaces recursive message forwarding. Returning zero also
+prevents `DefWindowProc` from propagating an already-consumed wheel event to a
+parent. A point over another application's window or a different native
+control does not scroll the focused minifb window. Full and fractional wheel
+deltas keep the existing 120-units-per-notch conversion.
+
+The target's client mouse position is updated from the same event before its
+delta is exposed. macOS likewise converts `NSEvent.locationInWindow` into the
+frame view and updates its mouse position in `scrollWheel:`. This matters when
+one window's global native event pump delivers a wheel event to another window
+whose position has not yet been polled. Framebuffer scale is still applied only
+by the existing mouse-position getter. Neither path activates a window, changes
+a system preference, installs a hook, allocates an event queue, or adds a timer.
+X11 already delivers button 4/5 to the pointer window without requiring focus;
+its existing press-only handling is unchanged.
+
+Application-native Windows tests cover focused-window and hovered-window
+delivery, both directions between a docked pair, scale 1/2, fractional deltas,
+event coordinates available before the target's next update, no duplicate
+consumption, unchanged keyboard focus, and exclusion of a foreign native class.
+The native test injects real Win32 messages; it does not alter the operating
+system's inactive-window scrolling preference.
+
+Wheel references:
+- https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-mousewheel
+- https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-windowfrompoint
+- https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getwindowthreadprocessid
+- https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getclasslongw
+- https://developer.apple.com/documentation/appkit/nsevent/locationinwindow
+
 Upstream source: https://crates.io/crates/minifb/0.29.0
 Original licenses are preserved in this directory.

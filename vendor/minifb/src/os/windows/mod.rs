@@ -211,6 +211,36 @@ unsafe extern "system" fn wnd_proc(
     wparam: minwindef::WPARAM,
     lparam: minwindef::LPARAM,
 ) -> minwindef::LRESULT {
+    if msg == winuser::WM_MOUSEWHEEL {
+        // Windows can deliver the wheel to the focused window. Route from the
+        // event's signed screen coordinates before borrowing either window's
+        // Rust state. Do not SendMessage: that would re-enter with a live borrow.
+        let mut point = windef::POINT {
+            x: lparam as u16 as i16 as i32,
+            y: (lparam >> 16) as u16 as i16 as i32,
+        };
+        let target = winuser::WindowFromPoint(point);
+        let source_thread = winuser::GetWindowThreadProcessId(window, std::ptr::null_mut());
+        if !target.is_null()
+            && source_thread != 0
+            && winuser::GetWindowThreadProcessId(target, std::ptr::null_mut()) == source_thread
+            && winuser::GetClassLongW(target, winuser::GCW_ATOM)
+                == winuser::GetClassLongW(window, winuser::GCW_ATOM)
+        {
+            let target_data = get_window_long(target);
+            if target_data != 0 && winuser::ScreenToClient(target, &mut point) != 0 {
+                let target: &mut WindowState = &mut *(target_data as *mut WindowState);
+                target.mouse.x = point.x as f32;
+                target.mouse.y = point.y as f32;
+                let delta = (wparam >> 16) as u16 as i16;
+                target.mouse.scroll += delta as f32 / winuser::WHEEL_DELTA as f32;
+            }
+        }
+        // Also consume events over a foreign/hidden window: they must not
+        // scroll this focused window or propagate again through DefWindowProc.
+        return 0;
+    }
+
     // This make sure we actually don't do anything before the user data has been setup for the window
 
     let user_data = get_window_long(window);
@@ -313,13 +343,6 @@ unsafe extern "system" fn wnd_proc(
         winuser::WM_NCLBUTTONDBLCLK if wnd.frameless && wparam == winuser::HTCAPTION as usize => {
             // The application is fixed-size, including a double-click on its skin.
             return 0;
-        }
-
-        winuser::WM_MOUSEWHEEL => {
-            let delta = ((((wparam as u32) >> 16) & 0xffff) as i16) as f32;
-            // One detent is WHEEL_DELTA, including fractional high-resolution
-            // events. Preserve every event received in the current update.
-            wnd.mouse.scroll += delta / winuser::WHEEL_DELTA as f32;
         }
 
         winuser::WM_SETCURSOR => {

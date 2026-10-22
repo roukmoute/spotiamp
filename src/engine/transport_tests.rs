@@ -113,12 +113,16 @@ fn play_resumes_current_paused_decoder_without_reloading_or_seeking() {
 #[test]
 fn play_restarts_current_playing_decoder_and_keeps_its_quality() {
     let (mut worker, player) = worker(true);
+    edit(&worker.state, |s| {
+        s.playback_origin = PlaybackOrigin::Automatic
+    });
     worker.set_quality(AudioQuality::Kbps96);
     send(&mut worker, Command::Play(1));
     assert_eq!(player.take(), vec![Call::Seek(0)]);
     assert_eq!(worker.snapshot().current, Some(0));
     assert_eq!(worker.load_quality, AudioQuality::Kbps160);
     assert_eq!(worker.snapshot().playback_revision, 1);
+    assert_eq!(worker.snapshot().playback_origin, PlaybackOrigin::Explicit);
     assert_eq!(worker.pending_loads, 0);
     worker.player_event(PlayerEvent::Seeked {
         play_request_id: 7,
@@ -358,6 +362,7 @@ fn library_ninth_track_replacement_and_same_track_replay_each_signal_once() {
         assert_eq!(snapshot.current, Some(8));
         assert_eq!(snapshot.queue.len(), 20);
         assert_eq!(snapshot.playback_revision, attempt as u64 + 1);
+        assert_eq!(snapshot.playback_origin, PlaybackOrigin::Explicit);
         assert_eq!(
             player.take(),
             vec![
@@ -464,6 +469,42 @@ fn modes_default_off_and_toggles_never_change_audio_or_requested_quality() {
 }
 
 #[test]
+fn accepted_end_of_track_marks_ninth_track_automatic_and_manual_navigation_resets_origin() {
+    let (mut worker, player) = queue(20);
+    send(&mut worker, Command::PlayIndex(7));
+    assert_eq!(worker.snapshot().playback_origin, PlaybackOrigin::Explicit);
+    worker.player_event(PlayerEvent::PlayRequestIdChanged { play_request_id: 8 });
+    player.take();
+    // Real PlayerEvent dispatch, including the URI/request guards, takes the
+    // eighth track to the ninth without a command from either window.
+    finish_current(&mut worker);
+    let snapshot = worker.snapshot();
+    assert_eq!(snapshot.current, Some(8));
+    assert_eq!(snapshot.playback_revision, 2);
+    assert_eq!(snapshot.playback_origin, PlaybackOrigin::Automatic);
+    assert!(matches!(
+        player.take().as_slice(),
+        [Call::Load(_, true, 0, _)]
+    ));
+    worker.player_event(PlayerEvent::EndOfTrack {
+        play_request_id: 8,
+        track_id: worker.current_uri.clone().unwrap(),
+    });
+    assert_eq!(
+        worker.snapshot(),
+        snapshot,
+        "old end must not advance again"
+    );
+    assert!(player.take().is_empty());
+    send(&mut worker, Command::Next);
+    assert_eq!(worker.snapshot().current, Some(9));
+    assert_eq!(worker.snapshot().playback_origin, PlaybackOrigin::Explicit);
+    send(&mut worker, Command::Previous);
+    assert_eq!(worker.snapshot().current, Some(8));
+    assert_eq!(worker.snapshot().playback_origin, PlaybackOrigin::Explicit);
+}
+
+#[test]
 fn natural_end_visits_each_row_then_stops_or_repeats_the_whole_queue() {
     for shuffle in [false, true] {
         for repeat in [false, true] {
@@ -482,6 +523,7 @@ fn natural_end_visits_each_row_then_stops_or_repeats_the_whole_queue() {
                     worker.snapshot().playback_revision,
                     visited.len() as u64 - 1
                 );
+                assert_eq!(worker.snapshot().playback_origin, PlaybackOrigin::Automatic);
                 assert!(matches!(
                     player.take().as_slice(),
                     [Call::Load(_, true, 0, _)]
@@ -495,6 +537,7 @@ fn natural_end_visits_each_row_then_stops_or_repeats_the_whole_queue() {
                 let first = worker.snapshot().current.unwrap();
                 assert_ne!(first, last);
                 assert_eq!(worker.snapshot().playback_revision, 8);
+                assert_eq!(worker.snapshot().playback_origin, PlaybackOrigin::Automatic);
                 assert!(matches!(
                     player.take().as_slice(),
                     [Call::Load(_, true, 0, _)]
@@ -538,12 +581,16 @@ fn shuffled_previous_retraces_actual_order_including_repeat_boundary() {
     send(&mut worker, Command::Next);
     assert_eq!(worker.snapshot().current, Some(visited[1]));
     edit(&worker.state, |s| s.position_ms = 3_001);
+    edit(&worker.state, |s| {
+        s.playback_origin = PlaybackOrigin::Automatic
+    });
     player.take();
     let revision = worker.snapshot().playback_revision;
     send(&mut worker, Command::Previous);
     assert_eq!(player.take(), vec![Call::Seek(0)]);
     assert_eq!(worker.snapshot().current, Some(visited[1]));
     assert_eq!(worker.snapshot().playback_revision, revision + 1);
+    assert_eq!(worker.snapshot().playback_origin, PlaybackOrigin::Explicit);
 }
 
 #[test]
@@ -565,6 +612,14 @@ fn single_empty_and_rapid_repeated_end_events_are_safe_in_all_modes() {
             worker.player_event(ended());
             worker.player_event(ended());
             assert_eq!(worker.snapshot().playback_revision, u64::from(repeat));
+            assert_eq!(
+                worker.snapshot().playback_origin,
+                if repeat {
+                    PlaybackOrigin::Automatic
+                } else {
+                    PlaybackOrigin::Explicit
+                }
+            );
             let calls = player.take();
             if repeat {
                 assert!(matches!(calls.as_slice(), [Call::Load(_, true, 0, _)]));

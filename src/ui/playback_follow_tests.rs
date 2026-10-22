@@ -1,6 +1,6 @@
 //! Follow a new playback request once without taking control of later browsing.
 use super::*;
-use crate::model::TrackRow;
+use crate::model::{PlaybackOrigin, TrackRow};
 
 fn queue(len: usize, current: Option<usize>, revision: u64) -> Snapshot {
     Snapshot {
@@ -164,5 +164,67 @@ fn centering_stops_at_both_ends_without_leaving_empty_rows() {
             assert!(view.offset <= index && index < view.offset + ROWS);
             assert!(view.offset + ROWS <= state.queue.len());
         }
+    }
+}
+
+#[test]
+fn automatic_ninth_track_moves_half_a_page_and_visible_tracks_keep_the_viewport() {
+    for skin in [Skin::Classic, Skin::Modern] {
+        let mut view = View::default();
+        view.set_skin(skin);
+        view.set_focus(false);
+        let mut state = queue(30, Some(0), 1);
+        view.sync_playback(&state);
+        state.playback_origin = PlaybackOrigin::Automatic;
+        for index in 1..12 {
+            state.current = Some(index);
+            state.playback_revision += 1;
+            assert!(view.sync_playback(&state));
+            view.render(&state);
+            assert_eq!(view.selected, Some(index));
+            assert_eq!(view.offset, if index < 8 { 0 } else { 4 });
+            assert!(!view.focused);
+        }
+        // Track 13 leaves rows 5–12: advance four more rows, once.
+        state.current = Some(12);
+        state.playback_revision += 1;
+        view.sync_playback(&state);
+        assert_eq!(view.offset, 8);
+        view.scroll(100.0, state.queue.len());
+        state.position_ms = 5_000;
+        assert!(!view.sync_playback(&state));
+        view.render(&state);
+        assert_eq!(
+            view.offset, 0,
+            "manual browsing remains free between tracks"
+        );
+    }
+}
+
+#[test]
+fn automatic_shuffle_and_wrap_reveal_offscreen_rows_but_explicit_starts_always_center() {
+    for skin in [Skin::Classic, Skin::Modern] {
+        let mut view = View::default();
+        view.set_skin(skin);
+        let mut state = queue(30, Some(8), 1);
+        view.sync_playback(&state);
+        assert_eq!(view.offset, 4);
+        state.playback_origin = PlaybackOrigin::Automatic;
+        for (index, offset) in [(4, 4), (11, 4), (3, 0), (25, 21), (29, 22), (0, 0)] {
+            state.current = Some(index);
+            state.playback_revision += 1;
+            view.sync_playback(&state);
+            view.render(&state);
+            assert_eq!((view.selected, view.offset), (Some(index), offset));
+        }
+        // Track 7 is visible already: only an explicit request centers it.
+        state.current = Some(6);
+        state.playback_revision += 1;
+        view.sync_playback(&state);
+        assert_eq!(view.offset, 0);
+        state.playback_origin = PlaybackOrigin::Explicit;
+        state.playback_revision += 1;
+        view.sync_playback(&state);
+        assert_eq!(view.offset, 2);
     }
 }

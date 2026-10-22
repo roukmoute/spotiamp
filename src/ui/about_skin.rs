@@ -236,39 +236,39 @@ impl View {
         for (y, version, first, second) in [
             (
                 109,
+                "0.2.3 / DÉFILEMENT PLUS SOUPLE",
+                "Molette sur la fenêtre survolée, même inactive.",
+                "Avance automatique : petit décalage si nécessaire.",
+            ),
+            (
+                154,
                 "0.2.2 / BOUTONS MODERN",
                 "Contours mieux lissés et relief cohérent.",
                 "Au repos comme pendant l'appui.",
             ),
             (
-                154,
+                199,
                 "0.2.1 / TITRE COURANT CENTRÉ",
                 "Le titre lancé est centré, dans les limites de la file.",
                 "Puis le défilement manuel reste libre.",
             ),
             (
-                199,
+                244,
                 "0.2.0 / CLASSIQUE ET MODERN",
                 "Deux skins natifs ; boutons de choix ou F4.",
                 "Choix mémorisé ; la musique continue.",
             ),
             (
-                244,
+                289,
                 "0.1.9 / BANDEAU ACTIF ET INACTIF",
                 "Bandeau atténué quand la bibliothèque est inactive.",
                 "Couleurs rétablies dès qu'elle redevient active.",
             ),
             (
-                289,
+                334,
                 "0.1.8 / PLAYLISTS AU DOUBLE-CLIC",
                 "Double-clic : lecture dès le premier titre.",
                 "Un clic affiche les titres sans changer la file.",
-            ),
-            (
-                334,
-                "0.1.7 / FENÊTRES ATTACHÉES",
-                "Bibliothèque ouverte avec le lecteur.",
-                "Déplacement et réduction des fenêtres ensemble.",
             ),
         ] {
             self.text(54, y, version, GOLD, 56);

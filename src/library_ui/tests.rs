@@ -186,6 +186,72 @@ fn scrolling_each_panel_uses_one_notch_per_row_and_accumulates_fractions() {
 }
 
 #[test]
+fn inactive_library_scrolls_only_the_hovered_panel_without_selecting_or_focusing() {
+    let s = snapshot(30, 30);
+    for skin in [Skin::Classic, Skin::Modern] {
+        let mut view = View::default();
+        view.set_skin(skin);
+        view.render(&s);
+        view.set_focus(false);
+        view.render(&s);
+        let selected = (
+            view.selected_id.clone(),
+            view.selected_track,
+            view.left_focus,
+        );
+        let pixels = view.pixels.as_ptr();
+
+        view.scroll(-0.5, Some((100, 200)), &s);
+        view.scroll(-0.5, Some((400, 200)), &s);
+        assert_eq!((view.left_offset, view.right_offset), (0, 0));
+        assert!(!view.render(&s), "fractions alone need no repaint");
+        view.scroll(-0.5, Some((100, 200)), &s);
+        assert_eq!((view.left_offset, view.right_offset), (1, 0));
+        view.scroll(-1.5, Some((400, 200)), &s);
+        assert_eq!((view.left_offset, view.right_offset), (1, 2));
+        assert!(!view.focused);
+        assert_eq!(
+            (
+                view.selected_id.clone(),
+                view.selected_track,
+                view.left_focus
+            ),
+            selected
+        );
+        assert!(view.render(&s));
+        assert!(!view.render(&s));
+        assert_eq!(view.pixels.as_ptr(), pixels);
+        assert!(view.pointer_down(270, 425, &s).is_none());
+        assert!(view.pointer_up(Some((270, 425)), &s).is_none());
+        assert!(view.key(Key::Enter, false, false, &s).is_none());
+    }
+}
+
+#[test]
+fn library_wheel_outside_both_lists_never_uses_the_old_keyboard_panel() {
+    let s = snapshot(30, 30);
+    for active in [false, true] {
+        let mut view = View::default();
+        view.render(&s);
+        view.set_focus(active);
+        for position in [
+            None,
+            Some((5, 200)),
+            Some((230, 200)),
+            Some((400, 20)),
+            Some((100, 450)),
+            Some((400, 425)),
+            Some((760, 200)),
+            Some((400, 470)),
+        ] {
+            view.scroll(-4.5, position, &s);
+            assert_eq!((view.left_offset, view.right_offset), (0, 0));
+            assert_eq!((view.left_remainder, view.right_remainder), (0.0, 0.0));
+        }
+    }
+}
+
+#[test]
 fn playlist_selection_hides_old_tracks_while_new_selection_is_pending() {
     let mut view = View::default();
     let mut s = snapshot(3, 5);

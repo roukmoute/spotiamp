@@ -152,11 +152,16 @@ playlist vide conserve la file précédente. Le double-clic sur un titre utilise
 la même action en démarrant à cette ligne. **À la file** ajoute la playlist à la
 file existante sans remplacer son contenu ni lancer une nouvelle lecture.
 
-Quand un titre démarre ou est relancé, sa ligne est sélectionnée et centrée dans
-la partie visible de la file du lecteur, y compris depuis la bibliothèque.
-Près du début ou de la fin, le défilement s'arrête aux limites de la liste.
-Vous pouvez ensuite parcourir la file librement : les actualisations de lecture
-ne la recentrent pas.
+Quand vous lancez ou relancez explicitement un titre, sa ligne est sélectionnée
+et centrée dans la partie visible de la file du lecteur, y compris depuis la
+bibliothèque. Près du début ou de la fin, le défilement s'arrête aux limites
+de la liste. Lors de l'avance automatique, la file ne bouge pas si le nouveau
+titre est déjà visible ; sinon, elle privilégie un décalage d'environ quatre
+lignes pour le rendre visible. Vous pouvez parcourir la file librement : les
+actualisations de position ne la recentrent pas pendant la lecture.
+
+La molette agit sur la liste survolée dans le lecteur ou la bibliothèque,
+même si sa fenêtre n'est pas active. Aucun clic préalable n'est nécessaire.
 
 La playlist affichée et la file sont limitées à **500 titres accessibles**.
 Si la file contient déjà des titres, **À la file** ajoute seulement ce que les

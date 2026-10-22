@@ -296,7 +296,7 @@ impl Default for View {
 }
 
 impl View {
-    /// Center each accepted playback start once, before handling new input.
+    /// Center explicit starts once; reveal automatic starts only if offscreen.
     /// Position/metadata updates must leave the user's browsing position alone.
     pub fn sync_playback(&mut self, snapshot: &Snapshot) -> bool {
         if self.observed_playback_revision == snapshot.playback_revision {
@@ -315,9 +315,16 @@ impl View {
         self.last_click = None;
         self.scroll_remainder = 0.0;
         self.selected = Some(index);
-        self.offset = index
-            .saturating_sub(ROWS / 2)
-            .min(snapshot.queue.len().saturating_sub(ROWS));
+        if snapshot.playback_origin != crate::model::PlaybackOrigin::Automatic
+            || index < self.offset
+            || index >= self.offset.saturating_add(ROWS)
+        {
+            // Normal forward playback moves by half a page when it first
+            // leaves the viewport, rather than moving the list on every song.
+            self.offset = index
+                .saturating_sub(ROWS / 2)
+                .min(snapshot.queue.len().saturating_sub(ROWS));
+        }
         true
     }
 
@@ -581,6 +588,14 @@ impl View {
             self.input.push(c);
         }
     }
+    pub fn scroll_at(&mut self, y: f32, position: Option<(usize, usize)>, len: usize) {
+        if !self.help
+            && position.is_some_and(|(x, y)| (14..546).contains(&x) && (219..414).contains(&y))
+        {
+            self.scroll(y, len);
+        }
+    }
+
     pub fn scroll(&mut self, y: f32, len: usize) {
         if self.about.is_some() {
             return;

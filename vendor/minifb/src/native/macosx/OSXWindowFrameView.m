@@ -456,6 +456,11 @@ uint32_t upper_power_of_two(uint32_t v) {
 - (void)scrollWheel:(NSEvent *)event {
     OSXWindow* window = (OSXWindow*)[self window];
     if (window->shared_data) {
+        // Another window can be pumping AppKit when this event arrives. Keep
+        // its coordinates with its delta instead of using stale polled state.
+        NSPoint p = [self convertPoint:[event locationInWindow] fromView:nil];
+        window->shared_data->mouse_x = p.x;
+        window->shared_data->mouse_y = [self isFlipped] ? p.y : NSHeight([self bounds]) - p.y;
         window->shared_data->scroll_x += [event deltaX];
         window->shared_data->scroll_y += [event deltaY];
     }

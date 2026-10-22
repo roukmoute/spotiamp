@@ -143,10 +143,22 @@ fn process_frame_input(
     actions.clear();
     let playback_started = view.sync_playback(snapshot);
     view.set_focus(input.active);
-    if !input.active || playback_started {
+    if playback_started {
         // Native callbacks were collected while the old queue was visible.
         // Paint the followed row before accepting another batch, so a queued
         // click/Delete/Enter cannot be redirected to the new selection.
+        return;
+    }
+    if !input.active {
+        // Wheel input belongs to the list under the pointer. Keyboard, clicks
+        // and drags still belong to the active window.
+        if let Some(delta) = input.wheel {
+            view.scroll_at(
+                delta,
+                input.pointer.and_then(|(x, y)| inside_window(x, y)),
+                snapshot.queue.len(),
+            );
+        }
         return;
     }
     // Keyboard and mouse callbacks have separate queues. If this frame opens
@@ -290,7 +302,11 @@ fn process_frame_input(
         action = view.drag(x as usize, y as usize, snapshot);
     }
     if let Some(y) = input.wheel {
-        view.scroll(y, snapshot.queue.len());
+        view.scroll_at(
+            y,
+            input.pointer.and_then(|(x, y)| inside_window(x, y)),
+            snapshot.queue.len(),
+        );
     }
     if shortcut(Key::V) {
         action = Some(ui::Action::Paste);
@@ -753,6 +769,12 @@ mod skin_input_tests;
 
 #[cfg(test)]
 mod playback_follow_input_tests;
+
+#[cfg(test)]
+mod wheel_input_tests;
+
+#[cfg(all(test, target_os = "windows"))]
+mod wheel_native_windows_tests;
 
 #[cfg(all(test, target_os = "windows"))]
 mod window_native_windows_tests;

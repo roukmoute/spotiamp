@@ -94,6 +94,13 @@ pub struct TrackRow {
     pub duration_ms: u32,
 }
 
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Hash)]
+pub enum PlaybackOrigin {
+    #[default]
+    Explicit,
+    Automatic,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Snapshot {
     pub connected: bool,
@@ -105,6 +112,8 @@ pub struct Snapshot {
     /// Changes once per accepted load or explicit restart, including the same
     /// queue index, so a view can reveal it without following progress ticks.
     pub playback_revision: u64,
+    /// Describes the request that produced playback_revision, not progress.
+    pub playback_origin: PlaybackOrigin,
     pub position_ms: u32,
     pub duration_ms: u32,
     pub volume: u16,
@@ -123,6 +132,7 @@ impl Default for Snapshot {
             queue: Vec::new(),
             current: None,
             playback_revision: 0,
+            playback_origin: PlaybackOrigin::default(),
             position_ms: 0,
             duration_ms: 0,
             volume: 32768,

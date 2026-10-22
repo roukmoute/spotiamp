@@ -1,5 +1,16 @@
 # Changements
 
+## 0.2.3 — 22 octobre 2026
+
+- La molette fait défiler la liste survolée dans le lecteur ou la bibliothèque,
+  même si sa fenêtre est inactive : il n'est plus nécessaire de cliquer d'abord
+  pour l'activer.
+- Lors de l'avance automatique, la file ne bouge pas si le nouveau titre est
+  déjà visible. Sinon, elle privilégie un décalage d'environ quatre lignes
+  pour le rendre visible, en respectant les limites de la liste.
+- Un choix ou relancement explicite de titre conserve le centrage. Les
+  actualisations de position ne déplacent pas la file pendant la lecture.
+
 ## 0.2.2 — 22 octobre 2026
 
 - Boutons du skin Modern aux contours mieux lissés, avec un relief cohérent
