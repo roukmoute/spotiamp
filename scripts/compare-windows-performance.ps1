@@ -28,7 +28,56 @@ $executables = [ordered]@{
 Add-Type @'
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Collections.Generic;
 public static class SpotiampPerformanceWindow {
+    [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)] public struct Point { public int X, Y; }
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr window, out Rect rect);
+    [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr window, out Rect rect);
+    [DllImport("user32.dll")] private static extern bool ClientToScreen(IntPtr window, ref Point point);
+    [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr window);
+    [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr window);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] private static extern int GetWindowText(IntPtr window, StringBuilder text, int count);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] private static extern int GetClassName(IntPtr window, StringBuilder text, int count);
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr window, out uint pid);
+    [DllImport("user32.dll", EntryPoint="SendMessageTimeoutW")]
+    private static extern IntPtr SendMessageTimeout(IntPtr window, uint message, IntPtr w, IntPtr l, uint flags, uint timeout, out IntPtr result);
+    [DllImport("gdi32.dll")] private static extern bool BitBlt(IntPtr target, int x, int y, int width, int height, IntPtr source, int sx, int sy, uint operation);
+    private static string Identity(IntPtr window) {
+        var title = new StringBuilder(256); var name = new StringBuilder(256); uint pid;
+        GetWindowText(window, title, title.Capacity); GetClassName(window, name, name.Capacity);
+        GetWindowThreadProcessId(window, out pid);
+        return $"HWND={window.ToInt64()} PID={pid} class={name} title={title}";
+    }
+    public static object Describe(IntPtr window) {
+        Rect screen, client; GetWindowRect(window, out screen); GetClientRect(window, out client);
+        var result = new Dictionary<string, object> {
+            ["window"] = Identity(window), ["visible"] = IsWindowVisible(window), ["minimized"] = IsIconic(window),
+            ["screen_rect"] = $"{screen.Left},{screen.Top},{screen.Right},{screen.Bottom}",
+            ["client_rect"] = $"{client.Left},{client.Top},{client.Right},{client.Bottom}",
+            ["foreground"] = Identity(GetForegroundWindow())
+        };
+        var dc = window == IntPtr.Zero ? IntPtr.Zero : GetDC(window);
+        try {
+            foreach (var point in new [] { new Point { X=10, Y=200 }, new Point { X=20, Y=260 } }) {
+                var mapped = point; ClientToScreen(window, ref mapped);
+                result[$"pixel_{point.X}_{point.Y}"] = dc == IntPtr.Zero ? "no_dc" : $"0x{GetPixel(dc, point.X, point.Y):X8}";
+                result[$"window_at_{point.X}_{point.Y}"] = Identity(WindowFromPoint(mapped));
+            }
+        } finally { if (dc != IntPtr.Zero) ReleaseDC(window, dc); }
+        IntPtr response;
+        result["responds_to_wm_null"] = window != IntPtr.Zero && SendMessageTimeout(window, 0, IntPtr.Zero, IntPtr.Zero, 0x22, 1000, out response) != IntPtr.Zero;
+        return result;
+    }
+    public static bool CopyClient(IntPtr window, IntPtr target, int width, int height) {
+        var dc = GetDC(window);
+        try { return dc != IntPtr.Zero && BitBlt(target, 0, 0, width, height, dc, 0, 0, 0x00CC0020); }
+        finally { if (dc != IntPtr.Zero) ReleaseDC(window, dc); }
+    }
+
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr window);
     [DllImport("user32.dll")] private static extern IntPtr GetDC(IntPtr window);
     [DllImport("user32.dll")] private static extern int ReleaseDC(IntPtr window, IntPtr dc);
@@ -47,6 +96,24 @@ public static class SpotiampPerformanceWindow {
     }
 }
 '@
+
+function Save-WindowDiagnostic([IntPtr]$Window, [string]$Name) {
+    $details = [SpotiampPerformanceWindow]::Describe($Window)
+    $details | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $OutputDirectory "$Name-window.json") -Encoding utf8
+    if ($Window -eq [IntPtr]::Zero) { return }
+    $rect = [SpotiampPerformanceWindow+Rect]::new()
+    if (-not [SpotiampPerformanceWindow]::GetWindowRect($Window, [ref]$rect)) { return }
+    $width = $rect.Right - $rect.Left; $height = $rect.Bottom - $rect.Top
+    if ($width -lt 1 -or $height -lt 1 -or $width -gt 4096 -or $height -gt 4096) { return }
+    $bitmap = [Drawing.Bitmap]::new($width, $height)
+    $graphics = [Drawing.Graphics]::FromImage($bitmap)
+    try {
+        $dc = $graphics.GetHdc()
+        try { [void][SpotiampPerformanceWindow]::CopyClient($Window, $dc, $width, $height) }
+        finally { $graphics.ReleaseHdc($dc) }
+        $bitmap.Save((Join-Path $OutputDirectory "$Name-window.png"), [Drawing.Imaging.ImageFormat]::Png)
+    } finally { $graphics.Dispose(); $bitmap.Dispose() }
+}
 
 function Median($Values) {
     $sorted = @($Values | Sort-Object)
@@ -113,8 +180,16 @@ try {
                     if ([SpotiampPerformanceWindow]::Painted($process.MainWindowHandle)) { $painted = $true; break }
                     Start-Sleep -Milliseconds 5
                 }
-                if (-not $painted) { throw 'No painted reader observed within 15 seconds' }
+                if (-not $painted) {
+                    Save-WindowDiagnostic $process.MainWindowHandle "$run-before-activation"
+                    # Diagnostic only: an activated window never rescues a failed measurement.
+                    [void][SpotiampPerformanceWindow]::SetForegroundWindow($process.MainWindowHandle)
+                    Start-Sleep -Milliseconds 300
+                    Save-WindowDiagnostic $process.MainWindowHandle "$run-after-activation"
+                    throw "No painted reader observed within 15 seconds: $run"
+                }
                 $startup = $clock.Elapsed.TotalMilliseconds
+                if ($round -eq 0) { Save-WindowDiagnostic $process.MainWindowHandle "$run-painted" }
                 if ($round -lt 5) {
                     $report.startups += @{ label = $label; round = $round; milliseconds = $startup }
                 } else {
@@ -150,6 +225,15 @@ try {
 } catch {
     $report.error = $_.Exception.Message
     $report.error_location = $_.ScriptStackTrace
+    foreach ($label in $executables.Keys) {
+        $render = [Diagnostics.ProcessStartInfo]::new()
+        $render.FileName = $executables[$label]; $render.UseShellExecute = $false
+        $render.ArgumentList.Add('--screenshot')
+        $render.ArgumentList.Add((Join-Path $OutputDirectory "$label-framebuffer.ppm"))
+        $render.Environment['APPDATA'] = $scratch; $render.Environment['LOCALAPPDATA'] = $scratch
+        $child = [Diagnostics.Process]::Start($render)
+        try { if (-not $child.WaitForExit(10000)) { $child.Kill($true) } } finally { $child.Dispose() }
+    }
     throw
 } finally {
     $report | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $OutputDirectory 'comparison.json') -Encoding utf8
