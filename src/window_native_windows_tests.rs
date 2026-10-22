@@ -59,6 +59,15 @@ unsafe extern "system" {
     fn IsWindow(window: Hwnd) -> i32;
     fn IsWindowVisible(window: Hwnd) -> i32;
     fn GetWindow(window: Hwnd, command: u32) -> Hwnd;
+    fn SetWindowPos(
+        window: Hwnd,
+        insert_after: Hwnd,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        flags: u32,
+    ) -> i32;
     fn IsIconic(window: Hwnd) -> i32;
     fn IsZoomed(window: Hwnd) -> i32;
     fn ShowWindow(window: Hwnd, command: i32) -> i32;
@@ -108,6 +117,11 @@ fn native_docked_windows_follow_both_directions_without_frame_polling() {
         // No update() calls: ordinary native position events must move the peer
         // synchronously, independent of the application's polling cadence.
         player.set_position(-100, -40);
+        assert_eq!(
+            player.get_position(),
+            (-100, -40),
+            "companion restacking must not undo the owner's move"
+        );
         assert_eq!(library.get_position(), (-100 + offset, -40));
         library.set_position(70, 90);
         assert_eq!(player.get_position(), (70 - offset, 90));
@@ -115,6 +129,7 @@ fn native_docked_windows_follow_both_directions_without_frame_polling() {
 
         // WM_MOVING is the native modal move loop's proposed screen rectangle.
         // The companion must move before the dragged rectangle is committed.
+        let before_proposal = player.get_position();
         let mut proposed = Rect {
             left: -250,
             top: 100,
@@ -124,6 +139,25 @@ fn native_docked_windows_follow_both_directions_without_frame_polling() {
         unsafe {
             SendMessageW(main, 0x0216, 0, (&mut proposed as *mut Rect) as isize);
         }
+        assert_eq!(library.get_position(), (-250 + offset, 100));
+        // A native Z-order change is not a second move. In particular, while
+        // WM_MOVING's proposal awaits its commit, it must not pull either
+        // endpoint back to the other endpoint's previous coordinates.
+        assert_ne!(
+            unsafe {
+                SetWindowPos(
+                    child,
+                    1usize as Hwnd, // HWND_BOTTOM, forcing a real restack.
+                    0,
+                    0,
+                    0,
+                    0,
+                    0x0001 | 0x0002 | 0x0010, // NOSIZE | NOMOVE | NOACTIVATE.
+                )
+            },
+            0
+        );
+        assert_eq!(player.get_position(), before_proposal);
         assert_eq!(library.get_position(), (-250 + offset, 100));
         player.set_position(-250, 100);
         proposed = Rect {

@@ -230,7 +230,13 @@ unsafe extern "system" fn wnd_proc(
         }
 
         winuser::WM_WINDOWPOSCHANGED => {
-            docking::follow(window, None);
+            let position = &*(lparam as *const winuser::WINDOWPOS);
+            // SetWindowPos can reorder an owned companion before its owner's
+            // move completes. That is not a move initiated by the companion:
+            // following its old coordinates would undo the owner's new move.
+            if position.flags & winuser::SWP_NOMOVE == 0 {
+                docking::follow(window, None);
+            }
             // DefWindowProc must still emit WM_SIZE/WM_MOVE.
             return winuser::DefWindowProcW(window, msg, wparam, lparam);
         }

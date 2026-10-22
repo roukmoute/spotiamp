@@ -210,7 +210,9 @@ after a companion closes. Unsupported backends return an explicit error.
 Windows uses reciprocal HWND properties containing handles and integer offsets,
 never additional Rust state pointers. `WM_MOVING` moves the other window during
 the native modal move loop; `WM_WINDOWPOSCHANGED` follows programmatic moves as
-well. A bounded per-pair reentrancy guard prevents feedback when SetWindowPos
+well. Changes marked `SWP_NOMOVE` are excluded: reordering an owned companion must
+not turn its previous coordinates into a new move that cancels its owner's move.
+A bounded per-pair reentrancy guard prevents feedback when SetWindowPos
 synchronously sends the peer's position messages. Either window can initiate a
 move. The companion is an owned top-level window (GWLP_HWNDPARENT), so minimizing
 the parent hides the companion and restoring it shows the companion again.
@@ -231,6 +233,9 @@ X11 follows `ConfigureNotify` on the client and its window-manager frame, and us
 `WM_TRANSIENT_FOR` for group minimization/restoration. Observing the frame also
 covers managers that defer the client's synthetic configure event until the end
 of an interactive drag. Frame events never change the client's framebuffer size.
+The frame is queried and subscribed under a brief server grab, so a queued
+reparent event cannot select an already-destroyed frame. External iconification
+of the companion also forwards its `WM_STATE` change to minimize the parent.
 Pending move serials and expected positions avoid
 feedback from asynchronous window-manager replies. The shared relation contains
 XIDs and connections, not pointers into Rust windows, and becomes inactive before
