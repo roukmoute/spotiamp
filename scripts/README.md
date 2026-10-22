@@ -60,16 +60,23 @@ L'empreinte SHA-256 de l'exécutable accompagne les résultats.
 
 ## Archives
 
-Après une compilation release avec la cible choisie :
+Après une compilation release, utiliser la commande correspondant à la cible
+compilée sur votre système :
 
 ```sh
+# Windows x64
 python3 scripts/package.py --target x86_64-pc-windows-msvc
+# macOS Apple Silicon
+python3 scripts/package.py --target aarch64-apple-darwin
+# Linux x64
+python3 scripts/package.py --target x86_64-unknown-linux-gnu
 ```
 
 Le script crée dans `dist/` une archive portable et `spotiamp-source.zip`. Il inclut
 les notices des dépendances résolues pour cette cible et les sources des
 composants MPL. Les textes de licence manquants provoquent une erreur explicite.
-`--binary /chemin/vers/spotiamp.exe` accepte un autre dossier de compilation.
+`--binary /chemin/vers/spotiamp` (`spotiamp.exe` sous Windows) accepte un autre
+dossier de compilation.
 Les archives contiennent `BUILD-INFO.json` : `app_version` vient du paquet racine
 de `cargo metadata`, `binary_name` indique l'exécutable à la racine du ZIP, et
 `git_commit` identifie le checkout Git propre utilisé pour préparer l'archive.

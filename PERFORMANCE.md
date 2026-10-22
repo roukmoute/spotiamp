@@ -1,5 +1,9 @@
 # Mesures et choix techniques
 
+Spotiamp est distribué en binaires natifs pour **Windows x64, macOS Apple Silicon
+et Linux x64**. La CI compile, teste et prépare les paquets sur les trois systèmes.
+Les mesures ci-dessous précisent le système et le scénario de chaque essai.
+
 Mesures réalisées le 21 octobre 2026 sur Linux x86-64, 16 processeurs logiques,
 Rust 1.95.0, compilation `release`. **Aucun compte Spotify n'a été authentifié
 pendant ces mesures Linux.** Un premier retour Windows est décrit séparément
@@ -179,7 +183,7 @@ mais exige un portage Windows et l'ajout du décodage et de la sortie audio.
 sa compatibilité actuelle avec Spotify et sa configuration TLS doivent être
 résolues avant d'envisager une authentification. Le client officiel
 [Soloist](https://developer.spotify.com/documentation/soloist) cible Linux et
-ne répond pas à la priorité Windows.
+ne couvre pas les trois plateformes de Spotiamp.
 
 ## Validation et limites
 

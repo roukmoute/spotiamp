@@ -1,51 +1,78 @@
 # Spotiamp — un petit lecteur Spotify classique
 
-**L'esprit Winamp, avec une interface Windows en GDI : aucune accélération
-graphique requise pour dessiner le lecteur.**
+**L'esprit Winamp, dans un lecteur Spotify natif et léger pour Windows, macOS et Linux.**
 
-Sous Windows, Spotiamp dessine son interface en logiciel, sur le processeur,
-puis l'affiche avec **GDI**, le système graphique classique de Windows.
-Le rendu du lecteur ne crée aucun contexte OpenGL ou Direct3D et ne demande
-pas de carte graphique dédiée. Ce choix fait partie du principe du projet :
-une interface simple, un seul skin et peu de ressources mobilisées.
+Spotiamp partage la même interface classique et la même base Rust sur les trois
+systèmes : un seul skin, une file de lecture, vos playlists Spotify et des mises
+à jour intégrées. Le moteur audio actuel est librespot 0.8. Un compte Spotify
+Premium est nécessaire.
 
-La différence avec Spotifast se situe aussi dans ce choix d'affichage :
-[Spotifast utilise egui/eframe avec le moteur OpenGL Glow](https://github.com/crmne/spotifast/blob/e86d3de0cb72edba8f24b447218daa7f3af1f127/Cargo.toml#L31-L36),
-tandis que Spotiamp utilise le rendu logiciel et GDI sous Windows.
-Les [détails techniques et les mesures](PERFORMANCE.md) expliquent cette approche.
+Des binaires natifs sont publiés pour **Windows x64, macOS Apple Silicon et
+Linux x64**. La compilation, les tests et la création des paquets sont automatisés
+sur les trois systèmes. **Le projet reste expérimental** : les mesures, les
+essais de lecture et leurs limites sont détaillés dans [PERFORMANCE.md](PERFORMANCE.md).
 
-Prototype natif en Rust, inspiré de l'interface Winamp. Windows est la cible
-prioritaire ; le même code vise macOS et Linux. Ce projet expérimente une
-interface très sobre et plusieurs pistes de moteur audio. Le moteur actuel
-est librespot 0.8 : il reste remplaçable si les mesures réelles ne conviennent pas.
+## Télécharger et lancer
 
-**État : prototype expérimental.** Un premier essai utilisateur sous Windows
-montre une session connectée, une playlist chargée et un morceau en état de
-lecture. Sa capture affiche 5,7 Mo de mémoire et 0,4 % de CPU à cet instant ;
-ce n'est pas une mesure de la mémoire totale ni un test de stabilité prolongé.
-Les résultats et leurs limites sont dans `PERFORMANCE.md`.
+| Système | Architecture | Dernière version stable |
+|---|---|---|
+| Windows 10/11 | x64 — Intel/AMD 64 bits | [Installateur](https://github.com/roukmoute/spotiamp/releases/latest/download/Spotiamp-Setup-Windows-x64.exe) · [ZIP portable](https://github.com/roukmoute/spotiamp/releases/latest/download/Spotiamp-Windows-x64.zip) |
+| macOS | Apple Silicon — ARM64 | [ZIP portable](https://github.com/roukmoute/spotiamp/releases/latest/download/Spotiamp-macOS-arm64.zip) |
+| Linux | x64 — Intel/AMD 64 bits | [ZIP portable](https://github.com/roukmoute/spotiamp/releases/latest/download/Spotiamp-Linux-x64.zip) |
 
-**[Installer Spotiamp pour Windows](https://github.com/roukmoute/spotiamp/releases/latest/download/Spotiamp-Setup-Windows-x64.exe).**
+**Windows.**
 Lancer `Spotiamp-Setup-Windows-x64.exe`, puis suivre l'assistant en français ou
 en anglais. L'installation concerne votre compte, sans droits administrateur.
 Le lecteur apparaît dans le menu Démarrer ; le raccourci sur le Bureau est optionnel.
-L'assistant propose de lancer Spotiamp à la fin.
+L'assistant propose de lancer Spotiamp à la fin. Pour la version portable,
+décompresser le ZIP et lancer `spotiamp.exe`.
+
+**macOS et Linux.** Décompresser le ZIP dans un dossier personnel, puis ouvrir
+un terminal dans ce dossier et lancer l'exécutable portable :
+
+```sh
+./spotiamp
+```
+
+Si l'outil d'extraction n'a pas conservé le droit d'exécution, le rétablir avec
+`chmod +x ./spotiamp`. Le paquet macOS contient un exécutable pour Apple Silicon.
+Il n'est pas signé avec Developer ID ni notarié ; si macOS bloque son ouverture,
+suivre la [procédure Apple](https://support.apple.com/fr-fr/102445).
+Le binaire Linux nécessite **glibc 2.39 ou plus**, les bibliothèques système
+ALSA, D-Bus et X11, et une session X11 ou XWayland ; il est compilé et testé en CI
+sur Ubuntu 24.04.
+
+Aucun environnement Rust n'est requis pour lancer les binaires publiés.
+Les [releases](https://github.com/roukmoute/spotiamp/releases/latest) fournissent
+aussi les sources et les empreintes SHA-256. Les mises à jour intégrées
+sélectionnent automatiquement le paquet adapté au système et à l'architecture.
 
 La version **0.1.6** réduit la taille du binaire par optimisation globale à la
 compilation et retrait de code inutilisé, tout en conservant le niveau
 d’optimisation pour la vitesse. Les comparaisons et leurs limites sont dans
 [PERFORMANCE.md](PERFORMANCE.md). L’éclair du bouton À propos signale toujours
 les mises à jour disponibles.
-L'installateur est proposé avec l'archive portable
-`Spotiamp-Windows-x64.zip`, disponible avec les paquets Linux, macOS et les
-[sources dans les releases](https://github.com/roukmoute/spotiamp/releases/latest).
+
+## Une interface classique et légère
+
+Sous Windows, Spotiamp dessine son interface en logiciel, sur le processeur,
+puis l'affiche avec **GDI**, le système graphique classique de Windows :
+**aucune accélération graphique n'est requise pour dessiner le lecteur**.
+Le rendu du lecteur ne crée aucun contexte OpenGL ou Direct3D et ne demande
+pas de carte graphique dédiée. macOS et Linux utilisent leurs propres backends
+d'affichage pour présenter le même skin.
+
+La différence avec Spotifast se situe aussi dans ce choix d'affichage :
+[Spotifast utilise egui/eframe avec le moteur OpenGL Glow](https://github.com/crmne/spotifast/blob/e86d3de0cb72edba8f24b447218daa7f3af1f127/Cargo.toml#L31-L36),
+tandis que Spotiamp utilise le rendu logiciel et GDI sous Windows.
+Les [détails techniques et les mesures](PERFORMANCE.md) expliquent cette approche.
 
 La **bibliothèque de vos playlists Spotify** est accessible
 en lecture seule, dans une fenêtre au style classique. **BIBLIO. F3** ou **F3**
 l'ouvre : playlists et dossiers à gauche, titres de la playlist choisie à droite.
 Le catalogue est chargé à l'ouverture et les titres seulement à la sélection.
-Cette nouvelle découverte de bibliothèque reste à vérifier avec un compte
-Spotify réel ; les essais du lecteur décrits plus haut ne la valident pas.
+La découverte de bibliothèque reste à vérifier avec un compte Spotify réel ;
+ses tests automatisés fonctionnent hors connexion.
 
 Le lecteur et sa bibliothèque gardent le **bandeau sans cadre système**, avec
 les boutons **Réduire** et **Fermer** intégrés et le déplacement par glissement.
@@ -61,22 +88,19 @@ la molette d'un titre par cran.
 
 L'installateur et l'archive Windows visent **Windows 10/11 x64** (processeur Intel/AMD
 64 bits), conformément au [socle de la cible Rust](https://doc.rust-lang.org/rustc/platform-support.html).
-Le binaire Windows et l'installateur ne sont pas signés. La CI le
-compile avec le runtime C statique. L'interface
-minifb utilise Win32/GDI et l'audio WASAPI. Aucun environnement Rust n'est requis
-pour lancer l'exécutable. Le premier essai Windows porte sur le prototype
-précédemment nommé Spool ; le paquet Spotiamp est reconstruit après renommage.
+Le binaire Windows et l'installateur ne sont pas signés. La CI compile le binaire
+avec le runtime C statique. L'interface minifb utilise Win32/GDI et l'audio WASAPI.
 
 ## Utilisation
 
-1. Installer Spotiamp, puis le lancer depuis le menu Démarrer. Pour la version
-   portable, décompresser le ZIP et lancer `spotiamp.exe`.
+1. Télécharger le paquet de votre système et lancer Spotiamp en suivant les
+   instructions ci-dessus.
 2. À la première utilisation, cliquer sur **CONNEXION**. Autoriser Spotify dans
    le navigateur, puis revenir dans le lecteur. Aux lancements suivants,
    Spotiamp tente automatiquement de réutiliser la session mémorisée.
    Aucun mot de passe n'est demandé dans Spotiamp.
 3. Copier un lien Spotify de titre, d'album ou de playlist. Dans Spotiamp :
-   **Ctrl+V**, puis **+ AJ.** ou Entrée.
+   **Ctrl+V** (**Cmd+V** fonctionne également sous macOS), puis **+ AJ.** ou Entrée.
 4. Double-cliquer sur un titre. Les boutons et la barre de position pilotent
    le moteur audio local. Le client Spotify officiel peut être fermé.
 
@@ -179,7 +203,7 @@ Un échec s'affiche dans le panneau. Le dossier du programme doit être accessib
 en écriture pour l'installation. `--no-update-check` désactive la recherche
 automatique au démarrage ; **Vérifier** reste disponible.
 
-L'installateur utilise par défaut `%LOCALAPPDATA%\Programs\Spotiamp` : les mises
+Sous Windows, l'installateur utilise par défaut `%LOCALAPPDATA%\Programs\Spotiamp` : les mises
 à jour intégrées peuvent y remplacer les fichiers sans élévation. Il n'ajoute
 aucun service, lancement automatique ni processus résident. Le **S doré** du
 panneau À propos et les informations de version sont intégrés à l'exécutable.
@@ -347,9 +371,12 @@ cargo build --release --no-default-features --bin spotiamp
 cargo run --release --bin engine_probe
 ```
 
-Le workflow `.github/workflows/build.yml` automatise les tests et artefacts sur
-les trois systèmes. Les tests ont réussi sur Windows x64, Linux x64 et macOS
-Apple Silicon lors de la [première exécution](https://github.com/roukmoute/spotiamp/actions/runs/39630012360).
+Le workflow `.github/workflows/build.yml` automatise la compilation native,
+les tests et les paquets sur **Windows x64, macOS Apple Silicon et Linux x64**.
+La [CI de la version 0.1.6](https://github.com/roukmoute/spotiamp/actions/runs/39702450154)
+a réussi sur les trois systèmes, avec vérification des archives par le moteur
+de mise à jour. Elle teste aussi les fenêtres natives macOS, les interactions
+X11 et l'installation, la mise à jour et la désinstallation sous Windows.
 La compilation Windows MSVC du workflow utilise le runtime C statique
 (`-C target-feature=+crt-static`).
 Les scripts `measure-windows.ps1` et `measure-linux.py` enregistrent les mesures
