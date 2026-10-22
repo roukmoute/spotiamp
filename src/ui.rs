@@ -1,3 +1,4 @@
+use crate::appearance::Skin;
 use crate::model::{AudioQuality, Command, Snapshot};
 use crate::updater::UpdateStatus;
 use font8x8::UnicodeFonts;
@@ -34,6 +35,7 @@ pub enum Action {
     Minimize,
     Close,
     OpenLibrary,
+    SetSkin(Skin),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -120,12 +122,15 @@ enum Button {
     Quality96,
     Quality160,
     Quality320,
+    Skin(Skin),
 }
 
 impl Button {
     const TITLEBAR: [Self; 3] = [Self::Help, Self::Minimize, Self::Close];
 
-    const ALL: [Self; 17] = [
+    const ALL: [Self; 19] = [
+        Self::Skin(Skin::Classic),
+        Self::Skin(Skin::Modern),
         Self::About,
         Self::Library,
         Self::Connection,
@@ -189,6 +194,8 @@ impl Button {
             Self::Quality96 => (350, 417, 60, 21),
             Self::Quality160 => (415, 417, 60, 21),
             Self::Quality320 => (480, 417, 66, 21),
+            Self::Skin(Skin::Classic) => (47, 146, 74, 16),
+            Self::Skin(Skin::Modern) => (125, 146, 62, 16),
         }
     }
 
@@ -238,6 +245,7 @@ impl Button {
 
 pub struct View {
     pub pixels: Vec<u32>,
+    pub skin: Skin,
     pub input: String,
     pub input_active: bool,
     pub select_all: bool,
@@ -262,6 +270,7 @@ impl Default for View {
     fn default() -> Self {
         Self {
             pixels: vec![BG; WIDTH * HEIGHT],
+            skin: Skin::default(),
             input: String::new(),
             input_active: false,
             select_all: false,
@@ -285,6 +294,64 @@ impl Default for View {
 }
 
 impl View {
+    pub fn set_skin(&mut self, skin: Skin) {
+        if self.skin != skin {
+            self.cancel_pointer();
+            self.last_click = None;
+            self.skin = skin;
+        }
+    }
+
+    fn render_skin_selector(&mut self) {
+        // Both choices occupy the existing playlist title strip, not a new window.
+        self.rect(
+            8,
+            146,
+            182,
+            16,
+            if self.skin == Skin::Modern {
+                0xc3c8d3
+            } else {
+                BG
+            },
+        );
+        self.tiny_text(
+            10,
+            151,
+            "SKIN",
+            if self.skin == Skin::Modern {
+                0x303d56
+            } else {
+                WHITE
+            },
+        );
+        for (skin, label) in [(Skin::Classic, "CLASSIQUE"), (Skin::Modern, "MODERN")] {
+            let (x, y, w, h) = Button::Skin(skin).rect();
+            let down = self.button_down(x, y);
+            self.metal_face(x, y, w, h, true, down || self.skin == skin);
+            let d = usize::from(down);
+            self.tiny_text(
+                x + (w - label.len() * 6) / 2 + d,
+                y + 5 + d,
+                label,
+                0x242b40,
+            );
+            if self.skin == skin {
+                self.rect(
+                    x + 5,
+                    y + h - 3,
+                    w - 10,
+                    1,
+                    if self.skin == Skin::Modern {
+                        0x26518c
+                    } else {
+                        0x77715c
+                    },
+                );
+            }
+        }
+    }
+
     /// Advance the update hint using elapsed time from the existing UI loop.
     /// Only its visible half-cycle affects redraws; no clock or task is owned here.
     pub fn tick_update_indicator(&mut self, elapsed: Duration) {
@@ -551,6 +618,7 @@ impl View {
         match Button::at(x, y, self.about, &self.update) {
             Some(Button::Minimize) => return Some(Action::Minimize),
             Some(Button::Close) => return Some(Action::Close),
+            Some(Button::Skin(skin)) => return Some(Action::SetSkin(skin)),
             Some(Button::Help) => {
                 if self.about.is_some() {
                     self.about = Some(AboutTab::Shortcuts);
@@ -676,6 +744,7 @@ impl View {
         s.hash(&mut hash);
         self.input.hash(&mut hash);
         self.update.hash(&mut hash);
+        self.skin.hash(&mut hash);
         if self.update_indicator_visible() {
             self.update_indicator_phase.hash(&mut hash);
         }
@@ -711,6 +780,7 @@ impl View {
 }
 
 mod about_skin;
+mod modern_skin;
 mod skin;
 
 #[cfg(test)]
@@ -733,6 +803,9 @@ mod connection_tests;
 
 #[cfg(test)]
 mod mode_tests;
+
+#[cfg(test)]
+mod skin_tests;
 
 #[cfg(test)]
 mod tests {

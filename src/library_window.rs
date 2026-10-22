@@ -72,6 +72,10 @@ impl LibraryWindow {
         })
     }
 
+    pub fn set_skin(&mut self, skin: crate::appearance::Skin) {
+        self.view.set_skin(skin);
+    }
+
     /// Returns false after either native or in-skin Close. Playback is untouched.
     pub fn frame(&mut self, engine: &engine::Engine) -> Result<bool, minifb::Error> {
         if !self.window.is_open() {

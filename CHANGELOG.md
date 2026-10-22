@@ -1,5 +1,17 @@
 # Changements
 
+## 0.2.0 — 22 octobre 2026
+
+- Deux skins natifs intégrés : **Classique** et **Modern**, sélectionnables
+  dans l'en-tête de la file du lecteur ou avec **F4**. Le changement est immédiat,
+  conserve les dimensions des deux fenêtres et n'interrompt pas la lecture.
+- Le choix est mémorisé dans le fichier de préférence `Spotiamp/skin`, séparé
+  de la qualité audio et de la session Spotify. Classique reste le choix par
+  défaut si la préférence est absente ou invalide ; un échec d'écriture est signalé.
+- `--skin classic` ou `--skin modern` choisit une apparence pour ce lancement,
+  sans modifier la préférence enregistrée. Les deux skins réutilisent les
+  fenêtres et buffers existants, sans moteur graphique supplémentaire.
+
 ## 0.1.9 — 22 octobre 2026
 
 - Le bandeau de la bibliothèque s'atténue lorsqu'elle perd le focus, comme

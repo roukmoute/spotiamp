@@ -3,7 +3,7 @@
 use super::*;
 
 #[derive(Clone, Copy)]
-enum TransportIcon {
+pub(super) enum TransportIcon {
     Previous,
     Play,
     Pause,
@@ -20,6 +20,16 @@ impl View {
     }
 
     pub(super) fn bevel(&mut self, x: usize, y: usize, w: usize, h: usize, fill: u32, inset: bool) {
+        if self.skin == crate::appearance::Skin::Modern {
+            let fill = match fill {
+                BG => 0x1b344c,
+                BLACK => 0x071c30,
+                0x353249 => 0x294c69,
+                other => other,
+            };
+            crate::appearance::panel(&mut self.pixels, WIDTH, (x, y, w, h), fill, inset);
+            return;
+        }
         self.rect(x, y, w, h, fill);
         if w < 3 || h < 3 {
             return;
@@ -40,6 +50,7 @@ impl View {
     }
 
     pub(super) fn text(&mut self, x: usize, y: usize, text: &str, color: u32, max: usize) {
+        let color = self.skin_text_color(color);
         for (index, c) in text.chars().take(max).enumerate() {
             let glyph = font8x8::BASIC_FONTS
                 .get(c)
@@ -59,6 +70,7 @@ impl View {
 
     // Five-pixel capitals keep title strips as compact as the original skin.
     pub(super) fn tiny_text(&mut self, x: usize, y: usize, text: &str, color: u32) {
+        let color = self.skin_text_color(color);
         for (index, c) in text.chars().enumerate() {
             let rows = match c {
                 'A' => [14, 17, 31, 17, 17],
@@ -109,6 +121,10 @@ impl View {
         enabled: bool,
         down: bool,
     ) {
+        if self.skin == crate::appearance::Skin::Modern {
+            crate::appearance::button(&mut self.pixels, WIDTH, (x, y, w, h), enabled, down);
+            return;
+        }
         self.rect(x, y, w, h, 0x0b0d17);
         let (high, face, low) = if enabled {
             (0xe8edf0, 0xb6bec8, 0x747d91)
@@ -164,14 +180,20 @@ impl View {
         );
     }
 
-    fn triangle(&mut self, x: usize, y: usize, size: usize, right: bool, color: u32) {
+    pub(super) fn triangle(&mut self, x: usize, y: usize, size: usize, right: bool, color: u32) {
         for column in 0..size {
             let half = if right { size - 1 - column } else { column };
             self.rect(x + column, y + size - 1 - half, 1, half * 2 + 1, color);
         }
     }
 
-    fn transport_glyph(&mut self, cx: usize, cy: usize, icon: TransportIcon, color: u32) {
+    pub(super) fn transport_glyph(
+        &mut self,
+        cx: usize,
+        cy: usize,
+        icon: TransportIcon,
+        color: u32,
+    ) {
         match icon {
             TransportIcon::Previous => {
                 self.rect(cx - 8, cy - 5, 2, 11, color);
@@ -256,7 +278,7 @@ impl View {
         self.tiny_text(left, y + 6, name, label_color);
     }
 
-    fn digit(&mut self, x: usize, y: usize, digit: u8) {
+    pub(super) fn digit(&mut self, x: usize, y: usize, digit: u8) {
         let masks = [
             0b0111111, 0b0000110, 0b1011011, 0b1001111, 0b1100110, 0b1101101, 0b1111101, 0b0000111,
             0b1111111, 0b1101111,
@@ -280,9 +302,17 @@ impl View {
                 *w,
                 *h,
                 if mask & (1 << bit) != 0 {
-                    GREEN
+                    if self.skin == crate::appearance::Skin::Modern {
+                        0x8ceaff
+                    } else {
+                        GREEN
+                    }
                 } else {
-                    0x10200c
+                    if self.skin == crate::appearance::Skin::Modern {
+                        0x163348
+                    } else {
+                        0x10200c
+                    }
                 },
             );
         }
@@ -298,6 +328,18 @@ impl View {
     }
 
     pub fn render(&mut self, s: &Snapshot) {
+        match self.skin {
+            crate::appearance::Skin::Classic => self.render_classic(s),
+            crate::appearance::Skin::Modern => self.render_modern(s),
+        }
+        self.render_skin_selector();
+        if self.help {
+            self.render_help();
+        }
+        self.render_about();
+    }
+
+    fn render_classic(&mut self, s: &Snapshot) {
         self.pixels.fill(BG);
         self.bevel(0, 0, WIDTH, HEIGHT, BG, false);
         self.rect(3, 20, 1, HEIGHT - 23, 0x535166);
@@ -615,13 +657,9 @@ impl View {
                 self.text(left + 8, 146, text, SHADOW, 31);
             }
         }
-        if self.help {
-            self.render_help();
-        }
-        self.render_about();
     }
 
-    fn titlebar_buttons(&mut self) {
+    pub(super) fn titlebar_buttons(&mut self) {
         for button in Button::TITLEBAR {
             let (x, y, width, height) = button.rect();
             let down = self.button_down(x, y);
@@ -677,6 +715,18 @@ impl View {
         }
     }
 
+    fn skin_text_color(&self, color: u32) -> u32 {
+        if self.skin == crate::appearance::Skin::Classic {
+            return color;
+        }
+        match color {
+            GREEN | GOLD => 0x6ce5ff,
+            WHITE => 0xeaf8ff,
+            DIM => 0x91b3cb,
+            other => other,
+        }
+    }
+
     pub fn save_ppm(&self, path: &str) -> std::io::Result<()> {
         let mut file = File::create(path)?;
         write!(file, "P6\n{WIDTH} {HEIGHT}\n255\n")?;
@@ -688,6 +738,6 @@ impl View {
     }
 }
 
-fn format_time(ms: u32) -> String {
+pub(super) fn format_time(ms: u32) -> String {
     format!("{}:{:02}", ms / 60_000, ms / 1000 % 60)
 }

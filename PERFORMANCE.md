@@ -28,6 +28,12 @@ promesse de « zéro utilisation du GPU » dans le Gestionnaire des tâches.
 GDI est ici spécifique à Windows ; les versions macOS et Linux utilisent
 leurs propres backends d'affichage.
 
+Depuis la version 0.2.0, les skins **Classique** et **Modern** utilisent ces mêmes
+backends, dimensions et buffers. Changer de skin remplace le rendu dans les
+buffers existants ; aucun moteur graphique, thread ou fenêtre supplémentaire
+n'est créé pour ce choix. La préférence est un petit fichier séparé des réglages
+audio. Les mesures historiques ci-dessous concernent le skin Classique.
+
 ### Comparaison avec Spotifast
 
 Au commit [`e86d3de`](https://github.com/crmne/spotifast/tree/e86d3de0cb72edba8f24b447218daa7f3af1f127),
@@ -249,6 +255,15 @@ La comparaison automatique Windows conserve cinq démarrages et deux mesures
 au repos pour chaque version, bibliothèque fermée. Elle mesure aussi le
 candidat avec ses deux fenêtres ouvertes dans un essai distinct. Tous ces
 essais CI restent hors connexion et sans lecture audio.
+
+La version 0.2.0 ajoute une comparaison séparée de **Classique** et **Modern**
+dans le même binaire candidat, avec les deux fenêtres ouvertes. Les options
+`--skin classic` et `--skin modern` rendent ce choix reproductible sans modifier
+la préférence enregistrée. Chaque skin reçoit trois démarrages alternés et un
+essai au repos de 20 secondes après 10 secondes de chauffe. Les couleurs du
+premier rendu sont vérifiées sur l'écran à partir d'une capture du skin choisi.
+Les résultats restent sensibles au bruit du runner partagé ; les essais hors
+connexion ne mesurent pas le décodage ni la lecture Spotify.
 
 Décompresser le paquet et ouvrir PowerShell dans son dossier :
 

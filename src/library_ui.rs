@@ -1,5 +1,9 @@
 //! A native bitmap library. The framebuffer exists only while its window is open.
-use crate::model::{LibraryCommand, LibrarySnapshot, PlaylistEntry, PlaylistId};
+use crate::{
+    appearance::Skin,
+    model::{LibraryCommand, LibrarySnapshot, PlaylistEntry, PlaylistId},
+};
+mod modern;
 use font8x8::UnicodeFonts;
 use minifb::Key;
 use std::{
@@ -55,6 +59,7 @@ enum Target {
 
 pub struct View {
     pub pixels: Vec<u32>,
+    skin: Skin,
     selected_id: Option<PlaylistId>,
     pending_selection: Option<PlaylistId>,
     observed_id: Option<PlaylistId>,
@@ -80,6 +85,7 @@ impl Default for View {
     fn default() -> Self {
         Self {
             pixels: vec![BG; WIDTH * HEIGHT],
+            skin: Skin::Classic,
             selected_id: None,
             pending_selection: None,
             observed_id: None,
@@ -106,6 +112,16 @@ impl Default for View {
 impl View {
     fn dirty(&mut self) {
         self.ui_revision = self.ui_revision.wrapping_add(1);
+    }
+    /// Changes only presentation: keep selection, scroll positions and buffer.
+    pub fn set_skin(&mut self, skin: Skin) {
+        if self.skin == skin {
+            return;
+        }
+        self.skin = skin;
+        self.cancel_pointer();
+        self.last_click = None;
+        self.dirty();
     }
     pub fn notice(&mut self, text: &str) {
         self.notice = Some((text.into(), Instant::now()));
@@ -562,21 +578,25 @@ impl View {
             self.enabled(Button::Append, s),
         ];
         let pressed = self.pressed.filter(|p| Some(*p) == self.hovered);
-        let title_line = if self.focused { GOLD } else { 0x6c6870 };
-        let title_text = if self.focused { WHITE } else { 0x86838e };
+        let palette = modern::Palette::new(self.skin, self.focused);
         let mut c = Canvas {
             pixels: &mut self.pixels,
             focused: self.focused,
+            skin: self.skin,
         };
-        c.pixels.fill(BG);
-        c.bevel((0, 0, WIDTH, HEIGHT), BG, false);
-        c.bevel((3, 3, WIDTH - 6, HEIGHT - 6), BG, true);
-        c.bevel((6, 4, 688, 14), 0x343344, true);
-        for y in [7, 10, 13] {
-            c.rect((12, y, 208, 1), title_line);
-            c.rect((480, y, 208, 1), title_line);
+        if self.skin == Skin::Modern {
+            c.modern_chrome(palette.title_line);
+        } else {
+            c.pixels.fill(palette.background);
+            c.bevel((0, 0, WIDTH, HEIGHT), palette.background, false);
+            c.bevel((3, 3, WIDTH - 6, HEIGHT - 6), palette.background, true);
+            c.bevel((6, 4, 688, 14), palette.header_alt, true);
+            for y in [7, 10, 13] {
+                c.rect((12, y, 208, 1), palette.title_line);
+                c.rect((480, y, 208, 1), palette.title_line);
+            }
         }
-        c.text(232, 7, "SPOTIAMP  /  BIBLIOTHÈQUE", title_text, 30);
+        c.text(232, 7, "SPOTIAMP  /  BIBLIOTHÈQUE", palette.title_text, 30);
         c.button(
             Button::Minimize,
             "_",
@@ -595,7 +615,7 @@ impl View {
             enabled[0],
             pressed == Some(Target::Button(Button::Refresh)),
         );
-        c.text(192, 37, "VOS PLAYLISTS SPOTIFY", GOLD, 36);
+        c.text(192, 37, "VOS PLAYLISTS SPOTIFY", palette.chrome_text, 36);
         c.text(
             574,
             37,
@@ -604,14 +624,14 @@ impl View {
             } else {
                 "HORS CONNEXION"
             },
-            DIM,
+            palette.chrome_muted,
             21,
         );
-        c.bevel((12, 60, 220, 377), BLACK, true);
-        c.bevel((13, 61, 218, 23), 0x454360, false);
-        c.text(23, 69, "MES PLAYLISTS", WHITE, 24);
+        c.bevel((12, 60, 220, 377), palette.well, true);
+        c.bevel((13, 61, 218, 23), palette.header, false);
+        c.text(23, 69, "MES PLAYLISTS", palette.bright, 24);
         if self.left_focus && self.focused {
-            c.rect((16, 86, 212, 1), GOLD);
+            c.rect((16, 86, 212, 1), palette.accent);
         }
         if s.entries.is_empty() {
             c.text(
@@ -622,7 +642,7 @@ impl View {
                 } else {
                     "Aucune playlist"
                 },
-                GREEN,
+                palette.primary,
                 23,
             );
             c.text(
@@ -633,7 +653,7 @@ impl View {
                 } else {
                     "Connectez le lecteur"
                 },
-                DIM,
+                palette.muted,
                 23,
             );
         }
@@ -647,18 +667,18 @@ impl View {
             let y = 91 + (row - self.left_offset) * 28;
             let active = self.selected_id.as_ref() == Some(&entry.id);
             if active {
-                c.rect((18, y, 202, 27), 0x252d52);
+                c.rect((18, y, 202, 27), palette.selection);
             }
             c.text(
                 24,
                 y + 4,
                 &entry.name,
                 if !entry.available {
-                    DIM
+                    palette.muted
                 } else if active {
-                    WHITE
+                    palette.bright
                 } else {
-                    GREEN
+                    palette.primary
                 },
                 24,
             );
@@ -672,18 +692,18 @@ impl View {
                 } else {
                     &entry.folder
                 },
-                DIM,
+                palette.muted,
                 24,
             );
         }
         c.scrollbar(222, 91, 336, s.entries.len(), LEFT_ROWS, self.left_offset);
-        c.bevel((240, 60, 508, 341), BLACK, true);
-        c.bevel((241, 61, 506, 37), 0x343344, false);
+        c.bevel((240, 60, 508, 341), palette.well, true);
+        c.bevel((241, 61, 506, 37), palette.header_alt, false);
         c.text(
             252,
             68,
             selected.map_or("Sélectionnez une playlist", |e| e.name.as_str()),
-            WHITE,
+            palette.bright,
             60,
         );
         let mut summary = Label::new();
@@ -699,13 +719,13 @@ impl View {
         } else {
             let _ = write!(summary, "Les titres sont chargés à l'ouverture.");
         }
-        c.text(252, 83, summary.as_str(), DIM, 60);
-        c.bevel((242, 100, 504, 17), 0x454360, false);
-        c.text(252, 105, "N°", WHITE, 3);
-        c.text(286, 105, "TITRE / ARTISTE", WHITE, 38);
-        c.text(686, 105, "DURÉE", WHITE, 7);
+        c.text(252, 83, summary.as_str(), palette.muted, 60);
+        c.bevel((242, 100, 504, 17), palette.header, false);
+        c.text(252, 105, "N°", palette.bright, 3);
+        c.text(286, 105, "TITRE / ARTISTE", palette.bright, 38);
+        c.text(686, 105, "DURÉE", palette.bright, 7);
         if !self.left_focus && self.focused {
-            c.rect((245, 118, 497, 1), GOLD);
+            c.rect((245, 118, 497, 1), palette.accent);
         }
         if !ready || s.tracks.is_empty() {
             let message = if s.loading || self.pending_selection.is_some() {
@@ -715,12 +735,12 @@ impl View {
             } else {
                 "Choisissez une playlist dans la colonne de gauche."
             };
-            c.text(260, 151, message, GREEN, 58);
+            c.text(260, 151, message, palette.primary, 58);
             c.text(
                 260,
                 174,
                 "Entrée : lire    Ctrl+Entrée : ajouter à la file",
-                DIM,
+                palette.muted,
                 58,
             );
         } else {
@@ -734,23 +754,27 @@ impl View {
                 let y = 120 + (index - self.right_offset) * 24;
                 let active = self.selected_track == Some(index);
                 if active {
-                    c.rect((248, y, 486, 23), 0x252d52);
+                    c.rect((248, y, 486, 23), palette.selection);
                 }
                 let mut number = Label::new();
                 let _ = write!(number, "{:03}", index + 1);
-                c.text(252, y + 8, number.as_str(), DIM, 3);
+                c.text(252, y + 8, number.as_str(), palette.muted, 3);
                 c.text(
                     286,
                     y + 3,
                     &track.title,
-                    if active { WHITE } else { GREEN },
+                    if active {
+                        palette.bright
+                    } else {
+                        palette.primary
+                    },
                     49,
                 );
-                c.text(286, y + 14, &track.artist, DIM, 49);
+                c.text(286, y + 14, &track.artist, palette.muted, 49);
                 let mut time = Label::new();
                 let seconds = track.duration_ms / 1000;
                 let _ = write!(time, "{}:{:02}", seconds / 60, seconds % 60);
-                c.text(686, y + 8, time.as_str(), GREEN, 6);
+                c.text(686, y + 8, time.as_str(), palette.primary, 6);
             }
             c.scrollbar(738, 120, 264, s.tracks.len(), RIGHT_ROWS, self.right_offset);
         }
@@ -766,18 +790,18 @@ impl View {
             enabled[2],
             pressed == Some(Target::Button(Button::Append)),
         );
-        c.text(506, 416, "Double-clic : lire", DIM, 30);
+        c.text(506, 416, "Double-clic : lire", palette.chrome_muted, 30);
         let mut queue = Label::new();
         let _ = write!(queue, "FILE : {} TITRES", s.queue_len);
-        c.text(506, 428, queue.as_str(), DIM, 30);
-        c.rect((13, 443, 734, 1), 0x11111b);
-        c.rect((13, 444, 734, 1), 0x656174);
+        c.text(506, 428, queue.as_str(), palette.chrome_muted, 30);
+        c.rect((13, 443, 734, 1), palette.separator_shadow);
+        c.rect((13, 444, 734, 1), palette.separator_highlight);
         let status = self
             .notice
             .as_ref()
             .map_or(s.status.as_str(), |(text, _)| text.as_str());
-        c.text(15, 450, status, GOLD, 91);
-        c.text_skip(15, 460, status, GOLD, 91, 91);
+        c.text(15, 450, status, palette.chrome_text, 91);
+        c.text_skip(15, 460, status, palette.chrome_text, 91, 91);
         true
     }
 }
@@ -795,6 +819,7 @@ fn reveal(index: usize, offset: &mut usize, rows: usize) {
 struct Canvas<'a> {
     pixels: &'a mut [u32],
     focused: bool,
+    skin: Skin,
 }
 impl Canvas<'_> {
     fn rect(&mut self, (x, y, w, h): Rect, color: u32) {
@@ -804,6 +829,10 @@ impl Canvas<'_> {
         }
     }
     fn bevel(&mut self, r: Rect, fill: u32, inset: bool) {
+        if self.skin == Skin::Modern {
+            crate::appearance::panel(self.pixels, WIDTH, r, fill, inset);
+            return;
+        }
         self.rect(r, fill);
         let (x, y, w, h) = r;
         let (light, dark) = if inset {
@@ -838,28 +867,40 @@ impl Canvas<'_> {
     }
     fn button(&mut self, b: Button, label: &str, enabled: bool, down: bool) {
         let (x, y, w, h) = b.rect();
-        self.bevel(
-            (x, y, w, h),
-            if enabled { 0xb6bec8 } else { 0x7a7e90 },
-            down,
-        );
-        self.rect(
-            (x + 2, y + 2, w - 4, 2),
-            if down {
-                0x646b7d
-            } else if enabled {
-                0xd6dee4
-            } else {
-                0x8b8fa0
-            },
-        );
-        self.rect((x + 2, y + h - 4, w - 4, 2), 0x747d91);
+        if self.skin == Skin::Modern {
+            crate::appearance::button(self.pixels, WIDTH, (x, y, w, h), enabled, down);
+        } else {
+            self.bevel(
+                (x, y, w, h),
+                if enabled { 0xb6bec8 } else { 0x7a7e90 },
+                down,
+            );
+            self.rect(
+                (x + 2, y + 2, w - 4, 2),
+                if down {
+                    0x646b7d
+                } else if enabled {
+                    0xd6dee4
+                } else {
+                    0x8b8fa0
+                },
+            );
+            self.rect((x + 2, y + h - 4, w - 4, 2), 0x747d91);
+        }
         let shift = usize::from(down);
         self.text(
             x + w.saturating_sub(label.chars().count() * 8) / 2 + shift,
             y + (h - 8) / 2 + shift,
             label,
-            if matches!(b, Button::Minimize | Button::Close) {
+            if self.skin == Skin::Modern {
+                if matches!(b, Button::Minimize | Button::Close) && !self.focused {
+                    0x6a7b8c
+                } else if enabled {
+                    0x1d4365
+                } else {
+                    0x5b6c7b
+                }
+            } else if matches!(b, Button::Minimize | Button::Close) {
                 if self.focused { 0x303346 } else { 0x62677a }
             } else if enabled {
                 0x242b40
@@ -881,10 +922,25 @@ impl Canvas<'_> {
         if count <= rows {
             return;
         }
-        self.rect((x, y, 6, height), 0x171724);
+        self.rect(
+            (x, y, 6, height),
+            if self.skin == Skin::Modern {
+                0x0b2841
+            } else {
+                0x171724
+            },
+        );
         let h = (height * rows / count).max(8);
         let top = offset * (height - h) / (count - rows);
-        self.bevel((x + 1, y + top, 4, h), GOLD, false);
+        self.bevel(
+            (x + 1, y + top, 4, h),
+            if self.skin == Skin::Modern {
+                0x8dcbe8
+            } else {
+                GOLD
+            },
+            false,
+        );
     }
 }
 // Numeric labels stay on the stack; a repaint never allocates temporary strings.

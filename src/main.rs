@@ -1,6 +1,7 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 mod about_actions;
+mod appearance;
 #[cfg(feature = "spotify")]
 mod credentials;
 #[cfg(any(test, target_os = "macos"))]
@@ -17,6 +18,7 @@ mod library_window;
 mod model;
 #[cfg(feature = "spotify")]
 mod settings;
+mod skin_settings;
 #[cfg(feature = "spotify")]
 mod spotify_library;
 mod ui;
@@ -219,6 +221,20 @@ fn process_frame_input(
 
     if actions
         .iter()
+        .any(|action| matches!(action, ui::Action::SetSkin(_)))
+    {
+        // Changing appearance must never also trigger a queued playback click.
+        actions.retain(|action| {
+            matches!(
+                action,
+                ui::Action::SetSkin(_) | ui::Action::Minimize | ui::Action::Close
+            )
+        });
+        return;
+    }
+
+    if actions
+        .iter()
         .any(|action| matches!(action, ui::Action::OpenLibrary))
     {
         actions.retain(|action| {
@@ -240,6 +256,15 @@ fn process_frame_input(
     if pressed(Key::F3) {
         view.cancel_pointer();
         actions.push(ui::Action::OpenLibrary);
+        return;
+    }
+    if pressed(Key::F4) {
+        view.cancel_pointer();
+        actions.retain(|action| matches!(action, ui::Action::Minimize | ui::Action::Close));
+        actions.push(ui::Action::SetSkin(match view.skin {
+            appearance::Skin::Classic => appearance::Skin::Modern,
+            appearance::Skin::Modern => appearance::Skin::Classic,
+        }));
         return;
     }
     if pressed(Key::F1) {
@@ -325,6 +350,16 @@ fn requested_about_tab(args: &[String]) -> Result<Option<ui::AboutTab>, &'static
     }))
 }
 
+fn requested_skin(args: &[String]) -> Result<Option<appearance::Skin>, &'static str> {
+    let Some(index) = args.iter().position(|arg| arg == "--skin") else {
+        return Ok(None);
+    };
+    args.get(index + 1)
+        .and_then(|value| appearance::Skin::parse(value))
+        .map(Some)
+        .ok_or("--skin expects classic or modern")
+}
+
 fn toggle_library(
     library: &mut Option<library_window::LibraryWindow>,
     close_pending: &mut bool,
@@ -343,7 +378,8 @@ fn toggle_library(
         return;
     }
     match library_window::LibraryWindow::new(scale, parent) {
-        Ok(window) => {
+        Ok(mut window) => {
+            window.set_skin(view.skin);
             if let Err(error) = engine
                 .tx
                 .try_send(Command::Library(model::LibraryCommand::Open))
@@ -435,11 +471,12 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
         println!(concat!(
             "Spotiamp ",
             env!("CARGO_PKG_VERSION"),
-            " experimental\n--scale 2        double-size bitmap UI\n--library        open the Spotify playlist library (default)\n--no-library     start with the player only; F3 opens the library\n--about [player|credits|shortcuts|history|updates]   open the About dialog\n--screenshot FILE.ppm   render the disconnected UI without opening a window\n--no-update-check       skip the automatic startup update check\n--quit-after SECONDS    automatic exit for reproducible idle measurements\nSpace: play/pause; Ctrl+V: paste URL; Enter: add/play; Delete: remove; F1: help; F2: About; F3: playlist library"
+            " experimental\n--scale 2        double-size bitmap UI\n--skin classic|modern   override the saved skin for this run\n--library        open the Spotify playlist library (default)\n--no-library     start with the player only; F3 opens the library\n--about [player|credits|shortcuts|history|updates]   open the About dialog\n--screenshot FILE.ppm   render the disconnected UI without opening a window\n--no-update-check       skip the automatic startup update check\n--quit-after SECONDS    automatic exit for reproducible idle measurements\nSpace: play/pause; Ctrl+V: paste URL; Enter: add/play; Delete: remove; F1: help; F2: About; F3: playlist library; F4: switch skin"
         ));
         return Ok(());
     }
     let mut view = ui::View::default();
+    view.set_skin(requested_skin(&args)?.unwrap_or_else(skin_settings::load));
     if let Some(notice) = initial_notice {
         view.notice(&notice);
     }
@@ -588,6 +625,18 @@ fn run(initial_notice: Option<String>) -> Result<(), Box<dyn std::error::Error>>
                     );
                     None
                 }
+                ui::Action::SetSkin(skin) => {
+                    if view.skin != skin {
+                        view.set_skin(skin);
+                        if let Some(library) = &mut library {
+                            library.set_skin(skin);
+                        }
+                    }
+                    if let Err(message) = skin_settings::save(skin) {
+                        view.notice(message);
+                    }
+                    None
+                }
                 ui::Action::Submit => {
                     let text = view.input.trim().to_owned();
                     if text.is_empty() {
@@ -694,6 +743,9 @@ mod about_input_tests;
 
 #[cfg(test)]
 mod library_input_tests;
+
+#[cfg(test)]
+mod skin_input_tests;
 
 #[cfg(all(test, target_os = "windows"))]
 mod window_native_windows_tests;

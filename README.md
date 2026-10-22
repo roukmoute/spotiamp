@@ -1,9 +1,9 @@
-# Spotiamp — un petit lecteur Spotify classique
+# Spotiamp — un petit lecteur Spotify natif
 
 **L'esprit Winamp, dans un lecteur Spotify natif et léger pour Windows, macOS et Linux.**
 
-Spotiamp partage la même interface classique et la même base Rust sur les trois
-systèmes : un seul skin, une file de lecture, vos playlists Spotify et des mises
+Spotiamp partage les mêmes skins **Classique** et **Modern** et la même base Rust
+sur les trois systèmes : une file de lecture, vos playlists Spotify et des mises
 à jour intégrées. Le moteur audio actuel est librespot 0.8. Un compte Spotify
 Premium est nécessaire.
 
@@ -53,14 +53,26 @@ d’optimisation pour la vitesse. Les comparaisons et leurs limites sont dans
 [PERFORMANCE.md](PERFORMANCE.md). L’éclair du bouton À propos signale toujours
 les mises à jour disponibles.
 
-## Une interface classique et légère
+## Deux skins natifs et légers
+
+Les boutons **Classique** et **Modern**, dans l'en-tête de la file du lecteur,
+permettent de choisir l'apparence ; **F4** passe de l'une à l'autre. Le changement
+s'applique immédiatement au lecteur et à sa bibliothèque, sans interrompre
+la musique ni modifier leurs dimensions. Le choix est conservé pour les prochains lancements.
+
+La préférence tient dans un petit fichier `Spotiamp/skin`, à côté du réglage
+audio dans le dossier de configuration du système. Une préférence absente ou
+invalide utilise **Classique** ; une erreur de sauvegarde est signalée dans le lecteur.
+Pour essayer un skin sans changer le choix enregistré, lancer
+`spotiamp --skin classic` ou `spotiamp --skin modern`
+(`.\spotiamp.exe` sous PowerShell, `./spotiamp` sous macOS/Linux).
 
 Sous Windows, Spotiamp dessine son interface en logiciel, sur le processeur,
 puis l'affiche avec **GDI**, le système graphique classique de Windows :
 **aucune accélération graphique n'est requise pour dessiner le lecteur**.
 Le rendu du lecteur ne crée aucun contexte OpenGL ou Direct3D et ne demande
 pas de carte graphique dédiée. macOS et Linux utilisent leurs propres backends
-d'affichage pour présenter le même skin.
+d'affichage pour présenter le skin choisi.
 
 La différence avec Spotifast se situe aussi dans ce choix d'affichage :
 [Spotifast utilise egui/eframe avec le moteur OpenGL Glow](https://github.com/crmne/spotifast/blob/e86d3de0cb72edba8f24b447218daa7f3af1f127/Cargo.toml#L31-L36),
@@ -68,7 +80,7 @@ tandis que Spotiamp utilise le rendu logiciel et GDI sous Windows.
 Les [détails techniques et les mesures](PERFORMANCE.md) expliquent cette approche.
 
 La **bibliothèque de vos playlists Spotify** s'ouvre automatiquement avec le
-lecteur, dans une fenêtre au style classique **collée à sa droite**. Les deux
+lecteur, dans une fenêtre utilisant le même skin **collée à sa droite**. Les deux
 fenêtres se déplacent ensemble en faisant glisser l'un de leurs bandeaux et
 se réduisent ensemble. Sur un écran trop étroit, la bibliothèque se place
 juste en dessous. **BIBLIO. F3** ou **F3** la ferme ou la rouvre : playlists
@@ -83,9 +95,9 @@ les boutons **Réduire** et **Fermer** intégrés et le déplacement par glissem
 Les **mises à jour intégrées** restent accessibles dans l'onglet **Mise à jour**
 du panneau **À propos** : détection d'une nouvelle version, téléchargement,
 puis installation et redémarrage à votre demande.
-Les touches métalliques, boutons enfoncés pendant l'appui, cadres encastrés et
-poignées rainurées sont conservés, comme la qualité **320 kb/s par défaut** et
-la molette d'un titre par cran.
+Le skin Classique conserve les touches métalliques, les boutons enfoncés pendant
+l'appui, les cadres encastrés et les poignées rainurées. Les deux skins gardent
+la qualité **320 kb/s par défaut** et la molette d'un titre par cran.
 
 ![Interface de Spotiamp](preview.png)
 
@@ -211,7 +223,7 @@ paquet sur disque et vérifie son empreinte SHA-256 ; la lecture peut continuer.
 Lorsque le paquet est prêt, **Installer / Redémarrer** ferme le lecteur,
 remplace l'exécutable puis le relance. **La lecture s'arrête et la file est
 perdue**, car elle n'est pas encore sauvegardée. Les identifiants Spotify déjà
-mémorisés dans le coffre du système et la qualité préférée sont conservés.
+mémorisés dans le coffre du système, la qualité préférée et le skin choisi sont conservés.
 Un échec s'affiche dans le panneau. Le dossier du programme doit être accessible
 en écriture pour l'installation. `--no-update-check` désactive la recherche
 automatique au démarrage ; **Vérifier** reste disponible.
@@ -298,7 +310,8 @@ Les liens acceptés sont `https://open.spotify.com/track/...`, `/album/...`,
 résolus. Les playlists sont limitées aux titres accessibles renvoyés par Spotify.
 
 Raccourcis du lecteur : Espace lecture/pause, flèches sélection, Entrée lecture
-ou ajout, Suppr retirer, Tab champ de lien, F1 aide, F2 À propos, F3 bibliothèque, Échap fermer
+ou ajout, Suppr retirer, Tab champ de lien, F1 aide, F2 À propos, F3 bibliothèque,
+F4 changer de skin, Échap fermer
 l'aide ou le panneau. Sous macOS, Cmd+V colle également un lien. Le texte utilise
 une petite police bitmap : les glyphes absents sont affichés avec `?`.
 
@@ -306,7 +319,8 @@ une petite police bitmap : les glyphes absents sont affichés avec `?`.
 
 - Rendu logiciel bitmap sur le CPU, affichage **Win32/GDI sous Windows**,
   sans dépendance à l'accélération 3D pour l'interface du lecteur.
-- Un seul thème, aucune WebView ni moteur de navigateur.
+- Deux skins intégrés utilisant les mêmes fenêtres et buffers, aucune WebView
+  ni moteur de navigateur. Le changement de skin ne crée pas de nouvelle fenêtre.
 - Un processus pendant la lecture ; le réseau et l'audio restent hors du thread
   d'interface. Un processus temporaire remplace l'exécutable lors d'une mise à jour.
 - Recherche de mise à jour ponctuelle, sans thread ni client HTTP gardé au repos.

@@ -59,6 +59,112 @@ fn render_reuses_its_buffer_and_shared_tracks_and_skips_unchanged_state() {
 }
 
 #[test]
+fn skin_switch_preserves_library_state_buffer_and_idle_rendering() {
+    let mut view = View::default();
+    let s = snapshot(100, 100);
+    view.render(&s);
+    view.key(Key::Right, false, false, &s);
+    view.key(Key::End, false, false, &s);
+    view.scroll(-3.4, Some((100, 200)), &s);
+    view.render(&s);
+    let position = (
+        view.left_offset,
+        view.right_offset,
+        view.left_remainder,
+        view.right_remainder,
+    );
+    let selected = (
+        view.selected_id.clone(),
+        view.selected_track,
+        view.selected_uri.clone(),
+    );
+    let buffer = view.pixels.as_ptr();
+    let capacity = view.pixels.capacity();
+    let tracks = Arc::strong_count(&s.tracks);
+    let entries = Arc::strong_count(&s.entries);
+    let classic = view.pixels.clone();
+    for _ in 0..10 {
+        view.set_skin(Skin::Modern);
+        assert!(view.render(&s));
+        assert_ne!(view.pixels, classic);
+        assert!(!view.render(&s));
+        let revision = view.ui_revision;
+        view.set_skin(Skin::Modern);
+        assert_eq!(view.ui_revision, revision, "reapplying skin is a no-op");
+        assert!(!view.render(&s));
+        view.set_skin(Skin::Classic);
+        assert!(view.render(&s));
+        assert_eq!(view.pixels, classic, "Classic must restore pixel for pixel");
+    }
+    assert_eq!(
+        (
+            view.left_offset,
+            view.right_offset,
+            view.left_remainder,
+            view.right_remainder
+        ),
+        position
+    );
+    assert_eq!(
+        (view.selected_id, view.selected_track, view.selected_uri),
+        selected
+    );
+    assert_eq!(view.pixels.as_ptr(), buffer);
+    assert_eq!(view.pixels.capacity(), capacity);
+    assert_eq!(Arc::strong_count(&s.tracks), tracks);
+    assert_eq!(Arc::strong_count(&s.entries), entries);
+}
+
+#[test]
+fn skin_switch_cancels_capture_and_double_click_without_changing_action_geometry() {
+    let s = snapshot(3, 8);
+    for skin in [Skin::Classic, Skin::Modern] {
+        let mut view = View::default();
+        view.set_skin(skin);
+        view.pointer_down(40, 124, &s);
+        view.set_skin(skin); // Main may reapply an unchanged preference.
+        assert!(matches!(view.pointer_up(Some((40, 124)), &s),
+            Some(Action::Command(LibraryCommand::Select(PlaylistId::Spotify(id)))) if id == "playlist-1"));
+        let other = if skin == Skin::Classic {
+            Skin::Modern
+        } else {
+            Skin::Classic
+        };
+        view.pointer_down(40, 124, &s);
+        view.set_skin(other);
+        assert!(
+            view.pointer_up(Some((40, 124)), &s).is_none(),
+            "old press must not cross skins"
+        );
+        assert!(view.last_click.is_none());
+        assert!(
+            click(&mut view, 40, 124, &s).is_none(),
+            "first new click only previews"
+        );
+        assert_playlist_play(click(&mut view, 40, 124, &s), "playlist-1");
+    }
+}
+
+#[test]
+fn modern_library_focus_changes_title_and_restores_without_reallocating() {
+    let s = snapshot(2, 5);
+    let mut view = View::default();
+    view.set_skin(Skin::Modern);
+    assert!(view.render(&s));
+    let buffer = view.pixels.as_ptr();
+    let active = view.pixels.clone();
+    assert_eq!(view.pixels[10 * WIDTH + 16], 0x1d4365);
+    view.set_focus(false);
+    assert!(view.render(&s));
+    assert_eq!(view.pixels[10 * WIDTH + 16], 0x6a7b8c);
+    assert!(!view.render(&s));
+    view.set_focus(true);
+    assert!(view.render(&s));
+    assert_eq!(view.pixels, active);
+    assert_eq!(view.pixels.as_ptr(), buffer);
+}
+
+#[test]
 fn scrolling_each_panel_uses_one_notch_per_row_and_accumulates_fractions() {
     let mut view = View::default();
     let s = snapshot(100, 100);
@@ -405,6 +511,9 @@ fn keyboard_skips_unavailable_playlists_instead_of_getting_stuck() {
 fn export_library_preview() {
     let path = std::env::var_os("SPOTIAMP_LIBRARY_PREVIEW").expect("preview path");
     let mut view = View::default();
+    if let Ok(skin) = std::env::var("SPOTIAMP_LIBRARY_SKIN") {
+        view.set_skin(Skin::parse(&skin).expect("classic or modern preview skin"));
+    }
     let mut s = snapshot(16, 28);
     let names = [
         "À écouter cette semaine",
@@ -453,6 +562,12 @@ fn export_library_preview() {
     s.status = "16 playlists / lecture seule / F5 : actualiser / Tab : changer de panneau".into();
     view.render(&s);
     click(&mut view, 300, 176, &s);
+    if std::env::var_os("SPOTIAMP_LIBRARY_INACTIVE").is_some() {
+        view.set_focus(false);
+    }
+    if std::env::var_os("SPOTIAMP_LIBRARY_PRESSED").is_some() {
+        view.pointer_down(280, 425, &s);
+    }
     view.render(&s);
     let mut out = std::fs::File::create(path).unwrap();
     use std::io::Write;

@@ -140,8 +140,8 @@ impl View {
         self.rect(152, 174, 256, 1, 0x625a3c);
         self.rect(152, 176, 256, 1, GOLD);
         self.about_centered(191, concat!("Version ", env!("CARGO_PKG_VERSION")), GREEN);
-        self.about_centered(227, "Un lecteur Spotify natif au style classique.", WHITE);
-        self.about_centered(247, "Un seul skin, vos titres, votre musique.", WHITE);
+        self.about_centered(227, "Un lecteur Spotify natif, léger et compact.", WHITE);
+        self.about_centered(247, "Deux skins intégrés : Classique et Modern.", WHITE);
         self.rect(64, 269, 432, 1, 0x303042);
         self.about_centered(285, "Spotify Premium requis pour écouter.", WHITE);
         self.about_centered(307, "Projet expérimental - Code sous licence MIT.", WHITE);
@@ -220,11 +220,12 @@ impl View {
         self.rect(54, 250, 452, 1, 0x303042);
         for (y, keys, action) in [
             (265, "F1 / F2 / F3", "Aide / À propos / Bibliothèque"),
-            (285, "Espace", "Lecture / pause (hors saisie)"),
-            (305, "Ctrl+V / Cmd+V", "Coller un lien Spotify"),
-            (325, "Entrée", "Ajouter le lien / lire"),
-            (345, "Flèches / molette", "Parcourir la file"),
-            (365, "Suppr", "Retirer le titre choisi"),
+            (282, "F4", "Changer de skin"),
+            (299, "Espace", "Lecture / pause (hors saisie)"),
+            (316, "Ctrl+V / Cmd+V", "Coller un lien Spotify"),
+            (333, "Entrée", "Ajouter le lien / lire"),
+            (350, "Flèches / molette", "Parcourir la file"),
+            (367, "Suppr", "Retirer le titre choisi"),
         ] {
             self.text(54, y, keys, GOLD, 20);
             self.text(230, y, action, WHITE, 35);
@@ -235,51 +236,39 @@ impl View {
         for (y, version, first, second) in [
             (
                 109,
+                "0.2.0 / CLASSIQUE ET MODERN",
+                "Deux skins natifs ; boutons de choix ou F4.",
+                "Choix mémorisé ; la musique continue.",
+            ),
+            (
+                154,
                 "0.1.9 / BANDEAU ACTIF ET INACTIF",
                 "Bandeau atténué quand la bibliothèque est inactive.",
                 "Couleurs rétablies dès qu'elle redevient active.",
             ),
             (
-                142,
+                199,
                 "0.1.8 / PLAYLISTS AU DOUBLE-CLIC",
                 "Double-clic : lecture dès le premier titre.",
                 "Un clic affiche les titres sans changer la file.",
             ),
             (
-                175,
+                244,
                 "0.1.7 / FENÊTRES ATTACHÉES",
                 "Bibliothèque ouverte avec le lecteur.",
                 "Déplacement et réduction des fenêtres ensemble.",
             ),
             (
-                208,
+                289,
                 "0.1.6 / BINAIRE ALLÉGÉ",
                 "Optimisation globale, priorité à la vitesse.",
                 "Code inutilisé retiré, formats audio conservés.",
             ),
             (
-                241,
+                334,
                 "0.1.5 / ALERTE DE MISE À JOUR",
                 "L'éclair clignote en vert si une mise à jour attend.",
                 "L'infobulle indique si elle est prête à installer.",
-            ),
-            (
-                274,
-                "0.1.4 / ICÔNE WINDOWS",
-                "Le S doré identifie le lecteur et sa bibliothèque.",
-                "Barre des tâches et Alt+Tab, icône intégrée.",
-            ),
-            (
-                307,
-                "0.1.3 / RECONNEXION AUTOMATIQUE",
-                "Session mémorisée réutilisée au lancement.",
-                "Déconnecter efface la session enregistrée.",
-            ),
-            (
-                340,
-                "0.1.2 / SHUFFLE ET REPEAT",
-                "Ordre aléatoire et répétition de la file.",
-                "Boutons classiques, voyants verts et relief.",
             ),
         ] {
             self.text(54, y, version, GOLD, 56);
