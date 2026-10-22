@@ -1,6 +1,6 @@
 # Local patch to librespot-playback 0.8.0
 
-The local changes are confined to `src/player.rs`. For thread startup,
+The player changes are in `src/player.rs`. For thread startup,
 `Runtime::new()` is replaced with an explicitly configured
 multithread Tokio runtime using one asynchronous worker and all drivers enabled.
 
@@ -55,3 +55,13 @@ Upstream commit recorded by the published crate:
 Source: https://github.com/librespot-org/librespot/tree/d36f9f1907e8cc9d68a93f8ebc6b627b1bf7267d/playback
 The MIT license has been copied from the root of that same upstream commit;
 the published subcrate did not contain its own license file.
+
+## Compiled audio formats
+
+The Symphonia `flac` feature is disabled in both Cargo manifests. The remote
+loader's complete fallback lists select Ogg Vorbis and MP3 for the supported
+96 / 160 / 320 kb/s settings; those codecs and the Ogg container remain enabled.
+Spotiamp rejects local files and does not offer lossless playback. Removing an
+unreachable codec avoids embedding its decoder, format registry and constants.
+This does not change the remote format preference order or audio buffers.
+A future local-file or lossless feature must revisit this deliberate restriction.

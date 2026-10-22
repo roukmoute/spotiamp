@@ -168,7 +168,6 @@ features = [
     "mp3",
     "ogg",
     "vorbis",
-    "flac",
 ]
 default-features = false
 

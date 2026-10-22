@@ -31,8 +31,11 @@ en anglais. L'installation concerne votre compte, sans droits administrateur.
 Le lecteur apparaît dans le menu Démarrer ; le raccourci sur le Bureau est optionnel.
 L'assistant propose de lancer Spotiamp à la fin.
 
-La version **0.1.5** signale les mises à jour par l'**éclair clignotant vert fluo**
-du bouton À propos et une infobulle indiquant l'action disponible.
+La version **0.1.6** réduit la taille du binaire par optimisation globale à la
+compilation et retrait de code inutilisé, tout en conservant le niveau
+d’optimisation pour la vitesse. Les comparaisons et leurs limites sont dans
+[PERFORMANCE.md](PERFORMANCE.md). L’éclair du bouton À propos signale toujours
+les mises à jour disponibles.
 L'installateur est proposé avec l'archive portable
 `Spotiamp-Windows-x64.zip`, disponible avec les paquets Linux, macOS et les
 [sources dans les releases](https://github.com/roukmoute/spotiamp/releases/latest).

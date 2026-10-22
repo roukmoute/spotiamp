@@ -41,7 +41,71 @@ Cette différence décrit leur architecture graphique. Elle ne suffit pas à
 attribuer à OpenGL un écart de consommation mémoire entre les deux applications :
 les fonctionnalités, buffers, caches et conditions de mesure comptent aussi.
 
-## Résultats obtenus
+## Réduction du binaire — 0.1.6
+
+La compilation release utilise désormais **LTO complet avec `opt-level = 3`**.
+L'optimiseur peut ainsi travailler entre toutes les bibliothèques tout en
+conservant les optimisations de vitesse. Le niveau `z`, orienté taille et
+désactivant notamment la vectorisation des boucles, n'est pas choisi par défaut
+([documentation Cargo](https://doc.rust-lang.org/cargo/reference/profiles.html#opt-level)).
+Les symboles étaient déjà retirés, le runtime C Windows était déjà statique,
+et les paniques terminaient déjà le processus : ces réglages sont conservés.
+
+Le décodeur FLAC a été retiré : aucun des formats choisis par le chargeur de ce
+lecteur, y compris ses replis, ne l'utilisait. Vorbis et MP3 restent présents,
+avec les qualités 96 / 160 / 320 kb/s. Cette application ne propose pas de lecture
+sans perte ni de fichiers locaux. Les traces `info`, `debug` et `trace` passant par
+la bibliothèque `log` sont exclues en release ; avertissements, erreurs et
+messages utilisateur sont conservés. Aucun buffer audio n'est réduit et aucun traitement
+de décompression du programme n'est ajouté au lancement.
+
+Les comparaisons de profils utilisent les sources de la 0.1.5 au commit
+`f5219186c825cc5bfb92f3230ef241932a467b5e`, le même compilateur Rust 1.95.0 et
+le même environnement Linux. Le patch des dépendances est enregistré à part.
+Ces variantes expérimentales portent donc encore le numéro 0.1.5 ; elles ne
+sont pas présentées comme les binaires définitifs de la release 0.1.6.
+La validation native Windows compare ensuite l'exécutable officiel 0.1.5 au
+véritable nouveau binaire de chaque exécution CI, sur le même runner.
+
+| Variante Linux, même poste | Octets du binaire | Écart à la référence |
+|---|---:|---:|
+| Référence : niveau 3, Thin LTO | 9 386 480 | — |
+| Niveau 3, LTO complet | 7 649 504 | −18,51 % |
+| **Retenue : niveau 3, LTO complet, code inutilisé retiré** | **7 588 544** | **−19,15 %** |
+| Niveau s, LTO complet | 5 608 768 | −40,25 % |
+| Niveau z, LTO complet | 5 312 440 | −43,40 % |
+| Mixte : niveau s, codecs/moteur niveau 3, code retiré | 5 721 920 | −39,04 % |
+
+Le décodage de signaux synthétiques stéréo de 30 secondes produit exactement
+les mêmes bits PCM en Vorbis et MP3 dans toutes ces variantes. La variante
+retenue conserve un temps CPU comparable à la référence. Les variantes s et z
+demandent nettement plus de CPU ; même le profil mixte demande environ 31 % de
+plus en Vorbis et 66 % en MP3 que la variante retenue lors de leur comparaison.
+Ces écarts concernent le **décodeur seul**, sans réseau, déchiffrement Spotify,
+sortie audio ni interface ; ils ne sont pas des pourcentages de charge du lecteur
+complet. Le choix conserve donc la vitesse de décodage au prix d'un binaire un
+peu plus grand que les profils orientés exclusivement vers la taille.
+
+Les paramètres, patches, empreintes, échantillons et scripts du banc Linux
+sont conservés dans [benchmarks/optimization-0.1.6](benchmarks/optimization-0.1.6/README.md).
+Sur huit lancements par variante, le premier rendu médian passe de 42,54 à
+43,83 ms ; l'interrogation toutes les 5 ms ne permet pas d'attribuer de sens à
+cet écart. Lors des deux essais de repos de 30 secondes après 20 secondes de
+stabilisation, le candidat utilise environ 10,1 Mio RSS et 6,1 Mio privés
+résidents, avec deux threads et 0,23 % d'un cœur CPU. La référence utilise
+10,2–10,4 Mio RSS et 0,23–0,27 % d'un cœur. Aucun surcoût significatif n'est
+observé ici ; la réduction de RAM reste modeste par rapport au gain sur disque.
+
+La taille du fichier, celle du ZIP, la mémoire résidente et la mémoire privée
+engagée sont des mesures différentes. Une réduction du code sur disque
+n'entraîne pas une baisse proportionnelle de RAM : le système ne charge que les
+pages nécessaires et le lecteur conserve ses mêmes buffers et objets en mémoire.
+Le benchmark Windows est décrit dans [scripts/README.md](scripts/README.md).
+Les résultats sont joints à chaque CI dans `spotiamp-windows-performance`, avec
+les empreintes exactes des deux exécutables. Aucun compte Spotify n'est utilisé ;
+ces observations ne valident pas la consommation en lecture connectée prolongée.
+
+## Résultats historiques — premier prototype
 
 RSS est la mémoire résidente du processus. Mio = 1 048 576 octets. La mémoire
 privée ci-dessous est la partie privée résidente sous Linux ; ce n'est pas le

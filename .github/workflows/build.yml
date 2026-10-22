@@ -62,6 +62,25 @@ jobs:
         run: LC_ALL=C XMODIFIERS=@im=none xvfb-run -a cargo test --locked --bin spotiamp --target ${{ matrix.target }} x11_ -- --ignored --test-threads=1
       - name: Build release
         run: cargo build --release --locked --target ${{ matrix.target }} --bin spotiamp
+      - name: Compare Windows size, startup and idle memory against 0.1.5
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $baselineZip = Join-Path $env:RUNNER_TEMP 'Spotiamp-perf-0.1.5.zip'
+          $baselineDir = Join-Path $env:RUNNER_TEMP 'Spotiamp-perf-0.1.5'
+          Invoke-WebRequest -Uri 'https://github.com/roukmoute/spotiamp/releases/download/v0.1.5/Spotiamp-Windows-x64.zip' -OutFile $baselineZip
+          if ((Get-FileHash -LiteralPath $baselineZip -Algorithm SHA256).Hash.ToLowerInvariant() -ne '05e6293b351c185ccb66cf6b1972d246482e6ae50afb551e2d12cd9b9920fa83') {
+            throw 'Published performance baseline SHA256 mismatch'
+          }
+          Expand-Archive -LiteralPath $baselineZip -DestinationPath $baselineDir
+          ./scripts/compare-windows-performance.ps1 -BaselineExe (Join-Path $baselineDir 'spotiamp.exe') -CandidateExe target/${{ matrix.target }}/release/spotiamp.exe -OutputDirectory dist/performance-tests
+      - name: Upload Windows performance measurements
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: spotiamp-windows-performance
+          path: dist/performance-tests/
+          if-no-files-found: warn
       - name: Smoke test native macOS window on the main thread
         if: runner.os == 'macOS'
         run: |

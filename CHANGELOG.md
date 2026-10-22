@@ -1,5 +1,17 @@
 # Changements
 
+## 0.1.6 — 22 octobre 2026
+
+- Optimisation globale à l’édition de liens (LTO complet), avec le niveau
+  d’optimisation pour la vitesse conservé à 3. Aucune décompression au lancement.
+- Retrait du décodeur FLAC inutilisé par les formats Spotify sélectionnables
+  dans ce lecteur ; Vorbis, MP3 et les qualités 96 / 160 / 320 kb/s conservés.
+- Retrait des traces détaillées passant par `log` en compilation release ;
+  avertissements, erreurs et messages de l’interface conservés.
+- Comparaison native Windows automatisée avec la 0.1.5 : taille, premier rendu,
+  mémoire résidente, mémoire privée engagée et CPU au repos. Les mesures hors
+  connexion ne remplacent pas un essai de lecture avec un compte Spotify.
+
 ## 0.1.5 — 22 octobre 2026
 
 - L'éclair du bouton À propos clignote doucement entre doré et vert fluo

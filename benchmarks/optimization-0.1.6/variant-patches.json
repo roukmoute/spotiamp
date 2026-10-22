@@ -1,0 +1,10 @@
+{
+  "pruned-source.patch": {
+    "sha256": "f2e49ee193d36efe48b17337296a30458697365028bf2ebe3fe5d18330c2e79e",
+    "base_commit": "f5219186c825cc5bfb92f3230ef241932a467b5e"
+  },
+  "mixed-source.patch": {
+    "sha256": "6f7992fbcfed9c494067aaf9cb76502da2cebd95d587496c5d159c75b7f7f361",
+    "base_commit": "f5219186c825cc5bfb92f3230ef241932a467b5e"
+  }
+}

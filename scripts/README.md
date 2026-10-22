@@ -32,6 +32,17 @@ les 10 ms pendant au plus 10 secondes. Ce temps comprend le lancement du
 processus, ne mesure pas le premier rendu exact et ne garantit pas que l'audio
 est prêt. Une mesure impossible reste `null`.
 
+La CI utilise aussi `compare-windows-performance.ps1` sur un runner Windows
+jetable sans session Spotify. Elle compare la version publiée 0.1.5, dont le
+ZIP est vérifié par SHA-256, au nouvel exécutable sur la même machine : cinq
+démarrages par version jusqu'à une fenêtre effectivement peinte, puis deux
+mesures de repos de 30 secondes après 10 secondes de stabilisation. L'ordre
+alterne et les fichiers sont déjà en cache. Les JSON de l'artefact
+`spotiamp-windows-performance` conservent les empreintes, échantillons et temps
+CPU cumulés ; ce ne sont ni des mesures de lecture ni des garanties de latence
+sur un PC utilisateur. Ce script est réservé à la CI, car un changement de
+`APPDATA` n'isole pas le Gestionnaire d'identification Windows.
+
 ## Linux
 
 ```sh
