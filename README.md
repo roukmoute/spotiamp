@@ -151,6 +151,11 @@ playlist vide conserve la file précédente. Le double-clic sur un titre utilise
 la même action en démarrant à cette ligne. **À la file** ajoute la playlist à la
 file existante sans remplacer son contenu ni lancer une nouvelle lecture.
 
+Quand un titre démarre ou est relancé, sa ligne est sélectionnée et rendue visible
+dans la file du lecteur, y compris si la lecture a été lancée depuis la bibliothèque.
+Vous pouvez ensuite parcourir la file librement : les actualisations de lecture
+ne recentrent pas la liste.
+
 La playlist affichée et la file sont limitées à **500 titres accessibles**.
 Si la file contient déjà des titres, **À la file** ajoute seulement ce que les
 places restantes permettent ; un message indique la limitation. Les noms,

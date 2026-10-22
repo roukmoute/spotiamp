@@ -1,5 +1,13 @@
 # Changements
 
+## 0.2.1 — 22 octobre 2026
+
+- Quand un titre démarre ou est relancé, le lecteur sélectionne sa ligne et
+  la rend visible dans la file, y compris depuis la bibliothèque.
+- Le défilement manuel reste libre pendant la lecture : les actualisations
+  de position ne recentrent pas la liste. Le comportement est commun aux
+  skins Classique et Modern.
+
 ## 0.2.0 — 22 octobre 2026
 
 - Deux skins natifs intégrés : **Classique** et **Modern**, sélectionnables

@@ -102,6 +102,9 @@ pub struct Snapshot {
     pub status: String,
     pub queue: Vec<TrackRow>,
     pub current: Option<usize>,
+    /// Changes once per accepted load or explicit restart, including the same
+    /// queue index, so a view can reveal it without following progress ticks.
+    pub playback_revision: u64,
     pub position_ms: u32,
     pub duration_ms: u32,
     pub volume: u16,
@@ -119,6 +122,7 @@ impl Default for Snapshot {
             status: "Connectez Spotify pour commencer.".into(),
             queue: Vec::new(),
             current: None,
+            playback_revision: 0,
             position_ms: 0,
             duration_ms: 0,
             volume: 32768,

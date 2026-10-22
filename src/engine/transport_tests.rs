@@ -101,6 +101,7 @@ fn play_resumes_current_paused_decoder_without_reloading_or_seeking() {
     assert_eq!(player.take(), vec![Call::Play]);
     assert_eq!(worker.snapshot().current, Some(0));
     assert_eq!(worker.snapshot().position_ms, 42_500);
+    assert_eq!(worker.snapshot().playback_revision, 0);
     assert_eq!(worker.pending_loads, 0);
     assert_eq!(worker.request_id, Some(7));
     assert_eq!(worker.load_quality, AudioQuality::Kbps160);
@@ -117,6 +118,7 @@ fn play_restarts_current_playing_decoder_and_keeps_its_quality() {
     assert_eq!(player.take(), vec![Call::Seek(0)]);
     assert_eq!(worker.snapshot().current, Some(0));
     assert_eq!(worker.load_quality, AudioQuality::Kbps160);
+    assert_eq!(worker.snapshot().playback_revision, 1);
     assert_eq!(worker.pending_loads, 0);
     worker.player_event(PlayerEvent::Seeked {
         play_request_id: 7,
@@ -125,6 +127,7 @@ fn play_restarts_current_playing_decoder_and_keeps_its_quality() {
     });
     assert_eq!(worker.snapshot().position_ms, 0);
     assert!(worker.snapshot().playing);
+    assert_eq!(worker.snapshot().playback_revision, 1);
 }
 
 #[test]
@@ -164,6 +167,7 @@ fn stopped_play_uses_selection_once_and_repeated_loading_play_does_not_reload() 
     );
     assert_eq!(worker.snapshot().current, Some(1));
     assert_eq!(worker.snapshot().position_ms, 0);
+    assert_eq!(worker.snapshot().playback_revision, 1);
     send(&mut worker, Command::Play(0));
     worker.player_event(PlayerEvent::PlayRequestIdChanged { play_request_id: 8 });
     worker.player_event(PlayerEvent::Loading {
@@ -173,6 +177,7 @@ fn stopped_play_uses_selection_once_and_repeated_loading_play_does_not_reload() 
     });
     send(&mut worker, Command::Play(0));
     assert!(player.take().is_empty());
+    assert_eq!(worker.snapshot().playback_revision, 1);
     send(&mut worker, Command::Toggle);
     send(&mut worker, Command::Play(0));
     assert_eq!(player.take(), vec![Call::Pause, Call::Play]);
@@ -185,6 +190,7 @@ fn stopped_play_uses_selection_once_and_repeated_loading_play_does_not_reload() 
     assert_eq!(player.take(), vec![Call::Seek(0)]);
     assert_eq!(worker.snapshot().current, Some(1));
     assert_eq!(worker.load_quality, AudioQuality::Kbps320);
+    assert_eq!(worker.snapshot().playback_revision, 2);
 }
 
 #[test]
@@ -291,6 +297,154 @@ fn finish_current(worker: &mut Worker) {
     }
 }
 
+fn prepare_library(worker: &mut Worker) -> Vec<PlaylistId> {
+    worker.session = Some(Session::new(SessionConfig::default(), None));
+    worker.library.open = true;
+    let ids = ["0000000000000000000001", "0000000000000000000002"]
+        .map(|id| PlaylistId::Spotify(format!("spotify:playlist:{id}")));
+    worker.library.shared.lock().unwrap().entries = Arc::new(
+        ids.iter()
+            .map(|id| PlaylistEntry {
+                id: id.clone(),
+                name: "Library".into(),
+                track_count: Some(20),
+                duration_ms: None,
+                folder: String::new(),
+                available: true,
+            })
+            .collect(),
+    );
+    ids.into()
+}
+
+#[test]
+fn library_ninth_track_replacement_and_same_track_replay_each_signal_once() {
+    // Entering, without polling, allows the real asynchronous command flow to
+    // be exercised with injected results and no Spotify network requests.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let _guard = runtime.enter();
+    let (mut worker, player) = worker(false);
+    let ids = prepare_library(&mut worker);
+    for (attempt, id) in [&ids[0], &ids[1], &ids[1]].into_iter().enumerate() {
+        let rows: Vec<_> = (0..20)
+            .map(|index| {
+                row(
+                    "4uLU6hMCjMI75M1A2tKUQC",
+                    &format!("List {attempt}: {index}"),
+                )
+            })
+            .collect();
+        send(
+            &mut worker,
+            Command::Library(LibraryCommand::Queue {
+                id: id.clone(),
+                replace: true,
+                play: true,
+                start: 8,
+            }),
+        );
+        if attempt < 2 {
+            worker.library_update(library::Update::Loaded {
+                generation: attempt as u64 + 1,
+                result: Ok((rows.clone(), false)),
+            });
+            assert_eq!(worker.snapshot().queue, rows);
+        }
+        // The third command reuses the ready playlist, replaying the same row.
+        let snapshot = worker.snapshot();
+        assert_eq!(snapshot.current, Some(8));
+        assert_eq!(snapshot.queue.len(), 20);
+        assert_eq!(snapshot.playback_revision, attempt as u64 + 1);
+        assert_eq!(
+            player.take(),
+            vec![
+                Call::Stop,
+                Call::Load(
+                    parse_input(&snapshot.queue[8].uri).unwrap(),
+                    true,
+                    0,
+                    Bitrate::Bitrate160,
+                ),
+            ]
+        );
+    }
+}
+
+#[test]
+fn failed_empty_stale_or_invalid_library_play_does_not_signal_or_replace() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let _guard = runtime.enter();
+    for failure in ["fetch", "empty", "stale", "index"] {
+        let (mut worker, player) = worker(false);
+        let id = prepare_library(&mut worker).remove(0);
+        edit(&worker.state, |s| s.playback_revision = 41);
+        let before = worker.snapshot();
+        send(
+            &mut worker,
+            Command::Library(LibraryCommand::Queue {
+                id,
+                replace: true,
+                play: true,
+                start: 8,
+            }),
+        );
+        worker.library_update(library::Update::Loaded {
+            generation: 1 + u64::from(failure == "stale"),
+            result: match failure {
+                "fetch" => Err("Simulated network error".into()),
+                "empty" => Ok((Vec::new(), false)),
+                _ => Ok((vec![row("0000000000000000000001", "Only track")], false)),
+            },
+        });
+        assert!(player.take().is_empty(), "{failure}");
+        assert_eq!(worker.snapshot(), before, "{failure}");
+    }
+}
+
+#[test]
+fn progress_metadata_resume_and_generic_seek_do_not_request_reveal() {
+    let (mut worker, player) = worker(false);
+    edit(&worker.state, |s| s.playback_revision = 17);
+    send(&mut worker, Command::Play(1));
+    event(&mut worker, true);
+    send(&mut worker, Command::Seek(0));
+    worker.player_event(PlayerEvent::PositionChanged {
+        play_request_id: 7,
+        track_id: worker.current_uri.clone().unwrap(),
+        position_ms: 500,
+    });
+    send(&mut worker, Command::Toggle);
+    event(&mut worker, false);
+    send(&mut worker, Command::Volume(20_000));
+    worker.set_quality(AudioQuality::Kbps320);
+    let (updates, _) = mpsc::channel(1);
+    worker.update(
+        Update::Metadata {
+            generation: worker.generation,
+            row: row("4uLU6hMCjMI75M1A2tKUQC", "Refreshed metadata"),
+        },
+        &updates,
+    );
+    assert_eq!(player.take(), vec![Call::Play, Call::Seek(0), Call::Pause]);
+    assert_eq!(worker.snapshot().playback_revision, 17);
+    send(&mut worker, Command::PlayIndex(99));
+    edit(&worker.state, |s| s.queue[1].uri = "invalid".into());
+    send(&mut worker, Command::PlayIndex(1));
+    worker.player = None;
+    send(&mut worker, Command::PlayIndex(0));
+    assert!(player.take().is_empty());
+    assert_eq!(worker.snapshot().playback_revision, 17);
+    send(&mut worker, Command::Clear);
+    assert_eq!(worker.snapshot().current, None);
+    assert_eq!(worker.snapshot().playback_revision, 17);
+}
+
 #[test]
 fn modes_default_off_and_toggles_never_change_audio_or_requested_quality() {
     let (mut worker, player) = worker(false);
@@ -324,6 +478,10 @@ fn natural_end_visits_each_row_then_stops_or_repeats_the_whole_queue() {
             for _ in 1..8 {
                 finish_current(&mut worker);
                 visited.push(worker.snapshot().current.unwrap());
+                assert_eq!(
+                    worker.snapshot().playback_revision,
+                    visited.len() as u64 - 1
+                );
                 assert!(matches!(
                     player.take().as_slice(),
                     [Call::Load(_, true, 0, _)]
@@ -336,6 +494,7 @@ fn natural_end_visits_each_row_then_stops_or_repeats_the_whole_queue() {
             if repeat {
                 let first = worker.snapshot().current.unwrap();
                 assert_ne!(first, last);
+                assert_eq!(worker.snapshot().playback_revision, 8);
                 assert!(matches!(
                     player.take().as_slice(),
                     [Call::Load(_, true, 0, _)]
@@ -351,6 +510,7 @@ fn natural_end_visits_each_row_then_stops_or_repeats_the_whole_queue() {
                 assert!(worker.stopped);
                 assert_eq!(player.take(), vec![Call::Stop]);
                 assert_eq!(worker.snapshot().status, "Fin de la file");
+                assert_eq!(worker.snapshot().playback_revision, 7);
             }
         }
     }
@@ -379,9 +539,11 @@ fn shuffled_previous_retraces_actual_order_including_repeat_boundary() {
     assert_eq!(worker.snapshot().current, Some(visited[1]));
     edit(&worker.state, |s| s.position_ms = 3_001);
     player.take();
+    let revision = worker.snapshot().playback_revision;
     send(&mut worker, Command::Previous);
     assert_eq!(player.take(), vec![Call::Seek(0)]);
     assert_eq!(worker.snapshot().current, Some(visited[1]));
+    assert_eq!(worker.snapshot().playback_revision, revision + 1);
 }
 
 #[test]
@@ -402,6 +564,7 @@ fn single_empty_and_rapid_repeated_end_events_are_safe_in_all_modes() {
             };
             worker.player_event(ended());
             worker.player_event(ended());
+            assert_eq!(worker.snapshot().playback_revision, u64::from(repeat));
             let calls = player.take();
             if repeat {
                 assert!(matches!(calls.as_slice(), [Call::Load(_, true, 0, _)]));
@@ -410,6 +573,7 @@ fn single_empty_and_rapid_repeated_end_events_are_safe_in_all_modes() {
                 });
                 worker.player_event(ended());
                 assert!(player.take().is_empty());
+                assert_eq!(worker.snapshot().playback_revision, 1);
             } else {
                 assert_eq!(calls, vec![Call::Stop]);
             }

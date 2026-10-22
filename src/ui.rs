@@ -261,6 +261,7 @@ pub struct View {
     hovered_button: Option<Button>,
     offset: usize,
     scroll_remainder: f64,
+    observed_playback_revision: u64,
     dragging: u8,
     last_click: Option<(usize, Instant)>,
     transient: Option<(String, Instant)>,
@@ -286,6 +287,7 @@ impl Default for View {
             hovered_button: None,
             offset: 0,
             scroll_remainder: 0.0,
+            observed_playback_revision: 0,
             dragging: 0,
             last_click: None,
             transient: None,
@@ -294,6 +296,34 @@ impl Default for View {
 }
 
 impl View {
+    /// Reveal each accepted playback start once, before handling new input.
+    /// Position/metadata updates must leave the user's browsing position alone.
+    pub fn sync_playback(&mut self, snapshot: &Snapshot) -> bool {
+        if self.observed_playback_revision == snapshot.playback_revision {
+            return false;
+        }
+        self.observed_playback_revision = snapshot.playback_revision;
+        let Some(index) = snapshot
+            .current
+            .filter(|&index| index < snapshot.queue.len())
+        else {
+            return false;
+        };
+        // A captured action or old double-click must not target a different row
+        // after changing the selection and the visible portion of the queue.
+        self.cancel_pointer();
+        self.last_click = None;
+        self.scroll_remainder = 0.0;
+        self.selected = Some(index);
+        self.offset = self.offset.min(snapshot.queue.len().saturating_sub(ROWS));
+        if index < self.offset {
+            self.offset = index;
+        } else if index >= self.offset + ROWS {
+            self.offset = index + 1 - ROWS;
+        }
+        true
+    }
+
     pub fn set_skin(&mut self, skin: Skin) {
         if self.skin != skin {
             self.cancel_pointer();
@@ -794,6 +824,9 @@ mod chrome_tests;
 
 #[cfg(test)]
 mod scroll_tests;
+
+#[cfg(test)]
+mod playback_follow_tests;
 
 #[cfg(test)]
 mod transport_tests;

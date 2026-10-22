@@ -1,0 +1,148 @@
+//! Follow a new playback request once without taking control of later browsing.
+use super::*;
+use crate::model::TrackRow;
+
+fn queue(len: usize, current: Option<usize>, revision: u64) -> Snapshot {
+    Snapshot {
+        queue: (0..len)
+            .map(|index| TrackRow {
+                uri: format!("spotify:track:{index}"),
+                title: format!("Titre {}", index + 1),
+                ..TrackRow::default()
+            })
+            .collect(),
+        current,
+        playback_revision: revision,
+        ..Snapshot::default()
+    }
+}
+
+#[test]
+fn ninth_track_is_selected_visible_and_mouse_accessible_in_both_skins() {
+    for skin in [Skin::Classic, Skin::Modern] {
+        let mut view = View::default();
+        view.set_skin(skin);
+        view.set_focus(false); // Playback was launched from the library.
+        view.selected = Some(0);
+        let address = view.pixels.as_ptr();
+        let capacity = view.pixels.capacity();
+        let state = queue(30, Some(8), 1);
+        view.sync_playback(&state);
+        view.render(&state);
+        assert_eq!(view.selected, Some(8));
+        assert_eq!(view.offset, 1, "only scroll enough to reveal row nine");
+        assert!(!view.focused, "following playback must not steal focus");
+        assert_eq!(view.pixels.as_ptr(), address);
+        assert_eq!(view.pixels.capacity(), capacity);
+        view.set_focus(true);
+        let y = 221 + (ROWS - 1) * 24 + 12;
+        assert!(view.click(100, y, &state).is_none());
+        assert!(matches!(
+            view.click(100, y, &state),
+            Some(Action::Send(Command::PlayIndex(8)))
+        ));
+    }
+}
+
+#[test]
+fn browsing_stays_free_through_ticks_pause_metadata_and_queue_appends() {
+    let mut view = View::default();
+    let mut state = queue(30, Some(20), 1);
+    view.sync_playback(&state);
+    view.scroll(100.0, state.queue.len());
+    assert!(view.click(100, 233, &state).is_none());
+    assert_eq!((view.selected, view.offset), (Some(0), 0));
+    view.scroll(-0.5, state.queue.len());
+    for tick in 0..6 {
+        state.position_ms = tick * 1000;
+        state.playing = tick % 2 == 0;
+        state.volume = 1234 + tick as u16;
+        state.queue[20].title = format!("Métadonnées {tick}");
+        state.queue.push(TrackRow::default());
+        view.sync_playback(&state);
+        view.render(&state);
+        assert_eq!((view.selected, view.offset), (Some(0), 0));
+        assert_eq!(view.scroll_remainder, -0.5);
+    }
+    let fingerprint = view.fingerprint(&state);
+    view.sync_playback(&state);
+    assert_eq!(view.fingerprint(&state), fingerprint);
+    state.current = Some(21);
+    state.playback_revision += 1;
+    view.sync_playback(&state);
+    assert_eq!((view.selected, view.offset), (Some(21), 14));
+    assert_eq!(view.scroll_remainder, 0.0);
+}
+
+#[test]
+fn replaying_the_same_row_or_replacing_a_playlist_at_the_same_index_follows_again() {
+    let mut view = View::default();
+    let mut state = queue(30, Some(8), 1);
+    view.sync_playback(&state);
+    view.scroll(-20.0, state.queue.len());
+    state.playback_revision += 1;
+    view.sync_playback(&state);
+    assert_eq!((view.selected, view.offset), (Some(8), 8));
+
+    view.scroll(100.0, state.queue.len());
+    state = queue(15, Some(8), 3);
+    state.queue[8].uri = "spotify:track:another-playlist-track".into();
+    view.sync_playback(&state);
+    assert_eq!((view.selected, view.offset), (Some(8), 1));
+
+    // A replacement can also contain the same URI at the same row.
+    view.scroll(100.0, state.queue.len());
+    state.playback_revision += 1;
+    view.sync_playback(&state);
+    assert_eq!((view.selected, view.offset), (Some(8), 1));
+}
+
+#[test]
+fn following_handles_short_empty_invalid_and_wrapped_snapshots() {
+    let mut view = View::default();
+    view.sync_playback(&queue(500, Some(499), u64::MAX));
+    assert_eq!((view.selected, view.offset), (Some(499), 500 - ROWS));
+    view.sync_playback(&queue(3, Some(2), 0));
+    assert_eq!((view.selected, view.offset), (Some(2), 0));
+    view.sync_playback(&queue(0, None, 1));
+    view.render(&queue(0, None, 1));
+    assert_eq!((view.selected, view.offset), (None, 0));
+    view.sync_playback(&queue(3, Some(usize::MAX), 2));
+    assert_eq!((view.selected, view.offset), (None, 0));
+    view.sync_playback(&queue(3, Some(0), 3));
+    assert_eq!((view.selected, view.offset), (Some(0), 0));
+}
+
+#[test]
+fn new_playback_does_not_retarget_a_captured_remove_or_old_double_click() {
+    let mut view = View::default();
+    let mut state = queue(30, Some(0), 1);
+    view.sync_playback(&state);
+    assert!(view.click(100, 233, &state).is_none());
+    assert!(view.last_click.is_some());
+    view.pointer_down(50, 425, &state);
+    assert_eq!(view.pressed_button, Some(Button::Remove));
+    state.current = Some(8);
+    state.playback_revision += 1;
+    view.sync_playback(&state);
+    assert!(view.last_click.is_none());
+    assert!(view.pointer_up(Some((50, 425)), &state).is_none());
+    assert!(view.click(100, 401, &state).is_none());
+    assert_eq!(view.selected, Some(8));
+}
+
+#[test]
+fn following_behind_about_keeps_the_dialog_and_link_input_intact() {
+    let mut view = View::default();
+    view.input = "https://open.spotify.com/playlist/example".into();
+    view.open_about();
+    let tab = view.about;
+    let state = queue(30, Some(20), 1);
+    view.sync_playback(&state);
+    assert_eq!(view.about, tab);
+    assert_eq!(view.input, "https://open.spotify.com/playlist/example");
+    assert_eq!((view.selected, view.offset), (Some(20), 13));
+    view.close_about();
+    view.render(&state);
+    assert_eq!((view.selected, view.offset), (Some(20), 13));
+}

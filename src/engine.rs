@@ -641,6 +641,7 @@ impl Worker {
             self.loading_audio = true;
             edit(&self.state, |s| {
                 s.current = Some(index);
+                s.playback_revision = s.playback_revision.wrapping_add(1);
                 s.position_ms = 0;
                 s.duration_ms = row.duration_ms;
                 s.playing = false;
@@ -662,6 +663,9 @@ impl Worker {
                 // Seeking keeps the loaded decoder and its requested quality.
                 // Repeated Play while Loading must not restart network work.
                 player.seek(0);
+                edit(&self.state, |s| {
+                    s.playback_revision = s.playback_revision.wrapping_add(1)
+                });
             }
         }
     }
@@ -704,6 +708,9 @@ impl Worker {
         };
         if snapshot.position_ms > 3_000 && !self.stopped {
             player.seek(0);
+            edit(&self.state, |s| {
+                s.playback_revision = s.playback_revision.wrapping_add(1)
+            });
             return;
         }
         let previous = if snapshot.shuffle {

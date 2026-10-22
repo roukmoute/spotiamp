@@ -141,8 +141,12 @@ fn process_frame_input(
     actions: &mut Vec<ui::Action>,
 ) {
     actions.clear();
+    let playback_started = view.sync_playback(snapshot);
     view.set_focus(input.active);
-    if !input.active {
+    if !input.active || playback_started {
+        // Native callbacks were collected while the old queue was visible.
+        // Paint the followed row before accepting another batch, so a queued
+        // click/Delete/Enter cannot be redirected to the new selection.
         return;
     }
     // Keyboard and mouse callbacks have separate queues. If this frame opens
@@ -746,6 +750,9 @@ mod library_input_tests;
 
 #[cfg(test)]
 mod skin_input_tests;
+
+#[cfg(test)]
+mod playback_follow_input_tests;
 
 #[cfg(all(test, target_os = "windows"))]
 mod window_native_windows_tests;
