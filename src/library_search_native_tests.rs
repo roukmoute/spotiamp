@@ -126,6 +126,111 @@ impl App {
             "1",
         ]);
     }
+
+    fn right_click(&mut self, x: usize, y: usize) {
+        let id = (self.library.window.get_window_handle() as usize).to_string();
+        self.xdotool(&[
+            "mousemove",
+            "--window",
+            &id,
+            &x.to_string(),
+            &y.to_string(),
+            "click",
+            "3",
+        ]);
+    }
+}
+
+#[test]
+#[ignore = "requires isolated Xvfb and xdotool"]
+fn x11_right_click_menu_preserves_multiselection_and_clamps_to_the_window_in_both_skins() {
+    for skin in [Skin::Classic, Skin::Modern] {
+        for search in [false, true] {
+            let mut app = App::new(skin);
+            let id = model::PlaylistId::Spotify("owned-context-menu-fixture".into());
+            let rows: Vec<_> = (0..12)
+                .map(|index| model::TrackRow {
+                    uri: format!("spotify:track:{index:022}"),
+                    title: format!("Context track {index}"),
+                    ..Default::default()
+                })
+                .collect();
+            {
+                let mut snapshot = app.engine.library.lock().unwrap();
+                snapshot.revision += 1;
+                snapshot.selected_id = Some(id.clone());
+                snapshot.selected_owned = true;
+                snapshot.selected_playlist_revision = Arc::from([1, 2, 3]);
+                snapshot.entries = Arc::new(vec![model::PlaylistEntry {
+                    id,
+                    name: "Context menu fixture".into(),
+                    track_count: Some(rows.len()),
+                    duration_ms: None,
+                    folder: String::new(),
+                    available: true,
+                }]);
+                snapshot.tracks = Arc::new(rows.clone());
+                snapshot.search.revision = 1;
+                snapshot.search.query = "context".into();
+                snapshot.search.tracks = Arc::new(rows.clone());
+            }
+            app.engine.state.lock().unwrap().queue = rows.clone();
+            app.frame();
+            let library = (app.library.window.get_window_handle() as usize).to_string();
+            app.xdotool(&["windowfocus", "--sync", &library]);
+            if search {
+                app.xdotool(&["key", "ctrl+f"]);
+            }
+            app.click(320, 132, false);
+            app.xdotool(&["keydown", "ctrl"]);
+            app.click(320, 180, false);
+            app.xdotool(&["keyup", "ctrl"]);
+            app.right_click(320, 132);
+            assert!(app.commands.is_empty() && app.library.view.has_overlay());
+            assert_eq!(
+                app.library
+                    .view
+                    .selected_tracks(&app.engine.library.lock().unwrap()),
+                vec![rows[0].clone(), rows[2].clone()]
+            );
+            app.xdotool(&["key", "Down"]);
+            app.xdotool(&["key", "Return"]);
+            assert!(
+                matches!(app.commands.as_slice(), [model::LibraryCommand::QueueTracks {
+                tracks, replace: false, play: false, insert_at: None, ..
+            }] if tracks == &vec![rows[0].clone(), rows[2].clone()]),
+                "{skin:?}, search={search}: {:?}",
+                app.commands
+            );
+            app.commands.clear();
+
+            // The pointer is over an unselected bottom-right visible row.
+            // Its menu must fit entirely inside 760x470, at origin (426,322).
+            // The right release lands over an item but cannot invoke it.
+            app.right_click(720, 380);
+            assert!(app.commands.is_empty() && app.library.view.has_overlay());
+            assert_eq!(
+                app.library
+                    .view
+                    .selected_tracks(&app.engine.library.lock().unwrap()),
+                vec![rows[10].clone()]
+            );
+            app.click(590, 339, false);
+            assert!(
+                matches!(app.commands.as_slice(), [model::LibraryCommand::QueueTracks {
+                tracks, replace: true, play: true, insert_at: None, ..
+            }] if tracks == &vec![rows[10].clone()]),
+                "{skin:?}, search={search}: {:?}",
+                app.commands
+            );
+            assert_eq!(app.engine.state.lock().unwrap().queue, rows);
+            app.commands.clear();
+            for _ in 0..8 {
+                app.frame();
+            }
+            assert!(app.commands.is_empty());
+        }
+    }
 }
 
 #[test]

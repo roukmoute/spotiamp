@@ -1,5 +1,17 @@
 # Changements
 
+## 0.2.17 — 27 octobre 2026
+
+- Un clic droit sur un morceau d'une playlist ou des résultats de recherche
+  ouvre les cinq actions du menu Envoyer vers… à proximité du pointeur.
+  Le menu reste entièrement dans la fenêtre, y compris près de ses bords.
+- Un clic droit sur un morceau déjà sélectionné conserve la sélection multiple ;
+  sur un autre morceau, il sélectionne uniquement celui-ci. L'ouverture du menu
+  ne lance pas la lecture et ne modifie pas les playlists.
+- Même menu, commandes et contrôles de droits que le bouton Envoyer vers…,
+  dans les deux skins et les six langues. Aucune dépendance, requête réseau
+  ou tâche permanente ajoutée pour ouvrir le menu.
+
 ## 0.2.16 — 27 octobre 2026
 
 - Un bouton Envoyer vers… regroupe les actions de la bibliothèque : lire la

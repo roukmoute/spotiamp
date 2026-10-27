@@ -461,6 +461,19 @@ impl View {
             (
                 109,
                 self.language
+                    .text("0.2.17 / MENU AU CLIC DROIT", "0.2.17 / RIGHT-CLICK MENU"),
+                self.language.text(
+                    "Clic droit sur un titre pour ouvrir ses actions.",
+                    "Right-click a track to open its actions.",
+                ),
+                self.language.text(
+                    "Sélection conservée si le titre est déjà choisi.",
+                    "Selection preserved when clicking a selected track.",
+                ),
+            ),
+            (
+                154,
+                self.language
                     .text("0.2.16 / MENU ENVOYER VERS", "0.2.16 / SEND TO MENU"),
                 self.language.text(
                     "Lire, ajouter à la file ou gérer vos playlists.",
@@ -472,7 +485,7 @@ impl View {
                 ),
             ),
             (
-                154,
+                199,
                 self.language.text(
                     "0.2.15 / RETRAIT DE TITRES",
                     "0.2.15 / REMOVE PLAYLIST TRACKS",
@@ -487,7 +500,7 @@ impl View {
                 ),
             ),
             (
-                199,
+                244,
                 self.language.text(
                     "0.2.14 / MISE À JOUR IMMÉDIATE",
                     "0.2.14 / IMMEDIATE UPDATE CHECK",
@@ -502,7 +515,7 @@ impl View {
                 ),
             ),
             (
-                244,
+                289,
                 self.language
                     .text("0.2.13 / NOUVELLES PLAYLISTS", "0.2.13 / NEW PLAYLISTS"),
                 self.language.text(
@@ -515,7 +528,7 @@ impl View {
                 ),
             ),
             (
-                289,
+                334,
                 self.language
                     .text("0.2.12 / RECHERCHE SPOTIFY", "0.2.12 / SPOTIFY SEARCH"),
                 self.language.text(
@@ -525,19 +538,6 @@ impl View {
                 self.language.text(
                     "Sélection multiple, file et playlists Spotify.",
                     "Multiple selection, queue and Spotify playlists.",
-                ),
-            ),
-            (
-                334,
-                self.language
-                    .text("0.2.11 / SIX LANGUES", "0.2.11 / SIX LANGUAGES"),
-                self.language.text(
-                    "Français, anglais, allemand, espagnol,",
-                    "French, English, German, Spanish,",
-                ),
-                self.language.text(
-                    "italien et portugais. Choix mémorisé.",
-                    "Italian and Portuguese. Remembered choice.",
                 ),
             ),
         ] {

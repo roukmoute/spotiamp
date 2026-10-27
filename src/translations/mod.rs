@@ -97,6 +97,9 @@ mod tests {
         for (key, max_chars) in [
             ("Credits", 11),
             ("Shortcuts", 11),
+            ("0.2.17 / RIGHT-CLICK MENU", 56),
+            ("Right-click a track to open its actions.", 56),
+            ("Selection preserved when clicking a selected track.", 56),
             ("0.2.16 / SEND TO MENU", 56),
             ("Play, queue or manage your playlists.", 56),
             ("One menu for the selected tracks.", 56),

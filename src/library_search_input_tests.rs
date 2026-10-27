@@ -34,6 +34,19 @@ fn mouse(down: bool, x: f32, y: f32) -> Input {
     )
 }
 
+fn right_mouse(down: bool, x: f32, y: f32) -> Input {
+    Input::Mouse(
+        MouseInput::Button {
+            button: MouseButton::Right,
+            down,
+            x,
+            y,
+        },
+        false,
+        false,
+    )
+}
+
 fn queries(actions: &[library_ui::Action]) -> Vec<&str> {
     actions
         .iter()
@@ -423,6 +436,143 @@ fn owned_playlist() -> (library_ui::View, LibrarySnapshot) {
     view.pointer_down(320, 132, &snapshot);
     assert!(view.pointer_up(Some((320, 132)), &snapshot).is_none());
     (view, snapshot)
+}
+
+#[test]
+fn native_secondary_button_preserves_selection_and_release_never_activates_a_menu_item() {
+    let (mut view, snapshot) = owned_playlist();
+    view.pointer_down_with_modifiers(320, 180, true, false, &snapshot);
+    view.pointer_up(Some((320, 180)), &snapshot);
+    let events = Rc::new(RefCell::new(Vec::new()));
+    let mut callback = Callback::new(events.clone());
+    callback.set_mouse_button_state(MouseButton::Right, true, 320.0, 132.0);
+    // Release over the first item, followed by Win32's normal capture loss.
+    callback.set_mouse_button_state(MouseButton::Right, false, 340.0, 150.0);
+    callback.mouse_input_cancelled();
+    let mut actions = Vec::new();
+    let mut drag = PointerDrag::default();
+    process_with_drag(
+        &mut view,
+        &snapshot,
+        true,
+        &events.borrow(),
+        &[],
+        &mut |_| panic!("context menu accessed clipboard"),
+        &mut actions,
+        &mut drag,
+    );
+    assert!(actions.is_empty() && view.has_overlay());
+    assert_eq!(
+        view.selected_tracks(&snapshot),
+        vec![snapshot.tracks[0].clone(), snapshot.tracks[2].clone()]
+    );
+    assert!(drag.origin.is_none() && !drag.active && drag.completed.is_empty());
+    process(
+        &mut view,
+        &snapshot,
+        true,
+        &[
+            Input::Key(Key::Down, false, false),
+            Input::Key(Key::Enter, false, false),
+        ],
+        &[],
+        &mut |_| Err(()),
+        &mut actions,
+    );
+    assert!(
+        matches!(actions.as_slice(), [library_ui::Action::Command(LibraryCommand::QueueTracks {
+        tracks, replace: false, play: false, insert_at: None, ..
+    })] if tracks == &vec![snapshot.tracks[0].clone(), snapshot.tracks[2].clone()])
+    );
+}
+
+#[test]
+fn secondary_press_selects_an_unselected_row_and_cancels_a_previous_left_drag() {
+    let (mut view, snapshot) = owned_playlist();
+    let mut actions = Vec::new();
+    let mut drag = PointerDrag::default();
+    process_with_drag(
+        &mut view,
+        &snapshot,
+        true,
+        &[
+            mouse(true, 320.0, 132.0),
+            right_mouse(true, 320.0, 156.0),
+            right_mouse(false, -30.0, 269.0),
+            mouse(false, -30.0, 269.0),
+        ],
+        &[],
+        &mut |_| Err(()),
+        &mut actions,
+        &mut drag,
+    );
+    assert!(actions.is_empty() && view.has_overlay());
+    assert_eq!(
+        view.selected_tracks(&snapshot),
+        vec![snapshot.tracks[1].clone()]
+    );
+    assert!(drag.origin.is_none() && !drag.active && drag.completed.is_empty());
+}
+
+#[test]
+fn secondary_click_dismisses_an_existing_menu_without_selecting_the_covered_row() {
+    let (mut view, snapshot) = owned_playlist();
+    let mut actions = Vec::new();
+    process(
+        &mut view,
+        &snapshot,
+        true,
+        &[
+            Input::Key(Key::Menu, false, false),
+            right_mouse(true, 320.0, 156.0),
+            right_mouse(false, 320.0, 156.0),
+        ],
+        &[],
+        &mut |_| Err(()),
+        &mut actions,
+    );
+    assert!(actions.is_empty() && !view.has_overlay());
+    assert_eq!(
+        view.selected_tracks(&snapshot),
+        vec![snapshot.tracks[0].clone()]
+    );
+}
+
+#[test]
+fn secondary_release_after_focus_loss_cannot_reopen_or_activate_the_context_menu() {
+    let (mut view, snapshot) = owned_playlist();
+    let mut actions = Vec::new();
+    process(
+        &mut view,
+        &snapshot,
+        true,
+        &[right_mouse(true, 320.0, 132.0)],
+        &[],
+        &mut |_| Err(()),
+        &mut actions,
+    );
+    assert!(view.has_overlay());
+    view.set_focus(false);
+    process(
+        &mut view,
+        &snapshot,
+        false,
+        &[right_mouse(false, 340.0, 150.0)],
+        &[],
+        &mut |_| Err(()),
+        &mut actions,
+    );
+    view.set_focus(true);
+    process(
+        &mut view,
+        &snapshot,
+        true,
+        &[right_mouse(false, 340.0, 150.0)],
+        &[],
+        &mut |_| Err(()),
+        &mut actions,
+    );
+    assert!(actions.is_empty() && !view.has_overlay());
 }
 
 #[test]

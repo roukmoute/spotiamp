@@ -5,6 +5,7 @@ const MENU_RECT: Rect = (246, 265, 330, 144);
 const ITEMS: usize = 5;
 
 pub(super) struct SendMenu {
+    pub(super) rect: Rect,
     pub(super) focus: usize,
     pub(super) pointer_position: Option<(usize, usize)>,
     tracks: Vec<TrackRow>,
@@ -17,13 +18,13 @@ pub(super) struct SendMenu {
 }
 
 impl SendMenu {
-    pub(super) fn item_rect(index: usize) -> Rect {
-        (250, 269 + index * 28, 322, 26)
+    pub(super) fn item_rect(&self, index: usize) -> Rect {
+        (self.rect.0 + 4, self.rect.1 + 4 + index * 28, 322, 26)
     }
 
     pub(super) fn target(&self, x: usize, y: usize) -> Target {
         (0..ITEMS)
-            .find(|&index| inside(Self::item_rect(index), x, y))
+            .find(|&index| inside(self.item_rect(index), x, y))
             .map_or(Target::MenuOutside, Target::MenuItem)
     }
 
@@ -66,10 +67,10 @@ impl SendMenu {
         pressed: Option<Target>,
     ) {
         c.rect(
-            (MENU_RECT.0 + 3, MENU_RECT.1 + 3, MENU_RECT.2, MENU_RECT.3),
+            (self.rect.0 + 3, self.rect.1 + 3, self.rect.2, self.rect.3),
             palette.separator_shadow,
         );
-        c.bevel(MENU_RECT, palette.background, false);
+        c.bevel(self.rect, palette.background, false);
         let labels = [
             language.text("Lire la sélection", "Play selection"),
             language.text("Ajouter à la file", "Add to queue"),
@@ -78,7 +79,7 @@ impl SendMenu {
             language.text("Retirer de cette playlist", "Remove from this playlist"),
         ];
         for (index, label) in labels.into_iter().enumerate() {
-            let rect = Self::item_rect(index);
+            let rect = self.item_rect(index);
             if self.focus == index && enabled[index] {
                 c.rect(rect, palette.selection);
                 if pressed == Some(Target::MenuItem(index)) {
@@ -107,7 +108,65 @@ impl View {
         self.send_menu.is_some() || self.picker.is_some()
     }
 
+    /// Right-button presses only select and open the existing action menu.
+    /// Releases are consumed by the input layer, never dispatched as left clicks.
+    pub fn context_menu_at(&mut self, x: usize, y: usize, s: &LibrarySnapshot) {
+        let had_overlay = self.has_overlay();
+        self.sync(s);
+        self.cancel_pointer();
+        self.last_click = None;
+        self.search_click = None;
+        if had_overlay {
+            if self
+                .send_menu
+                .as_ref()
+                .is_some_and(|menu| !inside(menu.rect, x, y))
+            {
+                self.close_send_menu();
+            }
+            return;
+        }
+        if !self.focused
+            || !s.connected
+            || !self.active_ready(s)
+            || (!self.search_mode && !self.selected(s).is_some_and(|entry| entry.available))
+        {
+            return;
+        }
+        let Some(Target::Track(index)) = self.target(x, y) else {
+            return;
+        };
+        if index >= self.active_tracks(s).len() {
+            return;
+        }
+        self.left_focus = false;
+        self.input_focus = false;
+        if self.active_choices().contains(index) {
+            self.focus_track(index, s);
+        } else {
+            self.choose_track(index, false, false, s);
+        }
+        self.open_send_menu_in(
+            s,
+            (
+                x.clamp(4, WIDTH - MENU_RECT.2 - 4),
+                y.clamp(4, HEIGHT - MENU_RECT.3 - 4),
+                MENU_RECT.2,
+                MENU_RECT.3,
+            ),
+        );
+        if let Some(menu) = &mut self.send_menu {
+            // Clamping can put another row under the stationary pointer.
+            // Only a subsequent real movement should change keyboard focus.
+            menu.pointer_position = Some((x, y));
+        }
+    }
+
     pub(super) fn open_send_menu(&mut self, s: &LibrarySnapshot) {
+        self.open_send_menu_in(s, MENU_RECT);
+    }
+
+    fn open_send_menu_in(&mut self, s: &LibrarySnapshot, rect: Rect) {
         if !self.enabled(Button::SendTo, s) || self.picker.is_some() {
             return;
         }
@@ -121,6 +180,7 @@ impl View {
         let indices = choices.indices(source);
         let tracks = choices.tracks(source);
         self.send_menu = Some(SendMenu {
+            rect,
             focus: 0,
             pointer_position: None,
             tracks,

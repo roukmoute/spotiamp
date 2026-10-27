@@ -715,6 +715,10 @@ fn export_library_preview() {
         view.new_playlist();
         view.paste("Jazz - découvertes du soir");
     }
+    if std::env::var_os("SPOTIAMP_LIBRARY_CONTEXT_MENU").is_some() {
+        view.context_menu_at(470, 278, &s);
+        view.pointer_move(Some((460, 348)));
+    }
     if std::env::var_os("SPOTIAMP_LIBRARY_SEND_MENU").is_some() {
         click(&mut view, 280, 425, &s);
         view.pointer_move(Some((300, 338)));

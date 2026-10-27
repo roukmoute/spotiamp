@@ -67,6 +67,15 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
     ),
     (
+        "0.2.17 / RIGHT-CLICK MENU",
+        [
+            "0.2.17 / RECHTSKLICK-MENÜ",
+            "0.2.17 / MENÚ CON CLIC DERECHO",
+            "0.2.17 / MENU CON CLIC DESTRO",
+            "0.2.17 / MENU COM BOTÃO DIREITO",
+        ],
+    ),
+    (
         "0.2.6 / MAGNETIC WINDOWS",
         [
             "0.2.6 / MAGNETISCHE FENSTER",
@@ -1188,6 +1197,15 @@ pub(super) const ENTRIES: &[Entry] = &[
             "Repetir fila: sim",
         ],
     ),
+    (
+        "Right-click a track to open its actions.",
+        [
+            "Rechtsklick auf einen Titel öffnet seine Aktionen.",
+            "Clic derecho en un tema para ver sus acciones.",
+            "Clic destro su un brano per aprire le azioni.",
+            "Clica com o botão direito numa faixa para ver ações.",
+        ],
+    ),
     ("SEARCH", ["SUCHEN", "BUSCAR", "CERCA", "PESQUISAR"]),
     (
         "SEND TO...",
@@ -1269,6 +1287,15 @@ pub(super) const ENTRIES: &[Entry] = &[
             "Elige una lista",
             "Scegli una playlist",
             "Escolhe uma playlist",
+        ],
+    ),
+    (
+        "Selection preserved when clicking a selected track.",
+        [
+            "Auswahl bleibt bei Rechtsklick auf gewählten Titel.",
+            "Selección conservada al pulsar un tema ya elegido.",
+            "Selezione mantenuta su un brano già selezionato.",
+            "Seleção mantida ao clicar numa faixa já escolhida.",
         ],
     ),
     ("Shortcuts", ["Kürzel", "Atajos", "Scorciatoie", "Atalhos"]),

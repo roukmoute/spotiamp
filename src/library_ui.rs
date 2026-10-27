@@ -1913,6 +1913,8 @@ impl std::fmt::Write for Label {
     }
 }
 #[cfg(test)]
+mod context_menu_tests;
+#[cfg(test)]
 mod create_playlist_tests;
 #[cfg(test)]
 mod remove_playlist_tests;

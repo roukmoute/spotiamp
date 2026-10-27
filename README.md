@@ -213,6 +213,12 @@ Choisissez une action à la souris ou avec **Haut/Bas**, puis **Entrée**.
 **Échap**, un clic à l'extérieur ou le changement de fenêtre ferme le menu.
 Les actions indisponibles restent désactivées.
 
+Un **clic droit sur un morceau**, dans les résultats de recherche ou les titres
+d'une playlist, ouvre ce même menu près du pointeur. Sur un morceau déjà choisi,
+la sélection multiple est conservée ; sur un autre, seul ce morceau est sélectionné.
+Le menu reste dans les limites de la fenêtre. L'ouvrir ne lance pas la lecture
+et n'envoie aucune modification à Spotify.
+
 Dans la colonne des playlists, **Envoyer vers… → Lire la sélection** remplace
 la file par la playlist choisie et démarre son premier titre.
 **Ajouter à la file** ajoute cette playlist à la fin de la file existante.

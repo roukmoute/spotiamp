@@ -208,6 +208,25 @@ pub(super) fn process_with_drag(
             }
             Input::Mouse(
                 MouseInput::Button {
+                    button: MouseButton::Right,
+                    down,
+                    x,
+                    y,
+                },
+                _,
+                _,
+            ) => {
+                // A secondary press opens a context menu, never a row drag.
+                // Its release (possibly over a menu item) cannot activate it.
+                drag.cancel();
+                view.cancel_pointer();
+                if down && let Some((x, y)) = inside(x, y) {
+                    view.context_menu_at(x, y, snapshot);
+                }
+                None
+            }
+            Input::Mouse(
+                MouseInput::Button {
                     button: MouseButton::Left,
                     down,
                     x,
