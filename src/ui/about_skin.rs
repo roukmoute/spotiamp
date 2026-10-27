@@ -460,6 +460,19 @@ impl View {
         for (y, version, first, second) in [
             (
                 109,
+                self.language
+                    .text("0.2.20 / MENU DE LA FILE", "0.2.20 / QUEUE CONTEXT MENU"),
+                self.language.text(
+                    "Clic droit : lire, envoyer ou retirer les titres.",
+                    "Right-click tracks to play, send or remove them.",
+                ),
+                self.language.text(
+                    "Garder uniquement les titres sélectionnés dans la file.",
+                    "Keep only the selected tracks in the queue.",
+                ),
+            ),
+            (
+                154,
                 self.language.text(
                     "0.2.19 / SÉLECTION MULTIPLE DANS LA FILE",
                     "0.2.19 / QUEUE MULTI-SELECTION",
@@ -474,7 +487,7 @@ impl View {
                 ),
             ),
             (
-                154,
+                199,
                 self.language
                     .text("0.2.18 / DÉPLACER LES TITRES", "0.2.18 / REORDER TRACKS"),
                 self.language.text(
@@ -487,7 +500,7 @@ impl View {
                 ),
             ),
             (
-                199,
+                244,
                 self.language
                     .text("0.2.17 / MENU AU CLIC DROIT", "0.2.17 / RIGHT-CLICK MENU"),
                 self.language.text(
@@ -500,7 +513,7 @@ impl View {
                 ),
             ),
             (
-                244,
+                289,
                 self.language
                     .text("0.2.16 / MENU ENVOYER VERS", "0.2.16 / SEND TO MENU"),
                 self.language.text(
@@ -513,7 +526,7 @@ impl View {
                 ),
             ),
             (
-                289,
+                334,
                 self.language.text(
                     "0.2.15 / RETRAIT DE TITRES",
                     "0.2.15 / REMOVE PLAYLIST TRACKS",
@@ -525,21 +538,6 @@ impl View {
                 self.language.text(
                     "Lecture et file conservées.",
                     "Playback and queue are preserved.",
-                ),
-            ),
-            (
-                334,
-                self.language.text(
-                    "0.2.14 / MISE À JOUR IMMÉDIATE",
-                    "0.2.14 / IMMEDIATE UPDATE CHECK",
-                ),
-                self.language.text(
-                    "Ouvrir Mise à jour vérifie aussitôt les versions.",
-                    "Opening Updates checks for a new version immediately.",
-                ),
-                self.language.text(
-                    "Téléchargements et mises à jour prêtes conservés.",
-                    "Downloads and ready-to-install updates are preserved.",
                 ),
             ),
         ] {

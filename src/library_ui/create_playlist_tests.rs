@@ -2,6 +2,82 @@ use super::tests::{click, snapshot};
 use super::*;
 use std::sync::Arc;
 
+#[test]
+fn queue_picker_keeps_captured_tracks_as_a_fresh_catalogue_arrives() {
+    let mut s = snapshot(3, 6);
+    let destinations = s.entries.clone();
+    let tracks = vec![
+        s.tracks[1].clone(),
+        s.tracks[4].clone(),
+        s.tracks[1].clone(),
+    ];
+    s.entries = Arc::default();
+    s.loading = true;
+    let mut view = View::default();
+    assert!(view.open_queue_playlist_picker(&s, tracks.clone(), false));
+    assert!(view.picker.as_ref().unwrap().destinations.is_empty());
+    s.entries = destinations;
+    s.loading = false;
+    s.revision += 1;
+    view.render(&s);
+    let picker = view.picker.as_mut().unwrap();
+    assert_eq!(picker.tracks, tracks);
+    assert_eq!(picker.destinations.len(), 3);
+    picker.choose(1);
+    let destination = picker.destination.clone().unwrap();
+    let address = picker.destinations.as_ptr();
+    s.revision += 1;
+    view.render(&s);
+    assert_eq!(view.picker.as_ref().unwrap().destinations.as_ptr(), address);
+    assert!(matches!(view.confirm_picker(&s), Some(Action::Command(
+        LibraryCommand::AddToPlaylist { id, tracks: captured }
+    )) if id == destination && captured == tracks));
+}
+
+#[test]
+fn queue_picker_does_not_overwrite_a_dialog_and_keeps_new_name_during_catalogue_refresh() {
+    let mut s = snapshot(2, 6);
+    let tracks = vec![s.tracks[2].clone(), s.tracks[3].clone()];
+    let mut view = View::default();
+    assert!(view.open_queue_playlist_picker(&s, tracks.clone(), true));
+    view.paste("Été et musique");
+    assert!(!view.open_queue_playlist_picker(&s, vec![s.tracks[0].clone()], false));
+    s.entries = Arc::new(s.entries.iter().take(1).cloned().collect());
+    s.revision += 1;
+    view.render(&s);
+    let picker = view.picker.as_ref().unwrap();
+    assert!(picker.creating);
+    assert_eq!(picker.name, "Été et musique");
+    assert_eq!(picker.tracks, tracks);
+    assert!(matches!(view.create_playlist(&s), Some(Action::Command(
+        LibraryCommand::CreatePlaylist { name, tracks: captured }
+    )) if name == "Été et musique" && captured == tracks));
+}
+
+#[test]
+fn queue_picker_rejects_unavailable_writes_and_invalidates_removed_destinations() {
+    let mut s = snapshot(2, 4);
+    let mut view = View::default();
+    let tracks = vec![s.tracks[1].clone()];
+    for (connected, busy) in [(false, false), (true, true)] {
+        s.connected = connected;
+        s.playlist_write_busy = busy;
+        s.revision += 1;
+        assert!(!view.open_queue_playlist_picker(&s, tracks.clone(), false));
+        assert!(view.picker.is_none());
+    }
+    s.connected = true;
+    s.playlist_write_busy = false;
+    s.revision += 1;
+    assert!(view.open_queue_playlist_picker(&s, tracks, false));
+    view.picker.as_mut().unwrap().choose(1);
+    s.entries = Arc::new(s.entries.iter().take(1).cloned().collect());
+    s.revision += 1;
+    view.render(&s);
+    assert!(view.picker.as_ref().unwrap().destination.is_none());
+    assert!(view.confirm_picker(&s).is_none());
+}
+
 fn setup(search: bool) -> (View, LibrarySnapshot) {
     let mut s = snapshot(20, 30);
     s.search.revision = 7;

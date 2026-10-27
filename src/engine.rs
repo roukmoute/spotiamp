@@ -638,6 +638,20 @@ impl Worker {
             }
             Command::Play(index) => self.press_play(index),
             Command::PlayIndex(index) => self.play(index),
+            Command::PlayQueueIndex {
+                expected_queue,
+                expected_reorder_request,
+                index,
+            } => {
+                let before = self.snapshot();
+                if !self.context_queue_matches(&expected_queue, expected_reorder_request, &before)
+                    || index >= before.queue.len()
+                {
+                    return;
+                }
+                self.cancel_library_queue();
+                self.play(index);
+            }
             Command::Toggle => {
                 let snapshot = self.snapshot();
                 if let Some(player) = &self.player {
@@ -714,6 +728,69 @@ impl Worker {
                     self.restore_library_selection = None;
                 }
             }
+            Command::EditQueue {
+                expected_queue,
+                expected_reorder_request,
+                indices,
+                keep_selected,
+            } => {
+                let before = self.snapshot();
+                if !self.context_queue_matches(&expected_queue, expected_reorder_request, &before)
+                    || indices.is_empty()
+                    || indices
+                        .last()
+                        .is_some_and(|&index| index >= before.queue.len())
+                    || indices.windows(2).any(|pair| pair[0] >= pair[1])
+                    || (keep_selected && indices.len() == before.queue.len())
+                {
+                    return;
+                }
+                let mut selected = indices.iter().copied().peekable();
+                let mut next = 0;
+                let old_to_new = (0..before.queue.len())
+                    .map(|old| {
+                        let chosen = selected.peek() == Some(&old);
+                        if chosen {
+                            selected.next();
+                        }
+                        (chosen == keep_selected).then(|| {
+                            let new = next;
+                            next += 1;
+                            new
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                self.cancel_library_queue();
+                let removed_current = before
+                    .current
+                    .is_some_and(|current| old_to_new[current].is_none());
+                if removed_current {
+                    self.stop();
+                    self.current_uri = None;
+                }
+                // Keep exact occurrences, decoder/load intent and progress.
+                // Only positions and shuffle history change for retained rows.
+                edit(&self.state, |s| {
+                    let mut old = 0;
+                    s.queue.retain(|_| {
+                        let keep = old_to_new[old].is_some();
+                        old += 1;
+                        keep
+                    });
+                    s.current = s.current.and_then(|current| old_to_new[current]);
+                    if removed_current {
+                        s.duration_ms = 0;
+                    }
+                });
+                if before.shuffle {
+                    self.order.retain(&old_to_new);
+                }
+                if next == 0 {
+                    self.queue_playlist = None;
+                    self.restore_library_selection = None;
+                    self.order.clear();
+                }
+            }
             Command::ReorderQueue {
                 request_id,
                 expected_queue,
@@ -774,6 +851,36 @@ impl Worker {
             Command::Library(command) => self.library_command(command, updates),
             Command::Shutdown => {}
         }
+    }
+
+    fn context_queue_matches(
+        &self,
+        expected_queue: &[String],
+        expected_reorder_request: u64,
+        snapshot: &Snapshot,
+    ) -> bool {
+        if self.import_task.is_some() {
+            edit(&self.state, |s| {
+                s.status = "Import en cours; Vider permet de l'annuler".into()
+            });
+            return false;
+        }
+        if expected_reorder_request != snapshot.queue_reorder_request
+            || expected_queue.len() != snapshot.queue.len()
+            || expected_queue
+                .iter()
+                .zip(&snapshot.queue)
+                .any(|(uri, row)| uri != &row.uri)
+        {
+            edit(&self.state, |s| {
+                s.status = LocalizedText::new(
+                    "La file a change; reouvrez le menu",
+                    "The queue changed; reopen the menu.",
+                );
+            });
+            return false;
+        }
+        true
     }
 
     fn update(&mut self, update: Update, updates: &mpsc::Sender<Update>) {

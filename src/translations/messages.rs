@@ -506,6 +506,15 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
         ],
     ),
     (
+        "Finish the current library action, then try again.",
+        [
+            "Schließe die aktuelle Aktion in der Bibliothek ab und versuche es erneut.",
+            "Termina la acción actual en la biblioteca y vuelve a intentarlo.",
+            "Completa l’azione in corso nella libreria e riprova.",
+            "Termina a ação atual na biblioteca e tenta novamente.",
+        ],
+    ),
+    (
         "Import in progress; Clear cancels it",
         [
             "Import läuft; Leeren bricht ihn ab",
@@ -1342,6 +1351,15 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
             "La cola ha cambiado; no se movieron canciones",
             "La coda è cambiata; nessun brano spostato",
             "A fila mudou; nenhuma faixa movida",
+        ],
+    ),
+    (
+        "The queue changed; reopen the menu.",
+        [
+            "Die Warteschlange wurde geändert; Menü erneut öffnen.",
+            "La cola ha cambiado; vuelve a abrir el menú.",
+            "La coda è cambiata; riapri il menu.",
+            "A fila mudou; volta a abrir o menu.",
         ],
     ),
     (

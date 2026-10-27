@@ -35,6 +35,22 @@ pub(super) fn inside(x: f32, y: f32) -> Option<(usize, usize)> {
 }
 
 impl LibraryWindow {
+    pub fn open_queue_playlist_picker(
+        &mut self,
+        engine: &engine::Engine,
+        tracks: Vec<crate::model::TrackRow>,
+        create: bool,
+    ) -> bool {
+        self.snapshot.clone_from(
+            &engine
+                .library
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()),
+        );
+        self.view
+            .open_queue_playlist_picker(&self.snapshot, tracks, create)
+    }
+
     pub fn set_language(&mut self, language: crate::locale::Language) {
         self.view.set_language(language);
         self.window.set_title(language.text(

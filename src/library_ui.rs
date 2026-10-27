@@ -539,6 +539,7 @@ impl View {
             self.picker = None;
             self.submitted_picker = None;
         }
+        self.refresh_picker_destinations(s);
 
         // Loading and metadata updates can arrive between the two clicks.
         // Keep a playlist click only while the same available ID occupies its row.

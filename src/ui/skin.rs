@@ -328,6 +328,7 @@ impl View {
     }
 
     pub fn render(&mut self, s: &Snapshot) {
+        self.sync_queue_menu(s);
         match self.skin {
             crate::appearance::Skin::Classic => self.render_classic(s),
             crate::appearance::Skin::Modern => self.render_modern(s),
@@ -351,6 +352,7 @@ impl View {
             self.render_help();
         }
         self.render_about();
+        self.render_queue_menu(s);
     }
 
     fn render_classic(&mut self, s: &Snapshot) {

@@ -1,5 +1,18 @@
 # Changements
 
+## 0.2.20 — 27 octobre 2026
+
+- Menu au clic droit dans la file du lecteur : lire le titre, envoyer la sélection
+  vers une playlist Spotify existante ou nouvelle, retirer la sélection de la
+  file ou conserver uniquement les morceaux choisis.
+- Un clic droit sur une ligne sélectionnée conserve le groupe ; sur une autre
+  ligne, il choisit ce titre. Navigation clavier avec la touche Menu ou Maj+F10.
+- Les modifications locales vérifient les occurrences capturées et préservent
+  la progression du morceau en cours tant qu’il reste dans la file. Une file
+  modifiée entretemps ferme le menu sans appliquer une ancienne sélection.
+- Rendu Classique et Modern traduit dans les six langues, sans dépendance ni
+  tâche permanente supplémentaire.
+
 ## 0.2.19 — 27 octobre 2026
 
 - Sélection multiple dans la file du lecteur : Ctrl/Cmd+clic ajoute ou retire

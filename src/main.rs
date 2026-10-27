@@ -230,6 +230,83 @@ fn queue_about_update_check(view: &mut ui::View, actions: &mut Vec<ui::Action>) 
     }
 }
 
+/// A transient queue menu owns the entire native input batch, including the
+/// release that closes it. Nothing may fall through to the rows underneath.
+fn process_queue_menu_input(
+    view: &mut ui::View,
+    snapshot: &model::Snapshot,
+    input: &FrameInput<'_>,
+    actions: &mut Vec<ui::Action>,
+) {
+    if !input.active || !view.has_queue_menu() {
+        return;
+    }
+    if input.keys.iter().any(|(key, _, _)| {
+        matches!(
+            key,
+            Key::Escape | Key::Tab | Key::F1 | Key::F2 | Key::F3 | Key::F4
+        )
+    }) || input
+        .mouse
+        .iter()
+        .any(|event| matches!(event, MouseInput::Cancel))
+    {
+        view.close_queue_menu();
+        return;
+    }
+    for &(key, control, shift) in input.keys {
+        if let Some(action) = view.queue_menu_key(key, control, shift, snapshot) {
+            actions.push(action);
+        }
+        if !view.has_queue_menu() {
+            return;
+        }
+    }
+    for &event in input.mouse {
+        let (event, control, shift) = event.without_modifiers();
+        match event {
+            MouseInput::Button {
+                button: MouseButton::Left,
+                down,
+                x,
+                y,
+            } => {
+                let position = inside_window(x, y);
+                let action = if down {
+                    if let Some((x, y)) = position {
+                        view.pointer_down_with_modifiers(x, y, control, shift, snapshot)
+                    } else {
+                        view.close_queue_menu();
+                        None
+                    }
+                } else {
+                    view.pointer_up(position, snapshot)
+                };
+                if let Some(action) = action {
+                    actions.push(action);
+                }
+            }
+            MouseInput::Button {
+                button: MouseButton::Right,
+                down: true,
+                x,
+                y,
+            } => {
+                if let Some((x, y)) = inside_window(x, y) {
+                    view.context_menu_at(x, y, snapshot);
+                } else {
+                    view.close_queue_menu();
+                }
+            }
+            _ => (),
+        }
+        if !view.has_queue_menu() {
+            return;
+        }
+    }
+    view.pointer_move(input.pointer.and_then(|(x, y)| inside_window(x, y)));
+}
+
 fn process_frame_input(
     view: &mut ui::View,
     snapshot: &model::Snapshot,
@@ -237,8 +314,13 @@ fn process_frame_input(
     actions: &mut Vec<ui::Action>,
 ) {
     actions.clear();
+    let queue_menu_was_open = view.has_queue_menu();
     let playback_started = view.sync_playback(snapshot);
     view.set_focus(input.active);
+    if queue_menu_was_open || view.has_queue_menu() {
+        process_queue_menu_input(view, snapshot, &input, actions);
+        return;
+    }
     if playback_started {
         // Queue callbacks were collected before following the new row. Only
         // fixed transport controls remain safe: rapid Next and Stop presses
@@ -331,7 +413,17 @@ fn process_frame_input(
     if cancel_queue_gesture {
         view.cancel_pointer();
     }
-    for &event in input.mouse {
+    if !cancel_queue_gesture && view.about.is_none() && !view.help {
+        for &(key, control, shift) in input.keys {
+            if key == Key::Menu || (key == Key::F10 && shift) {
+                view.queue_menu_key(key, control, shift, snapshot);
+                // Opening by keyboard consumes this batch even when there are
+                // no selected rows, so a queued click cannot change its target.
+                return;
+            }
+        }
+    }
+    for (event_index, &event) in input.mouse.iter().enumerate() {
         if modal_closed {
             // A release closing the dialog must not expose another click in
             // the same native message batch to the controls underneath.
@@ -362,11 +454,34 @@ fn process_frame_input(
                     view.pointer_up(position, snapshot)
                 }
             }
-            MouseInput::Cancel
-            | MouseInput::Button {
+            MouseInput::Button {
                 button: MouseButton::Right,
-                ..
+                down: true,
+                x,
+                y,
             } => {
+                if !cancel_queue_gesture && let Some((x, y)) = inside_window(x, y) {
+                    view.context_menu_at(x, y, snapshot);
+                } else {
+                    view.cancel_pointer();
+                }
+                if view.has_queue_menu() {
+                    actions.clear();
+                    process_queue_menu_input(
+                        view,
+                        snapshot,
+                        &FrameInput {
+                            keys: &[],
+                            mouse: &input.mouse[event_index + 1..],
+                            ..input
+                        },
+                        actions,
+                    );
+                    return;
+                }
+                None
+            }
+            MouseInput::Cancel => {
                 view.cancel_pointer();
                 None
             }
@@ -912,6 +1027,31 @@ fn run(initial_notice: Option<LocalizedText>) -> Result<(), Box<dyn std::error::
                     );
                     None
                 }
+                ui::Action::QueueToPlaylist { tracks, create } => {
+                    // Ensure the companion exists without toggling an already
+                    // open library closed or replacing an unfinished dialog.
+                    if library.is_none() {
+                        toggle_library(
+                            &mut library,
+                            &mut library_close_pending,
+                            scale,
+                            &mut window,
+                            &engine,
+                            &mut view,
+                            &mut layout,
+                            true,
+                        );
+                    }
+                    if let Some(library) = &mut library {
+                        if !library.open_queue_playlist_picker(&engine, tracks, create) {
+                            view.notice(LocalizedText::new(
+                                "Terminez l'action en cours dans la bibliotheque puis reessayez.",
+                                "Finish the current library action, then try again.",
+                            ));
+                        }
+                    }
+                    None
+                }
                 ui::Action::SetSkin(skin) => {
                     if view.skin != skin {
                         view.set_skin(skin);
@@ -1110,6 +1250,9 @@ mod playback_follow_input_tests;
 
 #[cfg(test)]
 mod queue_reorder_input_tests;
+
+#[cfg(test)]
+mod queue_menu_input_tests;
 
 #[cfg(all(test, target_os = "linux"))]
 mod queue_reorder_native_tests;

@@ -1,7 +1,7 @@
 use crate::appearance::Skin;
 use crate::locale::{Language, LanguagePreference};
 use crate::localized_text::LocalizedText;
-use crate::model::{AudioQuality, Command, Snapshot};
+use crate::model::{AudioQuality, Command, Snapshot, TrackRow};
 use crate::updater::UpdateStatus;
 use font8x8::UnicodeFonts;
 use std::{
@@ -44,6 +44,7 @@ fn language_index(preference: LanguagePreference) -> usize {
 
 pub enum Action {
     Send(Command),
+    QueueToPlaylist { tracks: Vec<TrackRow>, create: bool },
     Paste,
     Submit,
     CopyAboutInfo,
@@ -297,6 +298,7 @@ pub struct View {
     pub select_all: bool,
     pub selected: Option<usize>,
     queue_choices: Option<queue_selection::QueueSelection>,
+    queue_menu: Option<queue_menu::QueueMenu>,
     pub help: bool,
     pub about: Option<AboutTab>,
     pub update: UpdateStatus,
@@ -332,6 +334,7 @@ impl Default for View {
             select_all: false,
             selected: None,
             queue_choices: None,
+            queue_menu: None,
             help: false,
             about: None,
             update: UpdateStatus::default(),
@@ -361,12 +364,18 @@ impl View {
     /// Center explicit starts once; reveal automatic starts only if offscreen.
     /// Position/metadata updates must leave the user's browsing position alone.
     pub fn sync_playback(&mut self, snapshot: &Snapshot) -> bool {
+        self.sync_queue_menu(snapshot);
         self.sync_queue_reorder(snapshot);
         self.sync_queue_selection(snapshot);
         if self.observed_playback_revision == snapshot.playback_revision {
             return false;
         }
         self.observed_playback_revision = snapshot.playback_revision;
+        // A context action owns its original occurrence and selection. Audio
+        // progression must not move the underlying rows while it is open.
+        if self.has_queue_menu() {
+            return false;
+        }
         let preserve_choices = snapshot.playback_origin == crate::model::PlaybackOrigin::Automatic
             && self
                 .queue_choices
@@ -648,6 +657,7 @@ impl View {
     }
 
     pub fn cancel_pointer(&mut self) {
+        self.close_queue_menu();
         self.pressed_button = None;
         self.pressed_connection = None;
         self.hovered_button = None;
@@ -666,6 +676,10 @@ impl View {
         shift: bool,
         s: &Snapshot,
     ) -> Option<Action> {
+        if self.has_queue_menu() {
+            self.queue_menu_pointer_down(x, y, s);
+            return None;
+        }
         self.cancel_pointer();
         self.pending_queue_reorder = None;
         if !self.focused {
@@ -707,11 +721,18 @@ impl View {
     }
 
     pub fn pointer_move(&mut self, position: Option<(usize, usize)>) {
+        if self.has_queue_menu() {
+            self.queue_menu_pointer_move(position);
+            return;
+        }
         self.hovered_button =
             position.and_then(|(x, y)| Button::at(x, y, self.about, &self.update));
     }
 
     pub fn pointer_up(&mut self, position: Option<(usize, usize)>, s: &Snapshot) -> Option<Action> {
+        if self.has_queue_menu() {
+            return self.queue_menu_pointer_up(position, s);
+        }
         if self.queue_drag.is_some() {
             return self.release_queue_drag(position, s);
         }
@@ -745,7 +766,7 @@ impl View {
         self.transient = Some((text.into(), Instant::now()));
     }
     pub fn insert_char(&mut self, c: char) {
-        if self.about.is_some() {
+        if self.about.is_some() || self.has_queue_menu() {
             return;
         }
         if self.select_all {
@@ -762,6 +783,7 @@ impl View {
         let (x, y) = position;
         if self.about.is_some()
             || self.help
+            || self.has_queue_menu()
             || !x.is_finite()
             || !y.is_finite()
             || !(14.0..537.0).contains(&x)
@@ -819,7 +841,7 @@ impl View {
     }
 
     pub fn scroll(&mut self, y: f32, len: usize) {
-        if self.about.is_some() {
+        if self.about.is_some() || self.has_queue_menu() {
             return;
         }
         let max_offset = len.saturating_sub(ROWS);
@@ -883,6 +905,9 @@ impl View {
         }
     }
     pub fn click(&mut self, x: usize, y: usize, s: &Snapshot) -> Option<Action> {
+        if self.has_queue_menu() {
+            return None;
+        }
         // Window controls stay usable while the in-skin dialogs are open.
         match Button::at(x, y, self.about, &self.update) {
             Some(Button::Minimize) => return Some(Action::Minimize),
@@ -994,7 +1019,7 @@ impl View {
         None
     }
     pub fn drag(&self, x: usize, _y: usize, s: &Snapshot) -> Option<Action> {
-        if self.about.is_some() {
+        if self.about.is_some() || self.has_queue_menu() {
             return None;
         }
         match self.dragging {
@@ -1019,6 +1044,10 @@ impl View {
         self.skin.hash(&mut hash);
         self.drop_marker.hash(&mut hash);
         self.queue_choices.hash(&mut hash);
+        self.queue_menu
+            .as_ref()
+            .map(|menu| (menu.rect, menu.focus, menu.pressed))
+            .hash(&mut hash);
         self.language.hash(&mut hash);
         self.language_preference.hash(&mut hash);
         if self.update_indicator_visible() {
@@ -1058,6 +1087,7 @@ impl View {
 mod about_skin;
 mod modern_skin;
 mod queue_drag;
+mod queue_menu;
 mod queue_selection;
 mod skin;
 
@@ -1084,6 +1114,9 @@ mod queue_drag_tests;
 
 #[cfg(test)]
 mod queue_selection_tests;
+
+#[cfg(test)]
+mod queue_menu_tests;
 
 #[cfg(test)]
 mod connection_tests;

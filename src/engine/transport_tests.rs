@@ -3,6 +3,8 @@ use crate::model::{LibraryCommand, PlaylistEntry, PlaylistId};
 
 #[path = "load_tests.rs"]
 mod load_tests;
+#[path = "queue_context_tests.rs"]
+mod queue_context_tests;
 #[path = "reorder_tests.rs"]
 mod reorder_tests;
 #[path = "restore_tests.rs"]

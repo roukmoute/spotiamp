@@ -644,6 +644,109 @@ fn request(worker: &Worker, replace: bool) -> QueueRequest {
     }
 }
 
+#[tokio::test(flavor = "current_thread")]
+async fn queue_context_actions_cancel_pending_library_only_after_valid_nonempty_edit() {
+    let mut worker = worker();
+    let (updates, _) = mpsc::channel(1);
+    edit(&worker.state, |s| s.queue.push(row("Second")));
+    let expected = worker
+        .snapshot()
+        .queue
+        .iter()
+        .map(|r| r.uri.clone())
+        .collect::<Vec<_>>();
+    worker.library.pending_queue = Some(request(&worker, true));
+    worker.library.edit(|s| s.busy = true);
+    for command in [
+        Command::EditQueue {
+            expected_queue: vec!["stale".into()],
+            expected_reorder_request: 0,
+            indices: vec![0],
+            keep_selected: false,
+        },
+        Command::EditQueue {
+            expected_queue: expected.clone(),
+            expected_reorder_request: 0,
+            indices: vec![0, 1],
+            keep_selected: true,
+        },
+        Command::EditQueue {
+            expected_queue: expected.clone(),
+            expected_reorder_request: 0,
+            indices: vec![1, 0],
+            keep_selected: false,
+        },
+        Command::PlayQueueIndex {
+            expected_queue: expected.clone(),
+            expected_reorder_request: 0,
+            index: 2,
+        },
+        Command::PlayQueueIndex {
+            expected_queue: vec!["stale".into()],
+            expected_reorder_request: 0,
+            index: 0,
+        },
+    ] {
+        worker.command(command, &updates);
+        assert!(worker.library.pending_queue.is_some());
+        assert!(worker.library.shared.lock().unwrap().busy);
+    }
+
+    worker.import_task = Some(tokio::spawn(std::future::pending()));
+    let before = worker.snapshot();
+    for command in [
+        Command::EditQueue {
+            expected_queue: expected.clone(),
+            expected_reorder_request: 0,
+            indices: vec![0],
+            keep_selected: false,
+        },
+        Command::PlayQueueIndex {
+            expected_queue: expected.clone(),
+            expected_reorder_request: 0,
+            index: 1,
+        },
+    ] {
+        worker.command(command, &updates);
+        assert!(worker.library.pending_queue.is_some());
+        assert!(!worker.import_task.as_ref().unwrap().is_finished());
+        let after = worker.snapshot();
+        assert_eq!(after.queue, before.queue);
+        assert_eq!(after.current, before.current);
+        assert_eq!(after.position_ms, before.position_ms);
+        assert_eq!(after.playback_revision, before.playback_revision);
+    }
+    worker.import_task.take().unwrap().abort();
+
+    worker.command(
+        Command::EditQueue {
+            expected_queue: expected,
+            expected_reorder_request: 0,
+            indices: vec![1],
+            keep_selected: false,
+        },
+        &updates,
+    );
+    assert!(worker.library.pending_queue.is_none());
+    assert!(!worker.library.shared.lock().unwrap().busy);
+    let after = worker.snapshot();
+    worker.library_update(Update::Loaded {
+        generation: 0,
+        result: Ok((vec![row("Late playlist")], false)),
+    });
+    assert_eq!(worker.snapshot().queue, after.queue);
+    worker.library.pending_queue = Some(request(&worker, true));
+    worker.command(
+        Command::PlayQueueIndex {
+            expected_queue: after.queue.iter().map(|r| r.uri.clone()).collect(),
+            expected_reorder_request: 0,
+            index: 0,
+        },
+        &updates,
+    );
+    assert!(worker.library.pending_queue.is_none());
+}
+
 #[test]
 fn failed_empty_or_invalid_playlist_preserves_queue_and_playback() {
     let mut worker = worker();

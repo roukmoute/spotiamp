@@ -96,6 +96,33 @@ impl Order {
         }
     }
 
+    /// Remove several rows while preserving both cycles and the current gap.
+    pub(super) fn retain(&mut self, old_to_new: &[Option<usize>]) {
+        let retained_before = |end: usize| {
+            self.entries[..end]
+                .iter()
+                .filter(|&&old| old_to_new[old].is_some())
+                .count()
+        };
+        let position = retained_before(self.position.min(self.entries.len()));
+        let cycle_start = retained_before(self.cycle_start);
+        self.has_current &= self
+            .entries
+            .get(self.position)
+            .is_some_and(|&old| old_to_new[old].is_some());
+        self.entries.retain_mut(|old| {
+            if let Some(new) = old_to_new[*old] {
+                *old = new;
+                true
+            } else {
+                false
+            }
+        });
+        self.position = position;
+        self.cycle_start = cycle_start;
+        self.queue_len = old_to_new.iter().filter(|index| index.is_some()).count();
+    }
+
     pub(super) fn next(&mut self, repeat: bool, rng: &mut impl Rng) -> Option<usize> {
         let next = self.position + usize::from(self.has_current);
         if next < self.entries.len() {
@@ -137,6 +164,65 @@ impl Order {
 mod tests {
     use super::*;
     use rand::{SeedableRng, rngs::StdRng};
+
+    #[test]
+    fn keeping_disjoint_rows_preserves_two_cycles_and_removed_current_gap() {
+        for seed in 0..40 {
+            for keep_current in [false, true] {
+                let mut rng = StdRng::seed_from_u64(seed);
+                let mut order = Order::default();
+                order.reset(7, Some(2), &mut rng);
+                for _ in 0..9 {
+                    order.next(true, &mut rng);
+                }
+                order.previous();
+                let current = order.entries[order.position];
+                let old = order.entries.clone();
+                let position = order.position;
+                let cycle_start = order.cycle_start;
+                let mut next = 0;
+                let mapping = (0..7)
+                    .map(|index| {
+                        let keep = if index == current {
+                            keep_current
+                        } else {
+                            index % 2 == 0
+                        };
+                        keep.then(|| {
+                            let mapped = next;
+                            next += 1;
+                            mapped
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                order.retain(&mapping);
+                assert_eq!(
+                    order.entries,
+                    old.iter()
+                        .filter_map(|&old| mapping[old])
+                        .collect::<Vec<_>>()
+                );
+                assert_eq!(
+                    order.position,
+                    old[..position]
+                        .iter()
+                        .filter(|&&old| mapping[old].is_some())
+                        .count()
+                );
+                assert_eq!(
+                    order.cycle_start,
+                    old[..cycle_start]
+                        .iter()
+                        .filter(|&&old| mapping[old].is_some())
+                        .count()
+                );
+                assert_eq!(order.has_current, keep_current);
+                assert_eq!(order.queue_len, next);
+                let following = old[position + 1..].iter().find_map(|&old| mapping[old]);
+                assert_eq!(order.next(false, &mut rng), following);
+            }
+        }
+    }
 
     #[test]
     fn reordering_remaps_two_shuffle_cycles_without_changing_history() {

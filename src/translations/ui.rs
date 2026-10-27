@@ -94,6 +94,15 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
     ),
     (
+        "0.2.20 / QUEUE CONTEXT MENU",
+        [
+            "0.2.20 / KONTEXTMENÜ DER WARTESCHLANGE",
+            "0.2.20 / MENÚ CONTEXTUAL DE LA COLA",
+            "0.2.20 / MENU CONTESTUALE DELLA CODA",
+            "0.2.20 / MENU DE CONTEXTO DA FILA",
+        ],
+    ),
+    (
         "0.2.6 / MAGNETIC WINDOWS",
         [
             "0.2.6 / MAGNETISCHE FENSTER",
@@ -827,6 +836,24 @@ pub(super) const ENTRIES: &[Entry] = &[
             "italiano e português. A escolha fica guardada.",
         ],
     ),
+    (
+        "Keep only selection",
+        [
+            "Nur Auswahl behalten",
+            "Conservar solo la selección",
+            "Mantieni solo la selezione",
+            "Manter apenas a seleção",
+        ],
+    ),
+    (
+        "Keep only the selected tracks in the queue.",
+        [
+            "Nur ausgewählte Titel in der Warteschlange behalten.",
+            "Conserva solo los temas seleccionados en la cola.",
+            "Mantieni solo i brani selezionati nella coda.",
+            "Mantém apenas as faixas selecionadas na fila.",
+        ],
+    ),
     ("LANGUAGE", ["SPRACHE", "IDIOMA", "LINGUA", "IDIOMA"]),
     ("LENGTH", ["DAUER", "DURAC.", "DURATA", "DURAÇÃO"]),
     (
@@ -1079,6 +1106,15 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
     ),
     (
+        "Play this track",
+        [
+            "Diesen Titel abspielen",
+            "Reproducir este tema",
+            "Riproduci questo brano",
+            "Reproduzir esta faixa",
+        ],
+    ),
+    (
         "Play, queue or manage your playlists.",
         [
             "Abspielen, einreihen oder Playlists verwalten.",
@@ -1207,6 +1243,15 @@ pub(super) const ENTRIES: &[Entry] = &[
     ),
     ("REMOVE", ["ENTFERNEN", "QUITAR", "RIMUOVI", "REMOVER"]),
     (
+        "Remove from queue",
+        [
+            "Aus Warteschlange entfernen",
+            "Quitar de la cola",
+            "Rimuovi dalla coda",
+            "Remover da fila",
+        ],
+    ),
+    (
         "Remove from this playlist",
         [
             "Aus dieser Playlist entfernen",
@@ -1249,6 +1294,15 @@ pub(super) const ENTRIES: &[Entry] = &[
             "Clic derecho en un tema para ver sus acciones.",
             "Clic destro su un brano per aprire le azioni.",
             "Clica com o botão direito numa faixa para ver ações.",
+        ],
+    ),
+    (
+        "Right-click tracks to play, send or remove them.",
+        [
+            "Rechtsklick: Titel abspielen, senden oder entfernen.",
+            "Clic derecho: reproducir, enviar o quitar temas.",
+            "Clic destro: riproduci, invia o rimuovi brani.",
+            "Botão direito: reproduzir, enviar ou remover faixas.",
         ],
     ),
     ("SEARCH", ["SUCHEN", "BUSCAR", "CERCA", "PESQUISAR"]),

@@ -330,3 +330,83 @@ fn x11_queue_multiselection_and_group_drag_at_both_scales_and_skins() {
         }
     }
 }
+
+#[test]
+#[ignore = "requires isolated Xvfb and xdotool"]
+fn x11_queue_context_menu_group_actions_and_escape_at_both_scales_and_skins() {
+    for skin in [appearance::Skin::Classic, appearance::Skin::Modern] {
+        for (scale, factor) in [(Scale::X1, 1), (Scale::X2, 2)] {
+            let mut player = Player::new(skin, scale);
+            player.frame();
+            let id = (player.window.get_window_handle() as usize).to_string();
+            player.xdotool(&["windowfocus", "--sync", &id]);
+            player.point(80, 233, factor);
+            player.xdotool(&["click", "1"]);
+            for row in [4, 2] {
+                player.point(80, 233 + row * 24, factor);
+                player.native_batch(&["keydown", "ctrl", "click", "1", "keyup", "ctrl"]);
+            }
+            assert_eq!(player.view.selected_queue_indices(&player.state), [0, 2, 4]);
+            player.point(80, 281, factor);
+            player.native_batch(&["click", "3"]);
+            assert!(player.view.has_queue_menu());
+            assert_eq!(player.view.selected_queue_indices(&player.state), [0, 2, 4]);
+            assert!(
+                player.commands.is_empty(),
+                "right-button release never starts playback"
+            );
+            // Native left capture must invoke exactly the highlighted removal
+            // entry, even though rows continue under the software-drawn menu.
+            player.point(100, 381, factor);
+            player.xdotool(&["mousedown", "1"]);
+            assert!(player.commands.is_empty());
+            player.xdotool(&["mouseup", "1"]);
+            assert!(!player.view.has_queue_menu());
+            let [
+                Command::EditQueue {
+                    expected_queue,
+                    expected_reorder_request,
+                    indices,
+                    keep_selected,
+                },
+            ] = player.commands.as_slice()
+            else {
+                panic!("menu removal must emit one captured group command")
+            };
+            assert_eq!(indices, &[0, 2, 4]);
+            assert!(!keep_selected);
+            assert_eq!(
+                *expected_reorder_request,
+                player.state.queue_reorder_request
+            );
+            assert_eq!(
+                expected_queue,
+                &player
+                    .state
+                    .queue
+                    .iter()
+                    .map(|row| row.uri.clone())
+                    .collect::<Vec<_>>()
+            );
+            player.commands.clear();
+            player.point(80, 281, factor);
+            player.native_batch(&["click", "3"]);
+            // The stationary pointer at the opening coordinates must not
+            // reset keyboard navigation to the first item every frame.
+            player.xdotool(&["key", "End"]);
+            player.xdotool(&["key", "Return"]);
+            assert!(matches!(player.commands.as_slice(), [Command::EditQueue {
+                indices, keep_selected: true, ..
+            }] if indices == &[0, 2, 4]));
+            player.commands.clear();
+            player.native_batch(&["key", "shift+F10"]);
+            assert!(player.view.has_queue_menu());
+            player.xdotool(&["key", "End", "key", "Escape"]);
+            assert!(!player.view.has_queue_menu());
+            assert!(player.commands.is_empty());
+            assert_eq!(player.state.current, Some(2));
+            assert_eq!(player.state.position_ms, 42_000);
+            assert_eq!(player.view.selected_queue_indices(&player.state), [0, 2, 4]);
+        }
+    }
+}

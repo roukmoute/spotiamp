@@ -253,6 +253,60 @@ impl PlaylistPicker {
     }
 }
 impl View {
+    /// The player supplies a captured queue selection, independent of which
+    /// search or Spotify playlist is currently displayed in the library.
+    pub fn open_queue_playlist_picker(
+        &mut self,
+        s: &LibrarySnapshot,
+        tracks: Vec<TrackRow>,
+        create: bool,
+    ) -> bool {
+        self.sync(s);
+        if self.has_overlay() || self.submitted_picker.is_some() || self.pending_removal.is_some() {
+            return false;
+        }
+        self.open_picker_from_tracks(s, tracks);
+        if self.picker.is_none() {
+            return false;
+        }
+        if create {
+            self.new_playlist();
+        }
+        true
+    }
+
+    pub(super) fn refresh_picker_destinations(&mut self, s: &LibrarySnapshot) {
+        let Some(picker) = &mut self.picker else {
+            return;
+        };
+        // Opening the library can start a catalogue fetch. Keep the captured
+        // tracks/name intact while destinations arrive, without idle allocation.
+        let available = || s.entries.iter().filter(|entry| entry.available);
+        if picker
+            .destinations
+            .iter()
+            .map(|(id, name)| (id, name))
+            .eq(available().map(|entry| (&entry.id, &entry.name)))
+        {
+            return;
+        }
+        picker.destinations = available()
+            .map(|entry| (entry.id.clone(), entry.name.clone()))
+            .collect();
+        if picker
+            .destination
+            .as_ref()
+            .is_some_and(|id| !picker.destinations.iter().any(|(other, _)| other == id))
+        {
+            picker.destination = None;
+        }
+        picker.offset = picker
+            .offset
+            .min(picker.destinations.len().saturating_sub(ROWS));
+        self.clear_press();
+        self.dirty();
+    }
+
     #[cfg(test)]
     pub(super) fn open_picker(&mut self, s: &LibrarySnapshot) {
         self.open_picker_from_tracks(s, self.selected_tracks(s));

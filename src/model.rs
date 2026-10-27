@@ -27,6 +27,12 @@ pub enum Command {
     Add(String),
     Play(usize),
     PlayIndex(usize),
+    /// Context actions retain the exact queue viewed when the menu opened.
+    PlayQueueIndex {
+        expected_queue: Vec<String>,
+        expected_reorder_request: u64,
+        index: usize,
+    },
     Toggle,
     ToggleShuffle,
     ToggleRepeat,
@@ -38,6 +44,12 @@ pub enum Command {
     SetQuality(AudioQuality),
     SetLanguage(Language),
     Remove(usize),
+    EditQueue {
+        expected_queue: Vec<String>,
+        expected_reorder_request: u64,
+        indices: Vec<usize>,
+        keep_selected: bool,
+    },
     ReorderQueue {
         request_id: u64,
         expected_queue: Vec<String>,

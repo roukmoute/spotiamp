@@ -133,7 +133,12 @@ impl View {
     }
 
     pub fn select_all_queue(&mut self, s: &Snapshot) {
-        if !self.focused || self.about.is_some() || self.help || self.input_active {
+        if !self.focused
+            || self.about.is_some()
+            || self.help
+            || self.input_active
+            || self.has_queue_menu()
+        {
             return;
         }
         self.cancel_pointer();
@@ -157,7 +162,12 @@ impl View {
     }
 
     pub fn move_queue_selection(&mut self, delta: i32, control: bool, shift: bool, s: &Snapshot) {
-        if !self.focused || self.about.is_some() || self.help || self.input_active {
+        if !self.focused
+            || self.about.is_some()
+            || self.help
+            || self.input_active
+            || self.has_queue_menu()
+        {
             return;
         }
         self.cancel_pointer();

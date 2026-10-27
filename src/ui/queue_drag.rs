@@ -29,7 +29,7 @@ fn matches_queue(expected: &[String], snapshot: &Snapshot) -> bool {
 }
 
 impl View {
-    fn queue_row_at(&self, position: (usize, usize), len: usize) -> Option<usize> {
+    pub(super) fn queue_row_at(&self, position: (usize, usize), len: usize) -> Option<usize> {
         let (x, y) = position;
         if self.about.is_some() || self.help || !(14..535).contains(&x) || !(221..413).contains(&y)
         {

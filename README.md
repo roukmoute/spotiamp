@@ -211,6 +211,13 @@ Maintenez ensuite le clic gauche sur l'un des titres choisis et glissez pour
 morceaux après le déplacement, y compris les occurrences d'un même titre.
 Un clic simple sans déplacement sur un titre sélectionné revient à ce titre seul.
 
+Un **clic droit dans la file** ouvre les actions du titre ou du groupe sélectionné :
+**Lire ce titre**, **Vers une playlist…**, **Nouvelle playlist…**, **Retirer de la file**
+et **Garder uniquement la sélection**. Ces deux dernières actions modifient
+uniquement la file locale, sans modifier la playlist Spotify d’origine. Le titre
+en cours continue à sa position s’il est conservé. Le menu est aussi accessible
+avec la touche **Menu** ou **Maj+F10** ; **Échap** le ferme.
+
 Pour retrouver vos playlists sans copier de lien, connectez Spotify et ouvrez
 la bibliothèque avec **BIBLIO. F3** si elle est fermée. Elle affiche les playlists
 enregistrées ou suivies de votre compte, avec leur dossier en sous-titre.
