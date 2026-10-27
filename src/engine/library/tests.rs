@@ -4,6 +4,39 @@ const TRACK: &str = "spotify:track:4uLU6hMCjMI75M1A2tKUQC";
 const PLAYLIST: &str = "spotify:playlist:4uLU6hMCjMI75M1A2tKUQC";
 
 #[test]
+fn created_playlist_statuses_use_supported_bitmap_glyphs_in_all_languages() {
+    use crate::locale::Language;
+    use font8x8::UnicodeFonts;
+    let error = LocalizedText::from(
+        "Ajout a votre bibliotheque non confirme; verifiez vos playlists avant de reessayer",
+    );
+    for status in [
+        playlist_created_adding("New playlist"),
+        playlist_created_success("New playlist", 12),
+        playlist_created_error("New playlist", &error),
+    ] {
+        for language in [
+            Language::French,
+            Language::English,
+            Language::German,
+            Language::Spanish,
+            Language::Italian,
+            Language::Portuguese,
+        ] {
+            for character in status.text(language).chars() {
+                assert!(
+                    font8x8::BASIC_FONTS
+                        .get(character)
+                        .or_else(|| font8x8::LATIN_FONTS.get(character))
+                        .is_some(),
+                    "Unsupported {language:?} status glyph: {character}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn long_created_names_leave_recovery_advice_visible_in_all_languages() {
     use crate::locale::Language;
     let name = "🎵".repeat(100);
@@ -98,7 +131,7 @@ fn creation_retains_destination_on_failed_add_and_preserves_audio_and_source_sel
             library
                 .playlist_write_status
                 .text(crate::locale::Language::English)
-                .starts_with("Playlist “Été” created.")
+                .starts_with("Playlist \"Été\" created.")
                 || success
         );
         assert_eq!(worker.snapshot(), before);

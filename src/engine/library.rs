@@ -1427,8 +1427,8 @@ fn playlist_created_adding(name: &str) -> LocalizedText {
     let name = playlist_status_name(name);
     LocalizedText::with_languages(
         format!("Playlist « {name} » creee; ajout des titres en cours..."),
-        format!("Playlist “{name}” created; adding tracks..."),
-        format!("Playlist „{name}“ erstellt; Titel werden hinzugefügt..."),
+        format!("Playlist \"{name}\" created; adding tracks..."),
+        format!("Playlist \"{name}\" erstellt; Titel werden hinzugefügt..."),
         format!("Playlist «{name}» creada; añadiendo canciones..."),
         format!("Playlist «{name}» creata; aggiunta dei brani..."),
         format!("Playlist «{name}» criada; a adicionar faixas..."),
@@ -1439,8 +1439,8 @@ fn playlist_created_success(name: &str, count: usize) -> LocalizedText {
     let name = playlist_status_name(name);
     LocalizedText::with_languages(
         format!("Playlist « {name} » creee : {count} titre(s) ajoutes"),
-        format!("Playlist “{name}” created: {count} track(s) added"),
-        format!("Playlist „{name}“ erstellt: {count} Titel hinzugefügt"),
+        format!("Playlist \"{name}\" created: {count} track(s) added"),
+        format!("Playlist \"{name}\" erstellt: {count} Titel hinzugefügt"),
         format!("Playlist «{name}» creada: {count} canciones añadidas"),
         format!("Playlist «{name}» creata: {count} brani aggiunti"),
         format!("Playlist «{name}» criada: {count} faixas adicionadas"),
@@ -1456,11 +1456,11 @@ fn playlist_created_error(name: &str, error: &LocalizedText) -> LocalizedText {
             error.text(Language::French)
         ),
         format!(
-            "Playlist “{name}” created. {}",
+            "Playlist \"{name}\" created. {}",
             error.text(Language::English)
         ),
         format!(
-            "Playlist „{name}“ erstellt. {}",
+            "Playlist \"{name}\" erstellt. {}",
             error.text(Language::German)
         ),
         format!(
