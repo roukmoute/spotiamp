@@ -17,7 +17,13 @@ use std::{
 };
 
 pub const STAGE_PREFIX: &str = ".spotiamp-update-";
+#[cfg(not(test))]
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+// Native installer fixtures hash a copied ~261 MB debug test executable before
+// signalling startup. Concurrent hashes on a constrained CI runner can exceed
+// the production deadline, whose release executable is only about 9 MB.
+#[cfg(test)]
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
 const EXIT_TIMEOUT: Duration = Duration::from_secs(30);
 const POLL: Duration = Duration::from_millis(25);
 const MAX_MANIFEST: u64 = 4 * 1024 * 1024;

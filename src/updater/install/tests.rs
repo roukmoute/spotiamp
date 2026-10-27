@@ -223,6 +223,9 @@ fn symlinked_target_or_stage_is_refused() {
 fn fixture_command(exe: &Path, stage: &Path, manifest: &Manifest, failed: bool) -> Command {
     let mut command = quiet_command(exe);
     command
+        // Preserve subprocess panics in CI instead of reducing every failure
+        // to the parent's generic "process stopped" diagnostic.
+        .stderr(Stdio::inherit())
         .args([
             "--exact",
             "updater::install::tests::startup_process_fixture",
@@ -252,7 +255,11 @@ fn startup_process_fixture() {
     let manifest = read_manifest(&stage, &nonce).unwrap();
     write_new(
         &stage,
-        "fixture-pid",
+        if failed {
+            "fixture-old-pid"
+        } else {
+            "fixture-new-pid"
+        },
         std::process::id().to_string().as_bytes(),
     )
     .unwrap();
@@ -272,11 +279,20 @@ fn startup_process_fixture() {
     }
 }
 
-fn reap_fixture(stage: &Path) {
-    let pid: u32 = read_small(&stage.join("fixture-pid"), 32)
-        .unwrap()
-        .parse()
-        .unwrap();
+fn reap_fixture(stage: &Path, failed: bool) {
+    // A timed-out new process can have written its PID before rollback starts
+    // the old executable. Its bookkeeping must not block that second startup.
+    let pid: u32 = read_small(
+        &stage.join(if failed {
+            "fixture-old-pid"
+        } else {
+            "fixture-new-pid"
+        }),
+        32,
+    )
+    .unwrap()
+    .parse()
+    .unwrap();
     #[cfg(unix)]
     {
         unsafe extern "C" {
@@ -320,9 +336,9 @@ fn copied_native_process_confirms_restart_then_stage_cleanup() {
         "new-commit",
         &manifest.nonce
     ));
-    reap_fixture(fixture.stage.path());
+    reap_fixture(fixture.stage.path(), false);
     // The now-exited fixture PID also exercises the cleanup wait path.
-    let pid = read_small(&fixture.stage.path().join("fixture-pid"), 32).unwrap();
+    let pid = read_small(&fixture.stage.path().join("fixture-new-pid"), 32).unwrap();
     write_new(fixture.stage.path(), "helper-pid", pid.as_bytes()).unwrap();
     cleanup(fixture.stage.path(), &manifest.nonce, &fixture.exe, false).unwrap();
     assert!(!fixture.stage.path().exists());
@@ -365,7 +381,7 @@ fn invalid_new_executable_rolls_back_and_restarts_old_native_process() {
         &manifest.nonce
     ));
     assert!(!fixture.stage.path().join("new-commit").exists());
-    reap_fixture(fixture.stage.path());
+    reap_fixture(fixture.stage.path(), true);
 }
 
 #[test]
