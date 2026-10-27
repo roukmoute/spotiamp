@@ -389,6 +389,42 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
         ],
     ),
     (
+        "Could not verify your playlists; no tracks added",
+        [
+            "Deine Playlists konnten nicht geprüft werden; keine Titel hinzugefügt",
+            "No se pudieron comprobar tus playlists; no se añadieron canciones",
+            "Impossibile verificare le tue playlist; nessun brano aggiunto",
+            "Não foi possível verificar as tuas playlists; nenhuma faixa adicionada",
+        ],
+    ),
+    (
+        "Creating the Spotify playlist...",
+        [
+            "Spotify-Playlist wird erstellt...",
+            "Creando la playlist de Spotify...",
+            "Creazione della playlist Spotify...",
+            "A criar a playlist Spotify...",
+        ],
+    ),
+    (
+        "Creation or addition unconfirmed; check your playlists before retrying",
+        [
+            "Erstellung oder Hinzufügen unbestätigt; zuerst Playlists prüfen",
+            "Creación o adición sin confirmar; comprueba tus playlists antes de reintentar",
+            "Creazione o aggiunta non confermata; controlla le playlist prima di riprovare",
+            "Criação ou adição não confirmada; verifica as playlists antes de tentar novamente",
+        ],
+    ),
+    (
+        "Creation unconfirmed; check your playlists before retrying",
+        [
+            "Erstellung unbestätigt; Playlists vor erneutem Versuch prüfen",
+            "Creación sin confirmar; comprueba tus playlists antes de reintentar",
+            "Creazione non confermata; controlla le playlist prima di riprovare",
+            "Criação não confirmada; verifica as playlists antes de tentar novamente",
+        ],
+    ),
+    (
         "Credential store locked or unavailable",
         [
             "Anmeldespeicher gesperrt oder nicht verfügbar",
@@ -533,6 +569,15 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
         ],
     ),
     (
+        "Invalid playlist name (1 to 100 characters)",
+        [
+            "Ungültiger Playlistname (1 bis 100 Zeichen)",
+            "Nombre de playlist no válido (de 1 a 100 caracteres)",
+            "Nome playlist non valido (da 1 a 100 caratteri)",
+            "Nome de playlist inválido (1 a 100 caracteres)",
+        ],
+    ),
+    (
         "Invalid selection; no tracks added",
         [
             "Ungültige Auswahl; keine Titel hinzugefügt",
@@ -557,6 +602,15 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
             "Idioma aplicado pero no guardado: carpeta de configuración no disponible.",
             "Lingua applicata ma non salvata: cartella delle impostazioni non disponibile.",
             "Idioma aplicado mas não guardado: pasta de definições indisponível.",
+        ],
+    ),
+    (
+        "Library addition unconfirmed; check your playlists before retrying",
+        [
+            "Hinzufügen zur Bibliothek unbestätigt; zuerst Playlists prüfen",
+            "Adición a la biblioteca sin confirmar; comprueba tus playlists antes de reintentar",
+            "Aggiunta alla libreria non confermata; controlla le playlist prima di riprovare",
+            "Adição à biblioteca não confirmada; verifica as playlists antes de tentar novamente",
         ],
     ),
     (
@@ -885,6 +939,15 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
         ],
     ),
     (
+        "Spotify is limiting playlist creation; wait before retrying",
+        [
+            "Spotify begrenzt neue Playlists; vor erneutem Versuch warten",
+            "Spotify limita la creación de playlists; espera antes de reintentar",
+            "Spotify limita la creazione di playlist; attendi prima di riprovare",
+            "O Spotify limita a criação de playlists; aguarda antes de tentar novamente",
+        ],
+    ),
+    (
         "Spotify is not responding while loading playlists",
         [
             "Spotify reagiert beim Laden der Playlists nicht",
@@ -936,6 +999,24 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
             "Spotify rechazó la adición; no se añadieron canciones",
             "Spotify ha rifiutato l'aggiunta; nessun brano aggiunto",
             "O Spotify recusou a adição; nenhuma faixa adicionada",
+        ],
+    ),
+    (
+        "Spotify refused to add it to your library; no tracks added",
+        [
+            "Spotify hat das Hinzufügen zur Bibliothek abgelehnt; keine Titel hinzugefügt",
+            "Spotify rechazó añadirla a tu biblioteca; no se añadieron canciones",
+            "Spotify ha rifiutato di aggiungerla alla libreria; nessun brano aggiunto",
+            "O Spotify recusou adicioná-la à biblioteca; nenhuma faixa adicionada",
+        ],
+    ),
+    (
+        "Spotify refused to create the playlist",
+        [
+            "Spotify hat die Erstellung der Playlist abgelehnt",
+            "Spotify rechazó la creación de la playlist",
+            "Spotify ha rifiutato la creazione della playlist",
+            "O Spotify recusou a criação da playlist",
         ],
     ),
     (

@@ -31,6 +31,15 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
     ),
     (
+        "0.2.13 / NEW PLAYLISTS",
+        [
+            "0.2.13 / NEUE PLAYLISTS",
+            "0.2.13 / NUEVAS PLAYLISTS",
+            "0.2.13 / NUOVE PLAYLIST",
+            "0.2.13 / NOVAS PLAYLISTS",
+        ],
+    ),
+    (
         "0.2.6 / MAGNETIC WINDOWS",
         [
             "0.2.6 / MAGNETISCHE FENSTER",
@@ -73,6 +82,15 @@ pub(super) const ENTRIES: &[Entry] = &[
             "1. Haz clic en CONECTAR.",
             "1. Fai clic su CONNETTI.",
             "1. Clica em LIGAR.",
+        ],
+    ),
+    (
+        "100 characters maximum.",
+        [
+            "Höchstens 100 Zeichen.",
+            "Máximo 100 caracteres.",
+            "Massimo 100 caratteri.",
+            "Máximo de 100 caracteres.",
         ],
     ),
     (
@@ -238,6 +256,7 @@ pub(super) const ENTRIES: &[Entry] = &[
             "Descodificação de áudio",
         ],
     ),
+    ("BACK", ["ZURÜCK", "VOLVER", "INDIETRO", "VOLTAR"]),
     (
         "Bitmap fonts",
         [
@@ -284,6 +303,7 @@ pub(super) const ENTRIES: &[Entry] = &[
         "COPY INFO",
         ["INFOS KOPIEREN", "COPIAR INFO", "COPIA INFO", "COPIAR INFO"],
     ),
+    ("CREATE", ["ERSTELLEN", "CREAR", "CREA", "CRIAR"]),
     (
         "Check for a new version of the player.",
         [
@@ -363,6 +383,15 @@ pub(super) const ENTRIES: &[Entry] = &[
             "Presentación uniforme en reproductor y ayuda.",
             "Aspetto uniforme nel lettore e nella guida.",
             "Apresentação coerente no leitor e na ajuda.",
+        ],
+    ),
+    (
+        "Create a Spotify playlist from To playlist.",
+        [
+            "Spotify-Playlist unter Zu Playlist erstellen.",
+            "Crea una playlist Spotify desde A playlist.",
+            "Crea una playlist Spotify da A playlist.",
+            "Cria uma playlist Spotify em Para playlist.",
         ],
     ),
     (
@@ -778,6 +807,25 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
     ),
     (
+        "NEW PLAYLIST",
+        [
+            "NEUE PLAYLIST",
+            "NUEVA PLAYLIST",
+            "NUOVA PLAYLIST",
+            "NOVA PLAYLIST",
+        ],
+    ),
+    ("NEW...", ["NEU...", "NUEVA...", "NUOVA...", "NOVA..."]),
+    (
+        "Name and selected tracks, without interrupting playback.",
+        [
+            "Name und Titelauswahl, ohne die Wiedergabe zu stoppen.",
+            "Nombre y selección, sin interrumpir la reproducción.",
+            "Nome e brani scelti, senza interrompere la riproduzione.",
+            "Nome e seleção, sem interromper a reprodução.",
+        ],
+    ),
+    (
         "Native audio output",
         [
             "Native Audioausgabe",
@@ -902,6 +950,15 @@ pub(super) const ENTRIES: &[Entry] = &[
             "La reproducción continúa durante la descarga.",
             "La riproduzione continua durante il download.",
             "A reprodução continua durante a transferência.",
+        ],
+    ),
+    (
+        "Playlist name",
+        [
+            "Name der Playlist",
+            "Nombre de la playlist",
+            "Nome della playlist",
+            "Nome da playlist",
         ],
     ),
     (

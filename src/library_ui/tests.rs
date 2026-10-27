@@ -702,8 +702,13 @@ fn export_library_preview() {
     }
     if std::env::var_os("SPOTIAMP_LIBRARY_PICKER").is_some() {
         view.open_picker(&s);
-        view.picker_key(Key::Down, &s);
-        view.picker_key(Key::Down, &s);
+        view.picker_key(Key::Down, false, false, &s);
+        view.picker_key(Key::Down, false, false, &s);
+    }
+    if std::env::var_os("SPOTIAMP_LIBRARY_CREATE_PLAYLIST").is_some() {
+        view.open_picker(&s);
+        view.new_playlist();
+        view.paste("Jazz - découvertes du soir");
     }
     if std::env::var_os("SPOTIAMP_LIBRARY_INACTIVE").is_some() {
         view.set_focus(false);

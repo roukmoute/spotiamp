@@ -294,3 +294,98 @@ fn drag_capture_preserves_selected_rows_and_cancel_never_emits_a_drop() {
     assert!(drag.completed.is_empty());
     assert!(!drag.active && drag.origin.is_none());
 }
+
+#[test]
+#[cfg(feature = "spotify")]
+fn creation_recovery_matches_dispatch_after_paste_enter_and_later_keys_in_one_batch() {
+    let mut snapshot = state();
+    let tracks: Vec<_> = (0..3)
+        .map(|index| crate::model::TrackRow {
+            uri: format!("spotify:track:{index:022}"),
+            title: format!("Track {index}"),
+            ..Default::default()
+        })
+        .collect();
+    snapshot.search.revision = 1;
+    snapshot.search.query = "jazz".into();
+    snapshot.search.tracks = std::sync::Arc::new(tracks.clone());
+    let mut view = library_ui::View::default();
+    view.render(&snapshot);
+    view.key(Key::F, true, false, &snapshot);
+    for (y, control) in [(132, false), (180, true)] {
+        view.pointer_down_with_modifiers(320, y, control, false, &snapshot);
+        assert!(view.pointer_up(Some((320, y)), &snapshot).is_none());
+    }
+    let mouse = |down| {
+        Input::Mouse(
+            MouseInput::Button {
+                button: MouseButton::Left,
+                down,
+                x: 550.0,
+                y: 425.0,
+            },
+            false,
+            false,
+        )
+    };
+    let events = [
+        Input::Key(Key::F5, false, false),
+        mouse(true),
+        mouse(false),
+        Input::Key(Key::N, true, false),
+        Input::Key(Key::V, true, false),
+        Input::Key(Key::Enter, false, false),
+        Input::Key(Key::LeftShift, false, true),
+        Input::Key(Key::Left, false, false),
+    ];
+    let mut actions = Vec::new();
+    process(
+        &mut view,
+        &snapshot,
+        true,
+        &events,
+        &[],
+        &mut |_| Ok("  Été à São Paulo  ".into()),
+        &mut actions,
+    );
+    assert!(
+        matches!(actions.as_slice(), [library_ui::Action::Command(LibraryCommand::Refresh), library_ui::Action::Command(LibraryCommand::CreatePlaylist { name, tracks: chosen })]
+        if name == "Été à São Paulo" && chosen == &vec![tracks[0].clone(), tracks[2].clone()])
+    );
+    assert!(!view.wants_text_input());
+
+    let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
+    sender
+        .try_send(crate::model::Command::Library(LibraryCommand::Refresh))
+        .unwrap();
+    let mut commands = actions.into_iter().map(|action| match action {
+        library_ui::Action::Command(command) => command,
+        other => panic!("unexpected action {other:?}"),
+    });
+    // A preceding rejected refresh must not restore a later creation dialog.
+    super::super::dispatch_command(&mut view, &sender, commands.next().unwrap());
+    assert!(!view.wants_text_input());
+    // The exact creation must remain recoverable despite keys after Enter.
+    super::super::dispatch_command(&mut view, &sender, commands.next().unwrap());
+    assert!(view.wants_text_input());
+    let Some(library_ui::Action::Command(retry)) = view.key(Key::Enter, false, false, &snapshot)
+    else {
+        panic!("rejected creation should preserve its name and selected tracks");
+    };
+    assert!(
+        matches!(&retry, LibraryCommand::CreatePlaylist { name, tracks: chosen }
+        if name == "Été à São Paulo" && chosen == &vec![tracks[0].clone(), tracks[2].clone()])
+    );
+    receiver.try_recv().unwrap();
+    super::super::dispatch_command(&mut view, &sender, retry);
+    assert!(matches!(
+        receiver.try_recv().unwrap(),
+        crate::model::Command::Library(LibraryCommand::CreatePlaylist { .. })
+    ));
+    assert!(!view.wants_text_input());
+
+    // Accepted creation recovery is retired; later errors cannot reopen it.
+    drop(receiver);
+    super::super::dispatch_command(&mut view, &sender, LibraryCommand::Refresh);
+    assert!(!view.wants_text_input());
+}

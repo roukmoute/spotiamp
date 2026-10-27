@@ -16,6 +16,10 @@ pub(super) struct State {
     write_generation: u64,
     write_task: Option<JoinHandle<()>>,
     write_refresh: Option<PlaylistId>,
+    write_creating: bool,
+    // Only protects creations acknowledged while a catalogue read was in flight.
+    // A later explicit refresh remains authoritative.
+    catalogue_created: Vec<PlaylistEntry>,
 }
 
 #[derive(Clone, Copy)]
@@ -27,6 +31,12 @@ struct QueueRequest {
 }
 
 pub(super) enum Update {
+    Creation {
+        generation: u64,
+        auth_generation: u64,
+        name: String,
+        step: CreationUpdate,
+    },
     Written {
         generation: u64,
         auth_generation: u64,
@@ -52,6 +62,15 @@ pub(super) enum Update {
     },
     Finished {
         generation: u64,
+    },
+}
+
+pub(super) enum CreationUpdate {
+    Created(PlaylistId),
+    Finished {
+        id: Option<PlaylistId>,
+        count: usize,
+        result: Result<crate::spotify_playlist_write::Receipt, LocalizedText>,
     },
 }
 
@@ -165,8 +184,12 @@ impl Worker {
                 task.abort();
                 self.library.edit(|s| {
                     s.playlist_write_busy = false;
-                    s.playlist_write_status =
-                        "Ajout non confirme; verifiez la playlist avant de reessayer".into();
+                    s.playlist_write_status = if self.library.write_creating {
+                        "Creation ou ajout non confirme; verifiez vos playlists avant de reessayer"
+                    } else {
+                        "Ajout non confirme; verifiez la playlist avant de reessayer"
+                    }
+                    .into();
                 });
             } else {
                 // A finished result belongs to the previous authenticated
@@ -177,6 +200,7 @@ impl Worker {
                 });
             }
             self.library.write_refresh = None;
+            self.library.write_creating = false;
         }
         // Hiding the library does not cancel an already submitted mutation.
         self.reset_playlist(message);
@@ -184,6 +208,7 @@ impl Worker {
 
     fn reset_playlist(&mut self, message: &'static str) {
         self.library.cancel();
+        self.library.catalogue_created.clear();
         self.library.catalogue_loaded = false;
         self.library.edit(|s| {
             s.entries = Arc::default();
@@ -259,6 +284,9 @@ impl Worker {
             }
             LibraryCommand::AddToPlaylist { id, tracks } if self.library.open => {
                 self.add_selection_to_playlist(id, tracks, updates);
+            }
+            LibraryCommand::CreatePlaylist { name, tracks } if self.library.open => {
+                self.create_playlist_from_selection(name, tracks, updates);
             }
             LibraryCommand::QueueSearch {
                 revision,
@@ -402,6 +430,20 @@ impl Worker {
     }
 
     pub(super) fn library_update(&mut self, update: Update) {
+        if let Update::Creation {
+            generation,
+            auth_generation,
+            name,
+            step,
+        } = update
+        {
+            if generation == self.library.write_generation
+                && auth_generation == self.auth_generation
+            {
+                self.creation_update(name, step);
+            }
+            return;
+        }
         if let Update::Written {
             generation,
             auth_generation,
@@ -448,20 +490,30 @@ impl Worker {
             | Update::Loaded { generation, .. }
             | Update::Metadata { generation, .. }
             | Update::Finished { generation } => *generation,
-            Update::Search { .. } | Update::Written { .. } => unreachable!(),
+            Update::Search { .. } | Update::Written { .. } | Update::Creation { .. } => {
+                unreachable!()
+            }
         };
         if !self.library.open || generation != self.library.generation {
             return;
         }
         match update {
-            Update::Search { .. } | Update::Written { .. } => unreachable!(),
+            Update::Search { .. } | Update::Written { .. } | Update::Creation { .. } => {
+                unreachable!()
+            }
             Update::Catalogue { result, .. } => {
                 self.library.task = None;
                 self.library.catalogue_loaded = result.is_ok();
+                let created = std::mem::take(&mut self.library.catalogue_created);
                 self.library.edit(|s| {
                     s.loading = false;
                     match result {
-                        Ok(entries) => {
+                        Ok(mut entries) => {
+                            for entry in created {
+                                if !entries.iter().any(|known| known.id == entry.id) {
+                                    entries.push(entry);
+                                }
+                            }
                             s.status = LocalizedText::with_languages(
                                 format!(
                                     "{} playlist(s) Spotify. Selectionnez une playlist.",
@@ -584,6 +636,7 @@ impl Worker {
         let epoch = self.auth_epoch.clone();
         let count = tracks.len();
         let updates = updates.clone();
+        self.library.write_creating = false;
         self.library.edit(|s| {
             s.playlist_write_busy = true;
             s.playlist_write_status = "Ajout a la playlist Spotify en cours...".into();
@@ -607,6 +660,169 @@ impl Worker {
                 }))
                 .await;
         }));
+    }
+
+    fn create_playlist_from_selection(
+        &mut self,
+        name: String,
+        tracks: Vec<TrackRow>,
+        updates: &mpsc::Sender<super::Update>,
+    ) {
+        let name = crate::model::normalized_playlist_name(&name);
+        let reject = if self.library.write_task.is_some() {
+            Some("Ajout en cours; attendez sa confirmation")
+        } else if name.is_none() {
+            Some("Nom de playlist invalide (1 a 100 caracteres)")
+        } else if tracks.len() > crate::spotify_playlist_write::MAX_SELECTION {
+            Some("Selection limitee a 500 titres")
+        } else if !crate::spotify_playlist_write::valid_tracks(&tracks) {
+            Some("Selection invalide; aucun titre ajoute")
+        } else if self.session.is_none() {
+            Some("Connectez Spotify pour modifier une playlist")
+        } else {
+            None
+        };
+        if let Some(message) = reject {
+            self.library
+                .edit(|s| s.playlist_write_status = message.into());
+            return;
+        }
+        let name = name.unwrap().to_owned();
+        let session = self.session.clone().unwrap();
+        self.library.write_generation = self.library.write_generation.wrapping_add(1);
+        self.library.write_creating = true;
+        let generation = self.library.write_generation;
+        let auth_generation = self.auth_generation;
+        let epoch = self.auth_epoch.clone();
+        let updates = updates.clone();
+        self.library.edit(|s| {
+            s.playlist_write_busy = true;
+            s.playlist_write_status = "Creation de la playlist Spotify en cours...".into();
+        });
+        self.library.write_task = Some(tokio::spawn(async move {
+            let created = crate::spotify_playlist_write::create(
+                session.clone(),
+                &name,
+                epoch.clone(),
+                auth_generation,
+            )
+            .await;
+            let (id, result) = match created {
+                Ok(created) => {
+                    // Publish the identity before attempting a second mutation.
+                    // A refused/uncertain append leaves this destination usable.
+                    if updates
+                        .send(super::Update::Library(Update::Creation {
+                            generation,
+                            auth_generation,
+                            name: name.clone(),
+                            step: CreationUpdate::Created(created.id.clone()),
+                        }))
+                        .await
+                        .is_err()
+                    {
+                        return;
+                    }
+                    let result = match crate::spotify_playlist_write::link_created_playlist(
+                        session.clone(),
+                        &created.id,
+                        epoch.clone(),
+                        auth_generation,
+                    )
+                    .await
+                    {
+                        Ok(()) => {
+                            crate::spotify_playlist_write::append(
+                                session,
+                                &created.id,
+                                &tracks,
+                                epoch,
+                                auth_generation,
+                            )
+                            .await
+                        }
+                        Err(message) => Err(message),
+                    };
+                    (Some(created.id), result)
+                }
+                Err(message) => (None, Err(message)),
+            };
+            let _ = updates
+                .send(super::Update::Library(Update::Creation {
+                    generation,
+                    auth_generation,
+                    name,
+                    step: CreationUpdate::Finished {
+                        id,
+                        count: tracks.len(),
+                        result,
+                    },
+                }))
+                .await;
+        }));
+    }
+
+    fn creation_update(&mut self, name: String, step: CreationUpdate) {
+        match step {
+            CreationUpdate::Created(id) => {
+                let entry = PlaylistEntry {
+                    id,
+                    name: name.clone(),
+                    track_count: Some(0),
+                    duration_ms: None,
+                    folder: String::new(),
+                    available: true,
+                };
+                if self
+                    .library
+                    .shared
+                    .lock()
+                    .is_ok_and(|s| s.loading && s.selected_id.is_none())
+                {
+                    self.library.catalogue_created.push(entry.clone());
+                }
+                self.library.edit(|s| {
+                    if !s.entries.iter().any(|known| known.id == entry.id) {
+                        Arc::make_mut(&mut s.entries).push(entry);
+                    }
+                    s.playlist_write_status = playlist_created_adding(&name);
+                });
+            }
+            CreationUpdate::Finished { id, count, result } => {
+                self.library.write_task = None;
+                self.library.write_creating = false;
+                if let Some(id) = &id {
+                    let total = result.as_ref().ok().and_then(|receipt| receipt.total);
+                    self.library.edit(|s| {
+                        if let Some(entry) = Arc::make_mut(&mut s.entries)
+                            .iter_mut()
+                            .find(|entry| &entry.id == id)
+                        {
+                            // An uncertain append must not display a definite zero.
+                            entry.track_count = total;
+                        }
+                    });
+                    for entry in self
+                        .library
+                        .catalogue_created
+                        .iter_mut()
+                        .filter(|entry| &entry.id == id)
+                    {
+                        entry.track_count = total;
+                    }
+                    self.library.write_refresh = Some(id.clone());
+                }
+                self.library.edit(|s| {
+                    s.playlist_write_busy = false;
+                    s.playlist_write_status = match (id, result) {
+                        (Some(_), Ok(_)) => playlist_created_success(&name, count),
+                        (Some(_), Err(error)) => playlist_created_error(&name, &error),
+                        (None, Err(error)) => error,
+                        (None, Ok(_)) => unreachable!(),
+                    };
+                });
+            }
+        }
     }
 
     fn queue_selected_tracks(
@@ -1205,4 +1421,69 @@ fn playlist_write_success(count: usize) -> LocalizedText {
         format!("{count} brani aggiunti alla playlist Spotify"),
         format!("{count} faixas adicionadas à playlist do Spotify"),
     )
+}
+
+fn playlist_created_adding(name: &str) -> LocalizedText {
+    let name = playlist_status_name(name);
+    LocalizedText::with_languages(
+        format!("Playlist « {name} » creee; ajout des titres en cours..."),
+        format!("Playlist “{name}” created; adding tracks..."),
+        format!("Playlist „{name}“ erstellt; Titel werden hinzugefügt..."),
+        format!("Playlist «{name}» creada; añadiendo canciones..."),
+        format!("Playlist «{name}» creata; aggiunta dei brani..."),
+        format!("Playlist «{name}» criada; a adicionar faixas..."),
+    )
+}
+
+fn playlist_created_success(name: &str, count: usize) -> LocalizedText {
+    let name = playlist_status_name(name);
+    LocalizedText::with_languages(
+        format!("Playlist « {name} » creee : {count} titre(s) ajoutes"),
+        format!("Playlist “{name}” created: {count} track(s) added"),
+        format!("Playlist „{name}“ erstellt: {count} Titel hinzugefügt"),
+        format!("Playlist «{name}» creada: {count} canciones añadidas"),
+        format!("Playlist «{name}» creata: {count} brani aggiunti"),
+        format!("Playlist «{name}» criada: {count} faixas adicionadas"),
+    )
+}
+
+fn playlist_created_error(name: &str, error: &LocalizedText) -> LocalizedText {
+    use crate::locale::Language;
+    let name = playlist_status_name(name);
+    LocalizedText::with_languages(
+        format!(
+            "Playlist « {name} » creee. {}",
+            error.text(Language::French)
+        ),
+        format!(
+            "Playlist “{name}” created. {}",
+            error.text(Language::English)
+        ),
+        format!(
+            "Playlist „{name}“ erstellt. {}",
+            error.text(Language::German)
+        ),
+        format!(
+            "Playlist «{name}» creada. {}",
+            error.text(Language::Spanish)
+        ),
+        format!(
+            "Playlist «{name}» creata. {}",
+            error.text(Language::Italian)
+        ),
+        format!(
+            "Playlist «{name}» criada. {}",
+            error.text(Language::Portuguese)
+        ),
+    )
+}
+
+/// Leave room for the outcome and recovery advice in the two-line status bar.
+/// The full name still goes to Spotify and remains in the catalogue.
+fn playlist_status_name(name: &str) -> std::borrow::Cow<'_, str> {
+    if name.chars().nth(40).is_none() {
+        return name.into();
+    }
+    let end = name.char_indices().nth(37).map_or(name.len(), |(i, _)| i);
+    format!("{}...", &name[..end]).into()
 }

@@ -113,6 +113,31 @@ impl From<&'static str> for LocalizedText {
             }
             "Selection invalide; aucun titre ajoute" => "Invalid selection; no tracks added",
             "Selection limitee a 500 titres" => "Selection limited to 500 tracks",
+            "Impossible de verifier vos playlists; aucun titre ajoute" => {
+                "Could not verify your playlists; no tracks added"
+            }
+            "Spotify a refuse l'ajout a votre bibliotheque; aucun titre ajoute" => {
+                "Spotify refused to add it to your library; no tracks added"
+            }
+            "Ajout a votre bibliotheque non confirme; verifiez vos playlists avant de reessayer" => {
+                "Library addition unconfirmed; check your playlists before retrying"
+            }
+            "Nom de playlist invalide (1 a 100 caracteres)" => {
+                "Invalid playlist name (1 to 100 characters)"
+            }
+            "Creation de la playlist Spotify en cours..." => "Creating the Spotify playlist...",
+            "Creation non confirmee; verifiez vos playlists avant de reessayer" => {
+                "Creation unconfirmed; check your playlists before retrying"
+            }
+            "Spotify a refuse la creation de la playlist" => {
+                "Spotify refused to create the playlist"
+            }
+            "Spotify limite les creations; patientez avant de reessayer" => {
+                "Spotify is limiting playlist creation; wait before retrying"
+            }
+            "Creation ou ajout non confirme; verifiez vos playlists avant de reessayer" => {
+                "Creation or addition unconfirmed; check your playlists before retrying"
+            }
             "Ajout a la playlist Spotify en cours..." => "Adding to the Spotify playlist...",
             "Ajout en cours; attendez sa confirmation" => {
                 "Addition in progress; wait for confirmation"
@@ -393,6 +418,15 @@ mod tests {
     #[test]
     fn library_messages_are_borrowed_and_available_in_every_language() {
         for french in [
+            "Impossible de verifier vos playlists; aucun titre ajoute",
+            "Spotify a refuse l'ajout a votre bibliotheque; aucun titre ajoute",
+            "Ajout a votre bibliotheque non confirme; verifiez vos playlists avant de reessayer",
+            "Nom de playlist invalide (1 a 100 caracteres)",
+            "Creation de la playlist Spotify en cours...",
+            "Creation non confirmee; verifiez vos playlists avant de reessayer",
+            "Spotify a refuse la creation de la playlist",
+            "Spotify limite les creations; patientez avant de reessayer",
+            "Creation ou ajout non confirme; verifiez vos playlists avant de reessayer",
             "Selection invalide; aucun titre ajoute",
             "Selection limitee a 500 titres",
             "Ajout a la playlist Spotify en cours...",

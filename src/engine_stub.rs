@@ -1,7 +1,12 @@
 use crate::model::{Command, LibrarySnapshot, Snapshot};
 use std::sync::{Arc, Mutex};
 pub struct Sender;
-pub struct SendError;
+pub struct SendError(Command);
+impl SendError {
+    pub fn into_inner(self) -> Command {
+        self.0
+    }
+}
 impl std::fmt::Display for SendError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Version de mesure UI seule : moteur audio non compile.")
@@ -15,7 +20,7 @@ impl Sender {
         if matches!(command, Command::Library(_) | Command::SetLanguage(_)) {
             Ok(())
         } else {
-            Err(SendError)
+            Err(SendError(command))
         }
     }
 }

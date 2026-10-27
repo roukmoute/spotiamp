@@ -243,19 +243,31 @@ et vide ses résultats, en conservant la file et la playlist consultée. Revenir
 à une playlist retrouve sa vue.
 
 Pour enregistrer les morceaux choisis sur Spotify, **Vers playlist…** ouvre
-la liste des playlists existantes de votre bibliothèque. Choisissez une destination,
+la liste des playlists de votre bibliothèque. Choisissez une destination,
 puis cliquez sur **Ajouter** ou appuyez sur **Entrée** ; **Annuler** ou **Échap**
 ferme ce choix. La sélection est ajoutée à la fin de la playlist Spotify,
 dans l'ordre affiché, sans changer la lecture en cours. Les occurrences répétées
 d'un même titre sont conservées. Spotify doit autoriser la modification de
 la destination ; une playlist en lecture seule est refusée.
 
-Une seule demande d'ajout à Spotify est traitée à la fois, pour au plus 500 titres,
-sans découpage de la sélection. Attendez la confirmation avant de recommencer.
-Si Spotify ne confirme pas l'ajout après l'envoi, Spotiamp vous invite à vérifier
-la playlist avant de réessayer ; il ne renvoie pas automatiquement la demande,
-pour éviter les doublons. Ce bouton ajoute à une playlist existante ; il ne crée
-pas de nouvelle playlist.
+Pour créer une playlist avec cette sélection, cliquez sur **Nouvelle…** dans
+ce même choix de destination, saisissez un nom de **1 à 100 caractères**,
+puis validez avec **Créer** ou **Entrée**. Le nom accepte les accents et les
+raccourcis de presse-papiers habituels. **Retour** ou **Échap** revient au choix
+de destination sans créer de playlist. La sélection retenue lors de l'ouverture
+est conservée pendant la saisie, qu'elle vienne d'une recherche ou d'une playlist.
+Spotiamp crée la playlist, l'ajoute à votre bibliothèque Spotify, puis y ajoute
+les morceaux choisis dans leur ordre de liste. Le succès n'est annoncé qu'après
+confirmation de ces trois étapes par Spotify.
+
+Une seule création ou demande d'ajout à Spotify est traitée à la fois, pour au
+plus 500 titres, sans découpage de la sélection. Attendez la confirmation avant
+de recommencer. Si la playlist est créée mais qu'une étape suivante échoue,
+Spotiamp conserve sa destination connue et précise l'étape en échec ; il ne
+recrée pas une autre playlist. Si Spotify ne confirme pas une opération après
+l'envoi, vérifiez vos playlists et leur contenu avant de réessayer. **Actualiser**
+recharge le catalogue renvoyé par Spotify. Aucune demande d'écriture n'est
+renvoyée automatiquement, pour éviter les doublons.
 
 Une recherche affiche jusqu'à **50 titres** : si la liste est limitée, préciser
 le titre ou l'artiste. Le champ accepte **256 caractères**. Les requêtes partent
@@ -285,8 +297,8 @@ ne suffisent pas ; la file et la lecture sont conservées. L'ajout d'une playlis
 entière depuis la colonne de gauche garde son fonctionnement précédent : seuls
 les titres qui tiennent dans la file sont ajoutés, avec un message de limitation.
 Les noms, artistes et durées arrivent progressivement, avec deux requêtes de
-métadonnées simultanées au maximum. Seule l'action **Vers playlist… → Ajouter**
-modifie une playlist sur Spotify.
+métadonnées simultanées au maximum. Les actions **Vers playlist… → Ajouter** et
+**Nouvelle… → Créer** sont les seules à modifier vos playlists sur Spotify.
 Le catalogue est plafonné à **1 000 playlists** et **2 000 entrées** en comptant
 les marqueurs de dossiers ; un dépassement est signalé au lieu de charger une
 liste partielle silencieusement.
@@ -295,9 +307,9 @@ Dans la bibliothèque, hors du champ de saisie, **Tab** ou **Gauche/Droite** cha
 **Haut/Bas**, **Début/Fin** et **Page précédente/suivante** parcourent les lignes.
 Dans les listes, **Entrée** lance la lecture, **Maj+Entrée** ou **Ctrl+Entrée**
 ajoute à la file, et la molette déplace d'une ligne par cran le panneau survolé.
-Les raccourcis de presse-papiers **Ctrl/Cmd+C**, **X** et **V** concernent le champ
-de recherche ; ils ne copient pas les lignes de titres. **F3**, **Échap**
-ou la croix ferme cette fenêtre ; lorsque le champ de recherche est actif,
+Les raccourcis de presse-papiers **Ctrl/Cmd+C**, **X** et **V** concernent les champs
+de recherche et de nom de playlist ; ils ne copient pas les lignes de titres.
+**F3**, **Échap** ou la croix ferme cette fenêtre ; lorsque le champ de recherche est actif,
 le premier **Échap** quitte seulement la saisie. La lecture du lecteur continue ; les données de bibliothèque
 et son buffer graphique sont relâchés à la fermeture.
 **F3** depuis le lecteur la rouvre à sa position mémorisée, attachée ou libre.
@@ -493,7 +505,8 @@ une petite police bitmap : les glyphes absents sont affichés avec `?`.
 - Recherche limitée à 50 résultats, sans pochettes ni cache persistant,
   réutilisant la connexion et le moteur asynchrone existants. Aucun thread
   supplémentaire ni requête à chaque caractère saisi.
-- Sélections bornées à 500 titres, un seul ajout à une playlist Spotify à la fois.
+- Sélections bornées à 500 titres, une seule création ou un seul ajout à une
+  playlist Spotify à la fois.
   Le glisser-déposer réutilise les événements souris et la boucle d'interface ;
   aucune nouvelle pile réseau, dépendance résolue ni tâche permanente.
 - Buffer graphique réutilisé ; rendu seulement lorsque l'état visible change.
@@ -560,9 +573,9 @@ lecture Spotify. Ceux de la recherche couvrent les limites et l'encodage des
 requêtes, les réponses anciennes, l'annulation, la sélection du bon résultat,
 la conservation de la lecture pendant la saisie et les traductions. Les sélections
 multiples, l'ordre des titres, la capacité de la file et les messages sont également
-vérifiés hors connexion. Les réponses de modification de playlist sont simulées,
-y compris les refus et l'absence de confirmation après envoi. La recherche réelle
-et l'ajout réel à une playlist doivent encore être essayés avec un compte Spotify
+vérifiés hors connexion. Les réponses de création et de modification de playlist
+sont simulées, y compris les refus et l'absence de confirmation après envoi. La recherche réelle,
+la création et l'ajout réels doivent encore être essayés avec un compte Spotify
 connecté ; les tests automatisés n'en constituent pas une validation.
 
 Windows : Rust avec la cible `x86_64-pc-windows-msvc` et les outils de compilation

@@ -1,5 +1,23 @@
 # Changements
 
+## 0.2.13 — 27 octobre 2026
+
+- Nouvelle playlist… dans Vers playlist… : donner un nom à une playlist Spotify
+  et y ajouter les morceaux sélectionnés, depuis la recherche ou une playlist.
+  La sélection et son ordre restent mémorisés pendant la saisie ; la lecture
+  et la file en cours sont conservées.
+- Nom de 1 à 100 caractères, saisie Unicode et presse-papiers, validation par
+  Créer ou Entrée et retour sans création avec Retour ou Échap. Dialogue natif
+  dans les deux skins, traduit dans les six langues.
+- Création, ajout à la bibliothèque Spotify puis ajout des titres avec la
+  connexion existante, une seule opération à la fois et sans nouvel envoi
+  automatique. Une création confirmée est conservée si une étape suivante
+  échoue ; un succès complet exige toutes les confirmations. Une réponse
+  incertaine invite à vérifier les playlists avant de réessayer.
+- Aucune nouvelle dépendance ni tâche permanente. Tests hors connexion de la
+  saisie, du protocole et des échecs ; la création réelle sur Spotify reste à
+  vérifier avec un compte connecté.
+
 ## 0.2.12 — 27 octobre 2026
 
 - Recherche de musiques Spotify intégrée à la bibliothèque, au même niveau que

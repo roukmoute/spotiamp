@@ -5,12 +5,13 @@ use crate::{
     localized_text::LocalizedText,
     model::{
         LibraryCommand, LibrarySnapshot, PlaylistEntry, PlaylistId, SEARCH_QUERY_MAX_BYTES,
-        SEARCH_QUERY_MAX_CHARS, TrackRow,
+        SEARCH_QUERY_MAX_CHARS, TrackRow, normalized_playlist_name,
     },
 };
 mod modern;
 mod picker;
 mod selection;
+mod text_input;
 use font8x8::UnicodeFonts;
 use minifb::Key;
 use picker::PlaylistPicker;
@@ -19,6 +20,7 @@ use std::{
     fmt::Write,
     time::{Duration, Instant},
 };
+use text_input::TextInput;
 
 pub const WIDTH: usize = 760;
 pub const HEIGHT: usize = 470;
@@ -56,6 +58,8 @@ enum Button {
     Append,
     ToPlaylist,
     PickerConfirm,
+    PickerNew,
+    PickerCreate,
     PickerCancel,
 }
 impl Button {
@@ -69,7 +73,8 @@ impl Button {
             Self::Play => (246, 413, 106, 24),
             Self::Append => (360, 413, 128, 24),
             Self::ToPlaylist => (496, 413, 168, 24),
-            Self::PickerConfirm => (328, 348, 110, 24),
+            Self::PickerNew => (192, 348, 128, 24),
+            Self::PickerConfirm | Self::PickerCreate => (328, 348, 110, 24),
             Self::PickerCancel => (450, 348, 110, 24),
         }
     }
@@ -82,6 +87,7 @@ enum Target {
     Playlist(usize),
     Track(usize),
     Destination(usize),
+    PlaylistName,
 }
 
 pub struct View {
@@ -95,6 +101,7 @@ pub struct View {
     playlist_choices: TrackSelection,
     search_choices: TrackSelection,
     picker: Option<PlaylistPicker>,
+    submitted_picker: Option<PlaylistPicker>,
     press_collapse: bool,
     press_modified: bool,
     selected_uri: Option<String>,
@@ -139,6 +146,7 @@ impl Default for View {
             playlist_choices: TrackSelection::default(),
             search_choices: TrackSelection::default(),
             picker: None,
+            submitted_picker: None,
             press_collapse: false,
             press_modified: false,
             selected_uri: None,
@@ -272,35 +280,43 @@ impl View {
         self.dirty();
     }
     pub fn wants_text_input(&self) -> bool {
-        self.focused && self.search_mode && self.input_focus && self.picker.is_none()
+        self.focused
+            && self
+                .picker
+                .as_ref()
+                .map_or(self.search_mode && self.input_focus, |picker| {
+                    picker.creating
+                })
     }
+    #[cfg(test)]
     fn selection(&self) -> std::ops::Range<usize> {
         self.cursor.min(self.anchor)..self.cursor.max(self.anchor)
     }
-    fn reveal_cursor(&mut self) {
-        let column = self.query[..self.cursor].chars().count();
-        if column < self.input_offset {
-            self.input_offset = column;
-        } else if column >= self.input_offset + SEARCH_COLUMNS {
-            self.input_offset = column + 1 - SEARCH_COLUMNS;
+    fn query_input(&mut self) -> TextInput<'_> {
+        TextInput {
+            text: &mut self.query,
+            cursor: &mut self.cursor,
+            anchor: &mut self.anchor,
+            offset: &mut self.input_offset,
+            columns: SEARCH_COLUMNS,
         }
     }
+    fn reveal_cursor(&mut self) {
+        self.query_input().reveal();
+    }
     pub fn type_char(&mut self, ch: char) {
-        if !self.wants_text_input() || ch.is_control() {
+        if !self.wants_text_input() {
             return;
         }
-        let selected = self.selection();
-        let bytes = self.query.len() - selected.len();
-        let chars = self.query.chars().count() - self.query[selected.clone()].chars().count();
-        if bytes + ch.len_utf8() > SEARCH_QUERY_MAX_BYTES || chars >= SEARCH_QUERY_MAX_CHARS {
-            return;
+        let changed = if let Some(picker) = &mut self.picker {
+            picker.type_char(ch)
+        } else {
+            self.query_input()
+                .insert(ch, SEARCH_QUERY_MAX_CHARS, SEARCH_QUERY_MAX_BYTES)
+        };
+        if changed {
+            self.dirty();
         }
-        self.query.replace_range(selected.clone(), "");
-        self.query.insert(selected.start, ch);
-        self.cursor = selected.start + ch.len_utf8();
-        self.anchor = self.cursor;
-        self.reveal_cursor();
-        self.dirty();
     }
     pub fn paste(&mut self, text: &str) {
         if !self.wants_text_input() {
@@ -310,10 +326,33 @@ impl View {
             self.type_char(if ch.is_whitespace() { ' ' } else { ch });
         }
     }
-    /// A full or closed command channel must not leave a local request waiting forever.
-    pub fn command_rejected(&mut self) {
-        if self.search_pending.take().is_some() {
-            self.dirty();
+    /// Retire recovery only once this creation has actually reached the engine.
+    pub fn creation_dispatched(&mut self) {
+        self.submitted_picker = None;
+    }
+    /// Input processing batches actions before dispatch. Recover only the exact
+    /// rejected command, never an unrelated command from the same input batch.
+    pub fn command_rejected(&mut self, command: &LibraryCommand) {
+        match command {
+            LibraryCommand::CreatePlaylist { name, tracks }
+                if self.submitted_picker.as_ref().is_some_and(|picker| {
+                    normalized_playlist_name(&picker.name) == Some(name.as_str())
+                        && &picker.tracks == tracks
+                }) =>
+            {
+                self.picker = self.submitted_picker.take();
+                self.dirty();
+            }
+            LibraryCommand::Search(query)
+                if self
+                    .search_pending
+                    .as_ref()
+                    .is_some_and(|(_, pending)| pending == query) =>
+            {
+                self.search_pending = None;
+                self.dirty();
+            }
+            _ => (),
         }
     }
     fn submit_search(&mut self, s: &LibrarySnapshot) -> Option<Action> {
@@ -341,70 +380,9 @@ impl View {
         )))
     }
     fn edit_key(&mut self, key: Key, control: bool, shift: bool) -> Option<Action> {
-        let selected = self.selection();
-        match key {
-            Key::A if control => {
-                self.anchor = 0;
-                self.cursor = self.query.len();
-            }
-            Key::V if control => return Some(Action::Paste),
-            Key::C | Key::X if control => {
-                if selected.is_empty() {
-                    return None;
-                }
-                let copied = self.query[selected.clone()].to_owned();
-                if key == Key::X {
-                    self.query.replace_range(selected.clone(), "");
-                    self.cursor = selected.start;
-                    self.anchor = self.cursor;
-                    self.reveal_cursor();
-                    self.dirty();
-                }
-                return Some(Action::Copy(copied));
-            }
-            Key::Backspace | Key::Delete => {
-                let range = if !selected.is_empty() {
-                    selected
-                } else if key == Key::Backspace {
-                    self.query[..self.cursor]
-                        .char_indices()
-                        .next_back()
-                        .map_or(self.cursor, |(i, _)| i)..self.cursor
-                } else {
-                    self.cursor
-                        ..self.query[self.cursor..]
-                            .chars()
-                            .next()
-                            .map_or(self.cursor, |ch| self.cursor + ch.len_utf8())
-                };
-                self.query.replace_range(range.clone(), "");
-                self.cursor = range.start;
-                self.anchor = self.cursor;
-            }
-            Key::Left | Key::Right | Key::Home | Key::End => {
-                self.cursor = match key {
-                    Key::Home => 0,
-                    Key::End => self.query.len(),
-                    Key::Left if !shift && !selected.is_empty() => selected.start,
-                    Key::Right if !shift && !selected.is_empty() => selected.end,
-                    Key::Left => self.query[..self.cursor]
-                        .char_indices()
-                        .next_back()
-                        .map_or(0, |(i, _)| i),
-                    _ => self.query[self.cursor..]
-                        .chars()
-                        .next()
-                        .map_or(self.cursor, |ch| self.cursor + ch.len_utf8()),
-                };
-                if !shift {
-                    self.anchor = self.cursor;
-                }
-            }
-            _ => return None,
-        }
-        self.reveal_cursor();
+        let action = self.query_input().key(key, control, shift);
         self.dirty();
-        None
+        action
     }
     fn sync(&mut self, s: &LibrarySnapshot) {
         if self.snapshot_revision == Some(s.revision) {
@@ -459,6 +437,7 @@ impl View {
         self.playlist_choices.reconcile(&s.tracks);
         if !s.connected {
             self.picker = None;
+            self.submitted_picker = None;
         }
 
         // Loading and metadata updates can arrive between the two clicks.
@@ -539,8 +518,16 @@ impl View {
     fn enabled(&self, b: Button, s: &LibrarySnapshot) -> bool {
         match b {
             Button::Minimize | Button::Close | Button::PickerCancel => true,
+            Button::PickerNew => self.picker.is_some() && s.connected && !s.playlist_write_busy,
+            Button::PickerCreate => self.picker.as_ref().is_some_and(|picker| {
+                picker.creating
+                    && s.connected
+                    && !s.playlist_write_busy
+                    && normalized_playlist_name(&picker.name).is_some()
+            }),
             Button::PickerConfirm => self.picker.as_ref().is_some_and(|picker| {
-                s.connected
+                !picker.creating
+                    && s.connected
                     && !s.playlist_write_busy
                     && picker.destination.as_ref().is_some_and(|id| {
                         s.entries
@@ -631,7 +618,7 @@ impl View {
             Some(Target::Button(b)) => self.enabled(b, s),
             Some(Target::Playlist(i)) => s.entries.get(i).is_some_and(|e| e.available),
             Some(Target::Track(i)) => self.active_ready(s) && i < self.active_tracks(s).len(),
-            Some(Target::Search | Target::SearchInput) => true,
+            Some(Target::Search | Target::SearchInput | Target::PlaylistName) => true,
             Some(Target::Destination(i)) => self
                 .picker
                 .as_ref()
@@ -702,6 +689,7 @@ impl View {
                 Target::Playlist(_)
                     | Target::Search
                     | Target::SearchInput
+                    | Target::PlaylistName
                     | Target::Destination(_)
                     | Target::Button(Button::Close | Button::Minimize)
             )
@@ -711,6 +699,13 @@ impl View {
             return None;
         }
         match target {
+            Target::PlaylistName => {
+                if let Some(picker) = &mut self.picker {
+                    picker.position_name(position.map_or(0, |(x, _)| x));
+                    self.dirty();
+                }
+                None
+            }
             Target::Destination(index) => {
                 if let Some(picker) = &mut self.picker {
                     picker.choose(index);
@@ -900,9 +895,13 @@ impl View {
                 self.open_picker(s);
                 None
             }
+            Button::PickerNew => {
+                self.new_playlist();
+                None
+            }
+            Button::PickerCreate => self.create_playlist(s),
             Button::PickerCancel => {
-                self.picker = None;
-                self.dirty();
+                self.cancel_picker();
                 None
             }
             Button::PickerConfirm => self.confirm_picker(s),
@@ -923,7 +922,7 @@ impl View {
             return None;
         }
         if self.picker.is_some() {
-            return self.picker_key(key, s);
+            return self.picker_key(key, control, shift, s);
         }
         if control && key == Key::F {
             self.open_search(true);
@@ -1152,6 +1151,8 @@ impl View {
         let clear_enabled = self.enabled(Button::Clear, s);
         let playlist_enabled = self.enabled(Button::ToPlaylist, s);
         let picker_confirm_enabled = self.enabled(Button::PickerConfirm, s);
+        let picker_new_enabled = self.enabled(Button::PickerNew, s);
+        let picker_create_enabled = self.enabled(Button::PickerCreate, s);
         let enabled = [
             self.enabled(Button::Refresh, s),
             self.enabled(Button::Play, s),
@@ -1563,7 +1564,17 @@ impl View {
         c.text(15, 450, status, palette.chrome_text, 91);
         c.text_skip(15, 460, status, palette.chrome_text, 91, 91);
         if let Some(picker) = &self.picker {
-            picker.render(&mut c, palette, language, pressed, picker_confirm_enabled);
+            picker.render(
+                &mut c,
+                palette,
+                language,
+                pressed,
+                [
+                    picker_confirm_enabled,
+                    picker_new_enabled,
+                    picker_create_enabled,
+                ],
+            );
         }
         true
     }
@@ -1732,6 +1743,8 @@ impl std::fmt::Write for Label {
         Ok(())
     }
 }
+#[cfg(test)]
+mod create_playlist_tests;
 #[cfg(test)]
 mod search_tests;
 #[cfg(test)]

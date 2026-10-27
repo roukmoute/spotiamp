@@ -461,6 +461,19 @@ impl View {
             (
                 109,
                 self.language
+                    .text("0.2.13 / NOUVELLES PLAYLISTS", "0.2.13 / NEW PLAYLISTS"),
+                self.language.text(
+                    "Créer une playlist Spotify depuis Vers playlist.",
+                    "Create a Spotify playlist from To playlist.",
+                ),
+                self.language.text(
+                    "Nom et titres choisis, sans interrompre la lecture.",
+                    "Name and selected tracks, without interrupting playback.",
+                ),
+            ),
+            (
+                154,
+                self.language
                     .text("0.2.12 / RECHERCHE SPOTIFY", "0.2.12 / SPOTIFY SEARCH"),
                 self.language.text(
                     "Rechercher un titre ou un artiste dans la bibliothèque.",
@@ -472,7 +485,7 @@ impl View {
                 ),
             ),
             (
-                154,
+                199,
                 self.language
                     .text("0.2.11 / SIX LANGUES", "0.2.11 / SIX LANGUAGES"),
                 self.language.text(
@@ -485,7 +498,7 @@ impl View {
                 ),
             ),
             (
-                199,
+                244,
                 self.language
                     .text("0.2.10 / REPRISE MÉMORISÉE", "0.2.10 / REMEMBERED PLAYBACK"),
                 self.language.text(
@@ -498,7 +511,7 @@ impl View {
                 ),
             ),
             (
-                244,
+                289,
                 self.language.text(
                     "0.2.9 / LANGUES DE L'INTERFACE",
                     "0.2.9 / INTERFACE LANGUAGES",
@@ -513,7 +526,7 @@ impl View {
                 ),
             ),
             (
-                289,
+                334,
                 self.language.text(
                     "0.2.8 / LECTEUR SPOTIFY NATIF",
                     "0.2.8 / NATIVE SPOTIFY PLAYER",
@@ -525,21 +538,6 @@ impl View {
                 self.language.text(
                     "À propos et documentation mis à jour.",
                     "About and documentation updated.",
-                ),
-            ),
-            (
-                334,
-                self.language.text(
-                    "0.2.7 / DISPOSITION MÉMORISÉE",
-                    "0.2.7 / REMEMBERED WINDOW LAYOUT",
-                ),
-                self.language.text(
-                    "Positions et fenêtres attachées ou libres mémorisées.",
-                    "Window positions and attached/free layout remembered.",
-                ),
-                self.language.text(
-                    "Bibliothèque ouverte ou fermée retrouvée au lancement.",
-                    "Library open/closed state restored at startup.",
                 ),
             ),
         ] {

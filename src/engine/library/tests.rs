@@ -3,6 +3,195 @@ use super::*;
 const TRACK: &str = "spotify:track:4uLU6hMCjMI75M1A2tKUQC";
 const PLAYLIST: &str = "spotify:playlist:4uLU6hMCjMI75M1A2tKUQC";
 
+#[test]
+fn long_created_names_leave_recovery_advice_visible_in_all_languages() {
+    use crate::locale::Language;
+    let name = "🎵".repeat(100);
+    let errors = [
+        LocalizedText::from(
+            "Ajout a votre bibliotheque non confirme; verifiez vos playlists avant de reessayer",
+        ),
+        LocalizedText::from("Spotify a refuse l'ajout a votre bibliotheque; aucun titre ajoute"),
+        LocalizedText::from("Impossible de verifier vos playlists; aucun titre ajoute"),
+        LocalizedText::from("Ajout non confirme; verifiez la playlist avant de reessayer"),
+    ];
+    for language in [
+        Language::French,
+        Language::English,
+        Language::German,
+        Language::Spanish,
+        Language::Italian,
+        Language::Portuguese,
+    ] {
+        for error in &errors {
+            let status = playlist_created_error(&name, error);
+            let text = status.text(language);
+            assert!(text.ends_with(error.text(language)), "{text}");
+            assert!(text.chars().count() <= 170, "{text}");
+        }
+        assert!(
+            playlist_created_adding(&name)
+                .text(language)
+                .chars()
+                .count()
+                <= 170
+        );
+        assert!(
+            playlist_created_success(&name, 500)
+                .text(language)
+                .chars()
+                .count()
+                <= 170
+        );
+    }
+    assert_eq!(name.chars().count(), 100);
+    assert_eq!(playlist_status_name("Été"), "Été");
+    assert_eq!(playlist_status_name(&name).chars().count(), 40);
+}
+
+#[test]
+fn creation_retains_destination_on_failed_add_and_preserves_audio_and_source_selection() {
+    for outcome in [
+        Ok(crate::spotify_playlist_write::Receipt { total: Some(3) }),
+        Err(LocalizedText::from(
+            "Spotify a refuse l'ajout; aucun titre ajoute",
+        )),
+        Err(LocalizedText::from(
+            "Ajout non confirme; verifiez la playlist avant de reessayer",
+        )),
+    ] {
+        let mut worker = worker();
+        let before = worker.snapshot();
+        let source = worker.library.shared.lock().unwrap().selected_id.clone();
+        let id = PlaylistId::Spotify("spotify:playlist:0000000000000000000001".into());
+        worker.library.edit(|s| s.playlist_write_busy = true);
+        worker.library_update(Update::Creation {
+            generation: 0,
+            auth_generation: 0,
+            name: "Été".into(),
+            step: CreationUpdate::Created(id.clone()),
+        });
+        {
+            let library = worker.library.shared.lock().unwrap();
+            assert!(library.playlist_write_busy);
+            assert_eq!(library.entries[0].id, id);
+            assert_eq!(library.entries[0].track_count, Some(0));
+        }
+        let success = outcome.is_ok();
+        worker.library_update(Update::Creation {
+            generation: 0,
+            auth_generation: 0,
+            name: "Été".into(),
+            step: CreationUpdate::Finished {
+                id: Some(id.clone()),
+                count: 3,
+                result: outcome,
+            },
+        });
+        let library = worker.library.shared.lock().unwrap();
+        assert!(!library.playlist_write_busy);
+        assert_eq!(library.selected_id, source);
+        assert_eq!(library.entries.len(), 1);
+        assert_eq!(library.entries[0].id, id);
+        assert_eq!(library.entries[0].track_count, success.then_some(3));
+        assert!(
+            library
+                .playlist_write_status
+                .text(crate::locale::Language::English)
+                .starts_with("Playlist “Été” created.")
+                || success
+        );
+        assert_eq!(worker.snapshot(), before);
+    }
+}
+
+#[test]
+fn stale_creation_cannot_insert_destination_or_release_current_write() {
+    let mut worker = worker();
+    worker.library.edit(|s| s.playlist_write_busy = true);
+    for (generation, auth_generation) in [(1, 0), (0, 1)] {
+        worker.library_update(Update::Creation {
+            generation,
+            auth_generation,
+            name: "Stale".into(),
+            step: CreationUpdate::Created(PlaylistId::Spotify(PLAYLIST.into())),
+        });
+        worker.library_update(Update::Creation {
+            generation,
+            auth_generation,
+            name: "Stale".into(),
+            step: CreationUpdate::Finished {
+                id: None,
+                count: 1,
+                result: Err("Failure".into()),
+            },
+        });
+    }
+    let library = worker.library.shared.lock().unwrap();
+    assert!(library.entries.is_empty());
+    assert!(library.playlist_write_busy);
+}
+
+#[test]
+fn earlier_catalogue_reply_cannot_erase_a_newly_created_destination() {
+    let mut worker = worker();
+    worker.library.edit(|s| {
+        s.loading = true;
+        s.selected_id = None;
+    });
+    let id = PlaylistId::Spotify(PLAYLIST.into());
+    worker.library_update(Update::Creation {
+        generation: 0,
+        auth_generation: 0,
+        name: "Created".into(),
+        step: CreationUpdate::Created(id.clone()),
+    });
+    worker.library_update(Update::Creation {
+        generation: 0,
+        auth_generation: 0,
+        name: "Created".into(),
+        step: CreationUpdate::Finished {
+            id: Some(id.clone()),
+            count: 3,
+            result: Ok(crate::spotify_playlist_write::Receipt { total: Some(3) }),
+        },
+    });
+    worker.library_update(Update::Catalogue {
+        generation: 0,
+        result: Ok(vec![]),
+    });
+    let library = worker.library.shared.lock().unwrap();
+    assert_eq!(library.entries[0].id, id);
+    assert_eq!(library.entries[0].track_count, Some(3));
+    assert!(worker.library.catalogue_created.is_empty());
+}
+
+#[tokio::test]
+async fn duplicate_create_is_blocked_until_the_existing_write_finishes() {
+    let mut worker = worker();
+    worker.library.write_task = Some(tokio::spawn(std::future::pending()));
+    worker.library.write_creating = true;
+    worker.library.edit(|s| s.playlist_write_busy = true);
+    let generation = worker.library.write_generation;
+    let (updates, mut receiver) = mpsc::channel(1);
+    worker.library_command(
+        LibraryCommand::CreatePlaylist {
+            name: "Second".into(),
+            tracks: vec![row("Track")],
+        },
+        &updates,
+    );
+    assert_eq!(worker.library.write_generation, generation);
+    assert!(worker.library.shared.lock().unwrap().playlist_write_busy);
+    assert!(receiver.try_recv().is_err());
+    worker.reset_library("Connectez Spotify pour afficher vos playlists");
+    assert!(!worker.library.shared.lock().unwrap().playlist_write_busy);
+    assert_eq!(
+        worker.library.shared.lock().unwrap().playlist_write_status,
+        "Creation ou ajout non confirme; verifiez vos playlists avant de reessayer"
+    );
+}
+
 fn row(title: &str) -> TrackRow {
     TrackRow {
         uri: TRACK.into(),

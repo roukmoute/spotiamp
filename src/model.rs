@@ -81,6 +81,10 @@ pub enum LibraryCommand {
         id: PlaylistId,
         tracks: Vec<TrackRow>,
     },
+    CreatePlaylist {
+        name: String,
+        tracks: Vec<TrackRow>,
+    },
     QueueSearch {
         revision: u64,
         index: usize,
@@ -114,6 +118,20 @@ pub struct LibrarySnapshot {
 
 pub const SEARCH_QUERY_MAX_CHARS: usize = 256;
 pub const SEARCH_QUERY_MAX_BYTES: usize = 1024;
+
+pub const PLAYLIST_NAME_MAX_CHARS: usize = 100;
+pub const PLAYLIST_NAME_MAX_BYTES: usize = 400;
+
+/// One rule for the name editor and the worker boundary. Whitespace surrounding
+/// a name is harmless, but embedded control characters must not reach Spotify.
+pub fn normalized_playlist_name(name: &str) -> Option<&str> {
+    let name = name.trim();
+    (!name.is_empty()
+        && name.len() <= PLAYLIST_NAME_MAX_BYTES
+        && name.chars().count() <= PLAYLIST_NAME_MAX_CHARS
+        && !name.chars().any(char::is_control))
+    .then_some(name)
+}
 
 /// Search rows are independent of the selected playlist and absent until an
 /// explicit search. Revision identifies one request, including its metadata.
@@ -209,6 +227,23 @@ impl Default for Snapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn playlist_names_preserve_unicode_and_obey_editor_and_worker_limits() {
+        assert_eq!(
+            normalized_playlist_name("  Été 日本 🎵  "),
+            Some("Été 日本 🎵")
+        );
+        assert!(normalized_playlist_name(&"🎵".repeat(100)).is_some());
+        for invalid in [
+            String::new(),
+            " \t\n ".into(),
+            "a\nb".into(),
+            "a\0b".into(),
+            "é".repeat(101),
+        ] {
+            assert_eq!(normalized_playlist_name(&invalid), None);
+        }
+    }
     #[test]
     fn placeholders_translate_but_identical_real_titles_do_not() {
         let mut row = TrackRow {

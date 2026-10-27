@@ -278,7 +278,7 @@ fn tab_cycles_search_input_results_navigation_in_both_directions() {
 fn rejected_or_disconnected_search_can_retry_unchanged_query() {
     let (mut view, mut s) = searched();
     assert!(view.submit_search(&s).is_some());
-    view.command_rejected();
+    view.command_rejected(&LibraryCommand::Search("jazz".into()));
     assert!(view.search_pending.is_none());
     assert!(view.submit_search(&s).is_some());
     s.revision += 1;

@@ -247,3 +247,62 @@ fn x11_control_selection_drag_inserts_captured_tracks_in_player_without_playing(
         assert!(app.commands.is_empty());
     }
 }
+
+#[test]
+#[ignore = "requires isolated Xvfb and xdotool"]
+fn x11_create_playlist_uses_control_selection_unicode_clipboard_and_enter_in_both_skins() {
+    for skin in [Skin::Classic, Skin::Modern] {
+        let mut app = App::new(skin);
+        let rows: Vec<_> = (0..3)
+            .map(|index| model::TrackRow {
+                uri: format!("spotify:track:{index:022}"),
+                title: format!("Selected track {index}"),
+                artist: "Synthetic artist".into(),
+                ..Default::default()
+            })
+            .collect();
+        {
+            let mut snapshot = app.engine.library.lock().unwrap();
+            snapshot.revision += 1;
+            snapshot.search.revision = 1;
+            snapshot.search.query = "jazz".into();
+            snapshot.search.tracks = Arc::new(rows.clone());
+        }
+        app.frame();
+        let id = (app.library.window.get_window_handle() as usize).to_string();
+        app.xdotool(&["windowfocus", "--sync", &id, "key", "ctrl+f"]);
+        app.click(320, 132, false);
+        app.xdotool(&["keydown", "ctrl"]);
+        app.click(320, 180, false);
+        app.xdotool(&["keyup", "ctrl"]);
+        app.click(550, 425, false);
+        app.xdotool(&["key", "ctrl+n"]);
+        assert!(
+            app.commands.is_empty(),
+            "Opening the name editor must not write a playlist or play audio"
+        );
+
+        // Use the actual shared application clipboard: native Ctrl+V must route
+        // its Unicode text to the name editor, leaving the search field intact.
+        app.clipboard
+            .get_or_insert_with(|| arboard::Clipboard::new().unwrap())
+            .set_text("  Été à São Paulo  ")
+            .unwrap();
+        app.xdotool(&["key", "ctrl+v"]);
+        assert!(app.commands.is_empty(), "Pasting a name must not submit it");
+        app.xdotool(&["key", "Return"]);
+        assert!(
+            matches!(app.commands.as_slice(), [model::LibraryCommand::CreatePlaylist { name, tracks }]
+                if name == "Été à São Paulo" && tracks == &vec![rows[0].clone(), rows[2].clone()]),
+            "actual native creation commands for {skin:?}: {:?}",
+            app.commands
+        );
+        assert!(app.engine.state.lock().unwrap().queue.is_empty());
+        // The held-key pump and subsequent idle frames must not create again.
+        app.commands.clear();
+        for _ in 0..8 {
+            app.frame();
+        }
+        assert!(app.commands.is_empty());
+    }
+}

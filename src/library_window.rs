@@ -274,11 +274,7 @@ impl LibraryWindow {
                     unreachable!("clipboard actions are resolved in input order")
                 }
                 library_ui::Action::Command(command) => {
-                    if let Err(error) = engine.tx.try_send(super::model::Command::Library(command))
-                    {
-                        self.view.command_rejected();
-                        self.view.notice(engine::command_error(&error));
-                    }
+                    dispatch_command(&mut self.view, &engine.tx, command);
                 }
             }
         }
@@ -292,6 +288,34 @@ impl LibraryWindow {
             self.window.update();
         }
         Ok(self.window.is_open())
+    }
+}
+
+#[cfg(feature = "spotify")]
+type LibraryCommandSender = tokio::sync::mpsc::Sender<super::model::Command>;
+#[cfg(not(feature = "spotify"))]
+type LibraryCommandSender = engine::Sender;
+
+// Keep acknowledgement adjacent to the actual channel send, after the whole
+// native input batch has been processed. No command or track clone is needed.
+fn dispatch_command(
+    view: &mut library_ui::View,
+    sender: &LibraryCommandSender,
+    command: super::model::LibraryCommand,
+) {
+    let creation = matches!(command, super::model::LibraryCommand::CreatePlaylist { .. });
+    match sender.try_send(super::model::Command::Library(command)) {
+        Ok(()) => {
+            if creation {
+                view.creation_dispatched();
+            }
+        }
+        Err(error) => {
+            view.notice(engine::command_error(&error));
+            if let super::model::Command::Library(command) = error.into_inner() {
+                view.command_rejected(&command);
+            }
+        }
     }
 }
 
