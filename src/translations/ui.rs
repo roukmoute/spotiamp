@@ -22,6 +22,15 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
     ),
     (
+        "0.2.12 / SPOTIFY SEARCH",
+        [
+            "0.2.12 / SPOTIFY-SUCHE",
+            "0.2.12 / BÚSQUEDA SPOTIFY",
+            "0.2.12 / RICERCA SPOTIFY",
+            "0.2.12 / PESQUISA SPOTIFY",
+        ],
+    ),
+    (
         "0.2.6 / MAGNETIC WINDOWS",
         [
             "0.2.6 / MAGNETISCHE FENSTER",
@@ -441,6 +450,15 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
     ),
     (
+        "Double-click: play. Add to queue: append the track.",
+        [
+            "Doppelklick: abspielen. Zur Liste: Titel hinzufügen.",
+            "Doble clic: reproducir. A la cola: añadir canción.",
+            "Doppio clic: riproduci. In coda: aggiungi il brano.",
+            "Duplo clique: tocar. Na fila: adicionar a faixa.",
+        ],
+    ),
+    (
         "Downloading update (F2)",
         [
             "Update wird geladen (F2)",
@@ -470,6 +488,15 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
     ),
     (
+        "Enter a song or artist.",
+        [
+            "Titel oder Künstler eingeben.",
+            "Escribe una canción o artista.",
+            "Inserisci un brano o artista.",
+            "Introduz uma música ou artista.",
+        ],
+    ),
+    (
         "Enter: add the link or play the selected track",
         [
             "Eingabe: Link hinzufügen oder Auswahl abspielen",
@@ -485,6 +512,24 @@ pub(super) const ENTRIES: &[Entry] = &[
             "Intro: reproducir    Ctrl+Intro: añadir a la cola",
             "Invio: riproduci    Ctrl+Invio: aggiungi alla coda",
             "Enter: reproduzir    Ctrl+Enter: juntar à fila",
+        ],
+    ),
+    (
+        "Enter: search    Ctrl+F: search",
+        [
+            "Eingabe: suchen    Strg+F: Suche",
+            "Intro: buscar    Ctrl+F: búsqueda",
+            "Invio: cerca    Ctrl+F: ricerca",
+            "Enter: pesquisar    Ctrl+F: pesquisa",
+        ],
+    ),
+    (
+        "Equalizer is not included.",
+        [
+            "Equalizer ist nicht enthalten.",
+            "No se incluye ecualizador.",
+            "Equalizzatore non incluso.",
+            "Equalizador não incluído.",
         ],
     ),
     ("Esc / F2", ["Esc / F2", "Esc / F2", "Esc / F2", "Esc / F2"]),
@@ -527,6 +572,15 @@ pub(super) const ENTRIES: &[Entry] = &[
     (
         "Features",
         ["Funktionen", "Funciones", "Funzioni", "Funcionalidades"],
+    ),
+    (
+        "Find a song or artist in the library.",
+        [
+            "Titel oder Künstler in der Bibliothek suchen.",
+            "Busca una canción o artista en la biblioteca.",
+            "Cerca un brano o artista nella libreria.",
+            "Procure uma música ou artista na biblioteca.",
+        ],
     ),
     (
         "Free and open-source software. MIT license.",
@@ -733,6 +787,15 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
     ),
     (
+        "No results.",
+        [
+            "Keine Ergebnisse.",
+            "Sin resultados.",
+            "Nessun risultato.",
+            "Sem resultados.",
+        ],
+    ),
+    (
         "No tracks loaded.",
         [
             "Keine Titel geladen.",
@@ -932,6 +995,7 @@ pub(super) const ENTRIES: &[Entry] = &[
             "Repetir fila: sim",
         ],
     ),
+    ("SEARCH", ["SUCHEN", "BUSCAR", "CERCA", "PESQUISAR"]),
     (
         "SPOTIAMP  /  LIBRARY",
         [
@@ -986,13 +1050,14 @@ pub(super) const ENTRIES: &[Entry] = &[
             "SPOTIFY / LIGADO",
         ],
     ),
+    ("Search", ["Suche", "Buscar", "Cerca", "Pesquisa"]),
     (
-        "Search and equalizer are not included.",
+        "Searching...",
         [
-            "Suche und Equalizer sind nicht enthalten.",
-            "No se incluyen búsqueda ni ecualizador.",
-            "Ricerca ed equalizzatore non inclusi.",
-            "Pesquisa e equalizador não incluídos.",
+            "Suche läuft...",
+            "Buscando...",
+            "Ricerca in corso...",
+            "A pesquisar...",
         ],
     ),
     (
@@ -1094,6 +1159,15 @@ pub(super) const ENTRIES: &[Entry] = &[
             "Protocolo y reproducción Spotify",
             "Protocollo e riproduzione Spotify",
             "Protocolo e reprodução Spotify",
+        ],
+    ),
+    (
+        "Spotify search",
+        [
+            "Spotify-Suche",
+            "Búsqueda Spotify",
+            "Ricerca Spotify",
+            "Pesquisa Spotify",
         ],
     ),
     (
@@ -1374,6 +1448,10 @@ pub(super) const ENTRIES: &[Entry] = &[
             "la musica. Coda e posizione vengono salvate.",
             "a música. A fila e a posição ficam guardadas.",
         ],
+    ),
+    (
+        "results",
+        ["Ergebnisse", "resultados", "risultati", "resultados"],
     ),
     ("tracks", ["Titel", "canciones", "brani", "faixas"]),
 ];

@@ -17,6 +17,8 @@ mod playback_settings;
 mod settings;
 #[path = "../spotify_library.rs"]
 mod spotify_library;
+#[path = "../spotify_search.rs"]
+mod spotify_search;
 #[path = "../translations/mod.rs"]
 mod translations;
 

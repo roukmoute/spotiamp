@@ -77,6 +77,17 @@ commande ne remplacent pas les préférences enregistrées.
 xvfb-run -a -s "-screen 0 1920x1080x24 -noreset" python3 scripts/test_playback_session.py --executable target/release/spotiamp
 ```
 
+## Tests de recherche
+
+Les tests Rust de recherche couvrent les réponses périmées, l'annulation,
+les limites de données, la file audio et la saisie rapide. Le test natif Linux
+`x11_search_typing_submit_result_double_click_and_append_use_real_library_frame`
+injecte de vrais événements clavier et souris avec XTest dans les deux skins :
+aucune requête pendant la saisie, validation par Entrée, double-clic sur un
+résultat, ajout et effacement. Ses résultats sont synthétiques : il vérifie
+l'interface et les commandes, sans compte ni appel Spotify. La CI l'exécute
+avec les autres tests `x11_` dans un affichage Xvfb jetable.
+
 ## Archives
 
 Après une compilation release, utiliser la commande correspondant à la cible

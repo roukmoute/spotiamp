@@ -146,6 +146,24 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
         ],
     ),
     (
+        "Connect Spotify to play this track",
+        [
+            "Spotify verbinden, um diesen Titel abzuspielen",
+            "Conecta Spotify para reproducir esta canción",
+            "Collega Spotify per riprodurre questo brano",
+            "Liga o Spotify para reproduzir esta música",
+        ],
+    ),
+    (
+        "Connect Spotify to search for tracks",
+        [
+            "Spotify verbinden, um Titel zu suchen",
+            "Conecta Spotify para buscar canciones",
+            "Collega Spotify per cercare brani",
+            "Liga o Spotify para pesquisar músicas",
+        ],
+    ),
+    (
         "Connect Spotify to view your playlists",
         [
             "Spotify verbinden, um deine Playlists anzuzeigen",
@@ -560,6 +578,24 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
         ],
     ),
     (
+        "No tracks found. Try another name or artist.",
+        [
+            "Keine Titel gefunden. Anderen Titel oder Künstler versuchen.",
+            "No se encontraron canciones. Prueba otro nombre o artista.",
+            "Nessun brano trovato. Prova un altro nome o artista.",
+            "Nenhuma música encontrada. Tenta outro nome ou artista.",
+        ],
+    ),
+    (
+        "No tracks loaded; try a more specific search",
+        [
+            "Keine Titel geladen; genauere Suche versuchen",
+            "No se cargaron canciones; concreta la búsqueda",
+            "Nessun brano caricato; prova una ricerca più precisa",
+            "Nenhuma música carregada; tenta uma pesquisa mais precisa",
+        ],
+    ),
+    (
         "Only Spotify track, album and playlist links are supported",
         [
             "Nur Spotify-Links zu Titeln, Alben und Playlists werden unterstützt",
@@ -696,6 +732,33 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
         ],
     ),
     (
+        "Search incomplete; submit it again to retry",
+        [
+            "Suche unvollständig; zum Wiederholen erneut suchen",
+            "Búsqueda incompleta; envíala de nuevo para reintentar",
+            "Ricerca incompleta; inviala di nuovo per riprovare",
+            "Pesquisa incompleta; envia-a de novo para tentar novamente",
+        ],
+    ),
+    (
+        "Search is limited to 256 characters",
+        [
+            "Suche auf 256 Zeichen begrenzt",
+            "Búsqueda limitada a 256 caracteres",
+            "Ricerca limitata a 256 caratteri",
+            "Pesquisa limitada a 256 caracteres",
+        ],
+    ),
+    (
+        "Searching Spotify...",
+        [
+            "Spotify wird durchsucht...",
+            "Buscando en Spotify...",
+            "Ricerca su Spotify...",
+            "A pesquisar no Spotify...",
+        ],
+    ),
+    (
         "Skin applied but not saved: could not write preferences",
         [
             "Skin angewendet, aber nicht gespeichert: Schreibfehler",
@@ -720,6 +783,15 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
             "Spotify no proporcionó la revisión de tus playlists",
             "Spotify non ha fornito la revisione delle tue playlist",
             "O Spotify não forneceu a revisão das tuas playlists",
+        ],
+    ),
+    (
+        "Spotify did not respond to the search; try again",
+        [
+            "Spotify antwortet nicht auf die Suche; erneut versuchen",
+            "Spotify no respondió a la búsqueda; inténtalo de nuevo",
+            "Spotify non ha risposto alla ricerca; riprova",
+            "O Spotify não respondeu à pesquisa; tenta novamente",
         ],
     ),
     (
@@ -810,6 +882,24 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
             "Spotify devolvió una página de playlists desordenada",
             "Spotify ha restituito una pagina di playlist fuori ordine",
             "O Spotify devolveu uma página de playlists fora de ordem",
+        ],
+    ),
+    (
+        "Spotify search is unavailable; try again shortly",
+        [
+            "Spotify-Suche nicht verfügbar; gleich erneut versuchen",
+            "Búsqueda de Spotify no disponible; inténtalo en breve",
+            "Ricerca Spotify non disponibile; riprova tra poco",
+            "Pesquisa Spotify indisponível; tenta dentro de instantes",
+        ],
+    ),
+    (
+        "Spotify search response is too large",
+        [
+            "Spotify-Suchergebnis zu groß",
+            "Respuesta de búsqueda de Spotify demasiado grande",
+            "Risposta di ricerca Spotify troppo grande",
+            "Resposta de pesquisa Spotify demasiado grande",
         ],
     ),
     ("Stopped", ["Gestoppt", "Detenido", "Fermo", "Parado"]),
@@ -958,12 +1048,30 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
         ],
     ),
     (
+        "This result changed; select it again",
+        [
+            "Dieses Ergebnis wurde geändert; erneut auswählen",
+            "Este resultado ha cambiado; selecciónalo de nuevo",
+            "Questo risultato è cambiato; selezionalo di nuovo",
+            "Este resultado mudou; seleciona-o novamente",
+        ],
+    ),
+    (
         "This track is no longer in the playlist; select it again",
         [
             "Dieser Titel ist nicht mehr in der Playlist; erneut auswählen",
             "Esta canción ya no está en la playlist; selecciónala de nuevo",
             "Questo brano non è più nella playlist; selezionalo di nuovo",
             "Esta faixa já não está na playlist; seleciona-a novamente",
+        ],
+    ),
+    (
+        "Track added from search",
+        [
+            "Titel aus der Suche hinzugefügt",
+            "Canción añadida desde la búsqueda",
+            "Brano aggiunto dalla ricerca",
+            "Música adicionada a partir da pesquisa",
         ],
     ),
     (

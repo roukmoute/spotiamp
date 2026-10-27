@@ -58,7 +58,7 @@ fn language_switch_preserves_scroll_selection_metadata_and_shared_storage() {
     }
 }
 
-fn snapshot(playlists: usize, tracks: usize) -> LibrarySnapshot {
+pub(super) fn snapshot(playlists: usize, tracks: usize) -> LibrarySnapshot {
     LibrarySnapshot {
         revision: 1,
         entries: Arc::new(
@@ -90,7 +90,7 @@ fn snapshot(playlists: usize, tracks: usize) -> LibrarySnapshot {
         ..Default::default()
     }
 }
-fn click(view: &mut View, x: usize, y: usize, s: &LibrarySnapshot) -> Option<Action> {
+pub(super) fn click(view: &mut View, x: usize, y: usize, s: &LibrarySnapshot) -> Option<Action> {
     assert!(view.pointer_down(x, y, s).is_none());
     view.pointer_up(Some((x, y)), s)
 }
@@ -178,27 +178,27 @@ fn skin_switch_cancels_capture_and_double_click_without_changing_action_geometry
     for skin in [Skin::Classic, Skin::Modern] {
         let mut view = View::default();
         view.set_skin(skin);
-        view.pointer_down(40, 124, &s);
+        view.pointer_down(40, 152, &s);
         view.set_skin(skin); // Main may reapply an unchanged preference.
-        assert!(matches!(view.pointer_up(Some((40, 124)), &s),
+        assert!(matches!(view.pointer_up(Some((40, 152)), &s),
             Some(Action::Command(LibraryCommand::Select(PlaylistId::Spotify(id)))) if id == "playlist-1"));
         let other = if skin == Skin::Classic {
             Skin::Modern
         } else {
             Skin::Classic
         };
-        view.pointer_down(40, 124, &s);
+        view.pointer_down(40, 152, &s);
         view.set_skin(other);
         assert!(
-            view.pointer_up(Some((40, 124)), &s).is_none(),
+            view.pointer_up(Some((40, 152)), &s).is_none(),
             "old press must not cross skins"
         );
         assert!(view.last_click.is_none());
         assert!(
-            click(&mut view, 40, 124, &s).is_none(),
+            click(&mut view, 40, 152, &s).is_none(),
             "first new click only previews"
         );
-        assert_playlist_play(click(&mut view, 40, 124, &s), "playlist-1");
+        assert_playlist_play(click(&mut view, 40, 152, &s), "playlist-1");
     }
 }
 
@@ -314,7 +314,7 @@ fn playlist_selection_hides_old_tracks_while_new_selection_is_pending() {
     let mut s = snapshot(3, 5);
     view.render(&s);
     assert!(
-        matches!(click(&mut view,40,124,&s),Some(Action::Command(LibraryCommand::Select(PlaylistId::Spotify(id)))) if id=="playlist-1")
+        matches!(click(&mut view,40,152,&s),Some(Action::Command(LibraryCommand::Select(PlaylistId::Spotify(id)))) if id=="playlist-1")
     );
     assert!(!view.tracks_ready(&s));
     assert!(click(&mut view, 280, 425, &s).is_none());
@@ -369,7 +369,7 @@ fn playlist_double_click_plays_before_during_or_after_async_loading() {
         let mut view = View::default();
         let mut s = snapshot(3, 5);
         assert!(matches!(
-            click(&mut view, 40, 124, &s),
+            click(&mut view, 40, 152, &s),
             Some(Action::Command(LibraryCommand::Select(_)))
         ));
         // Normal Win32 ReleaseCapture follows mouse-up, including each click
@@ -382,15 +382,15 @@ fn playlist_double_click_plays_before_during_or_after_async_loading() {
             s.tracks = Arc::default();
             view.render(&s);
         }
-        view.pointer_down(40, 124, &s);
+        view.pointer_down(40, 152, &s);
         if loading_stage > 0 {
             // The worker can report progress while the second click is held.
             s.revision += 1;
             s.status = "Titres reçus".into();
         }
-        assert_playlist_play(view.pointer_up(Some((40, 124)), &s), "playlist-1");
+        assert_playlist_play(view.pointer_up(Some((40, 152)), &s), "playlist-1");
         view.cancel_pointer();
-        assert!(click(&mut view, 40, 124, &s).is_none(), "third click");
+        assert!(click(&mut view, 40, 152, &s).is_none(), "third click");
     }
 }
 
@@ -401,8 +401,8 @@ fn playlist_double_click_starts_first_track_even_with_another_track_selected() {
     view.key(Key::Right, false, false, &s);
     view.key(Key::End, false, false, &s);
     assert_eq!(view.selected_track, Some(19));
-    assert!(click(&mut view, 40, 96, &s).is_none());
-    assert_playlist_play(click(&mut view, 40, 96, &s), "playlist-0");
+    assert!(click(&mut view, 40, 124, &s).is_none());
+    assert_playlist_play(click(&mut view, 40, 124, &s), "playlist-0");
     assert_eq!(view.selected_track, None);
     assert_eq!(view.right_offset, 0);
     assert!(view.render(&s));
@@ -413,22 +413,22 @@ fn playlist_double_click_starts_first_track_even_with_another_track_selected() {
 fn playlist_double_click_never_plays_a_different_row_or_reordered_id() {
     let mut view = View::default();
     let mut s = snapshot(3, 5);
-    click(&mut view, 40, 96, &s);
+    click(&mut view, 40, 124, &s);
     assert!(matches!(
-        click(&mut view, 40, 124, &s),
+        click(&mut view, 40, 152, &s),
         Some(Action::Command(LibraryCommand::Select(_)))
     ));
-    view.pointer_down(40, 124, &s);
+    view.pointer_down(40, 152, &s);
     Arc::make_mut(&mut s.entries).swap(0, 1);
     s.revision += 1;
-    assert!(view.pointer_up(Some((40, 124)), &s).is_none());
+    assert!(view.pointer_up(Some((40, 152)), &s).is_none());
     assert!(!matches!(
-        click(&mut view, 40, 124, &s),
+        click(&mut view, 40, 152, &s),
         Some(Action::Command(LibraryCommand::Queue { .. }))
     ));
     // Moving the original playlist to another row also requires two fresh clicks.
     assert!(matches!(
-        click(&mut view, 40, 96, &s),
+        click(&mut view, 40, 124, &s),
         Some(Action::Command(LibraryCommand::Select(_)))
     ));
 }
@@ -438,18 +438,18 @@ fn playlist_double_click_is_cancelled_by_interrupted_input_and_timeout() {
     for interruption in 0..7 {
         let mut view = View::default();
         let s = snapshot(20, 5);
-        assert!(click(&mut view, 40, 96, &s).is_none());
+        assert!(click(&mut view, 40, 124, &s).is_none());
         match interruption {
             0 => {
                 view.set_focus(false);
                 view.set_focus(true);
             }
             1 => {
-                view.pointer_down(40, 96, &s);
+                view.pointer_down(40, 124, &s);
                 view.cancel_pointer();
             }
             2 => {
-                view.pointer_down(40, 96, &s);
+                view.pointer_down(40, 124, &s);
                 assert!(view.pointer_up(Some((230, 96)), &s).is_none());
             }
             3 => {
@@ -465,7 +465,7 @@ fn playlist_double_click_is_cancelled_by_interrupted_input_and_timeout() {
             _ => view.last_click.as_mut().unwrap().2 = Instant::now() - Duration::from_secs(1),
         }
         assert!(
-            click(&mut view, 40, 96, &s).is_none(),
+            click(&mut view, 40, 124, &s).is_none(),
             "case {interruption}"
         );
     }
@@ -475,10 +475,10 @@ fn playlist_double_click_is_cancelled_by_interrupted_input_and_timeout() {
 fn playlist_and_track_clicks_do_not_combine_into_a_double_click() {
     let mut view = View::default();
     let s = snapshot(2, 5);
-    assert!(click(&mut view, 40, 96, &s).is_none());
+    assert!(click(&mut view, 40, 124, &s).is_none());
     assert!(click(&mut view, 310, 128, &s).is_none());
-    assert!(click(&mut view, 40, 96, &s).is_none());
-    assert_playlist_play(click(&mut view, 40, 96, &s), "playlist-0");
+    assert!(click(&mut view, 40, 124, &s).is_none());
+    assert_playlist_play(click(&mut view, 40, 124, &s), "playlist-0");
 }
 
 #[test]
@@ -486,8 +486,8 @@ fn unavailable_or_disconnected_playlist_cannot_autoplay() {
     for state in 0..3 {
         let mut view = View::default();
         let mut s = snapshot(2, 5);
-        click(&mut view, 40, 96, &s);
-        view.pointer_down(40, 96, &s);
+        click(&mut view, 40, 124, &s);
+        view.pointer_down(40, 124, &s);
         match state {
             0 => s.connected = false,
             1 => Arc::make_mut(&mut s.entries)[0].available = false,
@@ -495,7 +495,7 @@ fn unavailable_or_disconnected_playlist_cannot_autoplay() {
         }
         s.revision += 1;
         assert!(!matches!(
-            view.pointer_up(Some((40, 96)), &s),
+            view.pointer_up(Some((40, 124)), &s),
             Some(Action::Command(LibraryCommand::Queue { .. }))
         ));
     }
@@ -508,11 +508,11 @@ fn double_click_can_replace_a_previous_play_request_within_one_frame() {
     s.loading = true;
     s.busy = true; // Playlist 0 is already loading with a pending play request.
     assert!(matches!(
-        click(&mut view, 40, 124, &s),
+        click(&mut view, 40, 152, &s),
         Some(Action::Command(LibraryCommand::Select(_)))
     ));
     // No snapshot update yet: the worker will receive Select(1), then Queue(1).
-    assert_playlist_play(click(&mut view, 40, 124, &s), "playlist-1");
+    assert_playlist_play(click(&mut view, 40, 152, &s), "playlist-1");
 }
 
 #[test]
@@ -637,6 +637,9 @@ fn export_library_preview() {
     if let Ok(skin) = std::env::var("SPOTIAMP_LIBRARY_SKIN") {
         view.set_skin(Skin::parse(&skin).expect("classic or modern preview skin"));
     }
+    if let Ok(language) = std::env::var("SPOTIAMP_LIBRARY_LANGUAGE") {
+        view.set_language(Language::from_locale(&language).expect("preview language"));
+    }
     let mut s = snapshot(16, 28);
     let names = [
         "À écouter cette semaine",
@@ -683,6 +686,12 @@ fn export_library_preview() {
         row.artist = artist.into();
     }
     s.status = "16 playlists / lecture seule / F5 : actualiser / Tab : changer de panneau".into();
+    if std::env::var_os("SPOTIAMP_LIBRARY_SEARCH").is_some() {
+        s.search.query = "jazz".into();
+        s.search.revision = 1;
+        s.search.tracks = s.tracks.clone();
+        view.open_search(true);
+    }
     view.render(&s);
     click(&mut view, 300, 176, &s);
     if std::env::var_os("SPOTIAMP_LIBRARY_INACTIVE").is_some() {

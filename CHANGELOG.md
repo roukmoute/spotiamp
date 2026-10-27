@@ -1,5 +1,19 @@
 # Changements
 
+## 0.2.12 — 27 octobre 2026
+
+- Recherche de musiques Spotify intégrée à la bibliothèque, au même niveau que
+  les playlists. Champ, boutons et résultats dans les skins Classique et Modern,
+  avec les six langues et le raccourci Ctrl+F.
+- Recherche par titre ou artiste après validation avec Entrée ou Chercher.
+  Double-clic ou Lire démarre le seul résultat sélectionné dans une nouvelle
+  file ; À la file l'ajoute sans interrompre la lecture.
+- Jusqu'à 50 résultats, deux chargements de métadonnées simultanés et annulation
+  de la recherche précédente. Les réponses anciennes ne remplacent pas les
+  nouveaux résultats ; Effacer, la fermeture et la déconnexion libèrent ceux-ci.
+- Connexion Spotify et moteur réseau existants réutilisés, sans nouvelle
+  dépendance, thread permanent, pochette ni cache de recherche sur disque.
+
 ## 0.2.11 — 22 octobre 2026
 
 - Six langues disponibles : français, anglais, allemand, espagnol, italien et

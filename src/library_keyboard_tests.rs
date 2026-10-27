@@ -35,13 +35,23 @@ fn frame(
 ) -> Vec<library_ui::Action> {
     let mut actions = Vec::new();
     view.set_focus(active);
-    process_keyboard(
+    let events: Vec<_> = keys
+        .callback
+        .keys
+        .borrow()
+        .iter()
+        .map(|&(key, control, shift)| input::Input::Key(key, control, shift))
+        .collect();
+    input::process(
         view,
         state,
         active,
-        &keys.callback.keys.borrow(),
-        keys.repeated(Key::Up, polled),
-        keys.repeated(Key::Down, polled),
+        &events,
+        &[
+            (Key::Up, keys.repeated(Key::Up, polled), false, false),
+            (Key::Down, keys.repeated(Key::Down, polled), false, false),
+        ],
+        &mut |_| Err(()),
         &mut actions,
     );
     keys.clear();

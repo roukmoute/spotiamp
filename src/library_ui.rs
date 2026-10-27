@@ -3,7 +3,10 @@ use crate::{
     appearance::Skin,
     locale::Language,
     localized_text::LocalizedText,
-    model::{LibraryCommand, LibrarySnapshot, PlaylistEntry, PlaylistId},
+    model::{
+        LibraryCommand, LibrarySnapshot, PlaylistEntry, PlaylistId, SEARCH_QUERY_MAX_BYTES,
+        SEARCH_QUERY_MAX_CHARS, TrackRow,
+    },
 };
 mod modern;
 use font8x8::UnicodeFonts;
@@ -16,7 +19,10 @@ use std::{
 pub const WIDTH: usize = 760;
 pub const HEIGHT: usize = 470;
 pub const TITLEBAR_DRAG_REGION: (usize, usize, usize, usize) = (6, 2, 690, 16);
-const LEFT_ROWS: usize = 12;
+const LEFT_ROWS: usize = 11;
+const LEFT_TOP: usize = 119;
+const SEARCH_INPUT: Rect = (324, 29, 250, 23);
+const SEARCH_COLUMNS: usize = 29;
 const RIGHT_ROWS: usize = 11;
 const BG: u32 = 0x29283d;
 const BLACK: u32 = 0x050805;
@@ -31,6 +37,8 @@ pub enum Action {
     Command(LibraryCommand),
     Minimize,
     Close,
+    Paste,
+    Copy(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,6 +46,8 @@ enum Button {
     Minimize,
     Close,
     Refresh,
+    Search,
+    Clear,
     Play,
     Append,
 }
@@ -47,6 +57,8 @@ impl Button {
             Self::Minimize => (704, 3, 20, 14),
             Self::Close => (728, 3, 20, 14),
             Self::Refresh => (12, 29, 164, 23),
+            Self::Search => (580, 29, 76, 23),
+            Self::Clear => (662, 29, 86, 23),
             Self::Play => (246, 413, 106, 24),
             Self::Append => (360, 413, 128, 24),
         }
@@ -55,6 +67,8 @@ impl Button {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Target {
     Button(Button),
+    Search,
+    SearchInput,
     Playlist(usize),
     Track(usize),
 }
@@ -69,6 +83,18 @@ pub struct View {
     selected_track: Option<usize>,
     selected_uri: Option<String>,
     left_focus: bool,
+    search_mode: bool,
+    input_focus: bool,
+    query: String,
+    cursor: usize,
+    anchor: usize,
+    input_offset: usize,
+    search_track: Option<usize>,
+    search_offset: usize,
+    search_remainder: f64,
+    search_revision: u64,
+    search_pending: Option<(u64, String)>,
+    search_click: Option<(u64, usize, Instant)>,
     left_offset: usize,
     right_offset: usize,
     left_remainder: f64,
@@ -96,6 +122,18 @@ impl Default for View {
             selected_track: None,
             selected_uri: None,
             left_focus: true,
+            search_mode: false,
+            input_focus: false,
+            query: String::new(),
+            cursor: 0,
+            anchor: 0,
+            input_offset: 0,
+            search_track: None,
+            search_offset: 0,
+            search_remainder: 0.0,
+            search_revision: 0,
+            search_pending: None,
+            search_click: None,
             left_offset: 0,
             right_offset: 0,
             left_remainder: 0.0,
@@ -125,6 +163,7 @@ impl View {
         self.skin = skin;
         self.cancel_pointer();
         self.last_click = None;
+        self.search_click = None;
         self.dirty();
     }
     pub fn set_language(&mut self, language: Language) {
@@ -132,6 +171,7 @@ impl View {
             self.language = language;
             self.cancel_pointer();
             self.last_click = None;
+            self.search_click = None;
             self.dirty();
         }
     }
@@ -147,6 +187,7 @@ impl View {
         if !focused {
             self.cancel_pointer();
             self.last_click = None;
+            self.search_click = None;
         }
     }
     pub fn cancel_pointer(&mut self) {
@@ -154,6 +195,7 @@ impl View {
         // Only an interrupted press should break the double-click sequence.
         if self.pressed.is_some() {
             self.last_click = None;
+            self.search_click = None;
         }
         self.clear_press();
     }
@@ -172,12 +214,219 @@ impl View {
     fn tracks_ready(&self, s: &LibrarySnapshot) -> bool {
         !s.loading && self.selected_id.is_some() && self.selected_id == s.selected_id
     }
+    fn active_tracks<'a>(&self, s: &'a LibrarySnapshot) -> &'a [TrackRow] {
+        if self.search_mode {
+            &s.search.tracks
+        } else {
+            &s.tracks
+        }
+    }
+    fn active_ready(&self, s: &LibrarySnapshot) -> bool {
+        if self.search_mode {
+            !s.search.loading && self.search_pending.is_none()
+        } else {
+            self.tracks_ready(s)
+        }
+    }
+    fn active_offset(&self) -> usize {
+        if self.search_mode {
+            self.search_offset
+        } else {
+            self.right_offset
+        }
+    }
+    fn active_selection(&self) -> Option<usize> {
+        if self.search_mode {
+            self.search_track
+        } else {
+            self.selected_track
+        }
+    }
+    fn open_search(&mut self, input: bool) {
+        self.search_mode = true;
+        self.input_focus = input;
+        self.left_focus = !input;
+        self.search_click = None;
+        self.last_click = None;
+        self.dirty();
+    }
+    pub fn wants_text_input(&self) -> bool {
+        self.focused && self.search_mode && self.input_focus
+    }
+    fn selection(&self) -> std::ops::Range<usize> {
+        self.cursor.min(self.anchor)..self.cursor.max(self.anchor)
+    }
+    fn reveal_cursor(&mut self) {
+        let column = self.query[..self.cursor].chars().count();
+        if column < self.input_offset {
+            self.input_offset = column;
+        } else if column >= self.input_offset + SEARCH_COLUMNS {
+            self.input_offset = column + 1 - SEARCH_COLUMNS;
+        }
+    }
+    pub fn type_char(&mut self, ch: char) {
+        if !self.wants_text_input() || ch.is_control() {
+            return;
+        }
+        let selected = self.selection();
+        let bytes = self.query.len() - selected.len();
+        let chars = self.query.chars().count() - self.query[selected.clone()].chars().count();
+        if bytes + ch.len_utf8() > SEARCH_QUERY_MAX_BYTES || chars >= SEARCH_QUERY_MAX_CHARS {
+            return;
+        }
+        self.query.replace_range(selected.clone(), "");
+        self.query.insert(selected.start, ch);
+        self.cursor = selected.start + ch.len_utf8();
+        self.anchor = self.cursor;
+        self.reveal_cursor();
+        self.dirty();
+    }
+    pub fn paste(&mut self, text: &str) {
+        if !self.wants_text_input() {
+            return;
+        }
+        for ch in text.chars().take(SEARCH_QUERY_MAX_CHARS) {
+            self.type_char(if ch.is_whitespace() { ' ' } else { ch });
+        }
+    }
+    /// A full or closed command channel must not leave a local request waiting forever.
+    pub fn command_rejected(&mut self) {
+        if self.search_pending.take().is_some() {
+            self.dirty();
+        }
+    }
+    fn submit_search(&mut self, s: &LibrarySnapshot) -> Option<Action> {
+        if !s.connected {
+            return None;
+        }
+        let query = self.query.trim();
+        if self
+            .search_pending
+            .as_ref()
+            .is_some_and(|(_, pending)| pending == query)
+            || (s.search.loading && s.search.query.as_ref() == query)
+        {
+            return None;
+        }
+        self.search_click = None;
+        self.search_pending = Some((s.search.revision, query.to_owned()));
+        self.search_track = None;
+        self.search_offset = 0;
+        self.search_remainder = 0.0;
+        self.dirty();
+        Some(Action::Command(LibraryCommand::Search(
+            self.query.trim().to_owned(),
+        )))
+    }
+    fn edit_key(&mut self, key: Key, control: bool, shift: bool) -> Option<Action> {
+        let selected = self.selection();
+        match key {
+            Key::A if control => {
+                self.anchor = 0;
+                self.cursor = self.query.len();
+            }
+            Key::V if control => return Some(Action::Paste),
+            Key::C | Key::X if control => {
+                if selected.is_empty() {
+                    return None;
+                }
+                let copied = self.query[selected.clone()].to_owned();
+                if key == Key::X {
+                    self.query.replace_range(selected.clone(), "");
+                    self.cursor = selected.start;
+                    self.anchor = self.cursor;
+                    self.reveal_cursor();
+                    self.dirty();
+                }
+                return Some(Action::Copy(copied));
+            }
+            Key::Backspace | Key::Delete => {
+                let range = if !selected.is_empty() {
+                    selected
+                } else if key == Key::Backspace {
+                    self.query[..self.cursor]
+                        .char_indices()
+                        .next_back()
+                        .map_or(self.cursor, |(i, _)| i)..self.cursor
+                } else {
+                    self.cursor
+                        ..self.query[self.cursor..]
+                            .chars()
+                            .next()
+                            .map_or(self.cursor, |ch| self.cursor + ch.len_utf8())
+                };
+                self.query.replace_range(range.clone(), "");
+                self.cursor = range.start;
+                self.anchor = self.cursor;
+            }
+            Key::Left | Key::Right | Key::Home | Key::End => {
+                self.cursor = match key {
+                    Key::Home => 0,
+                    Key::End => self.query.len(),
+                    Key::Left if !shift && !selected.is_empty() => selected.start,
+                    Key::Right if !shift && !selected.is_empty() => selected.end,
+                    Key::Left => self.query[..self.cursor]
+                        .char_indices()
+                        .next_back()
+                        .map_or(0, |(i, _)| i),
+                    _ => self.query[self.cursor..]
+                        .chars()
+                        .next()
+                        .map_or(self.cursor, |ch| self.cursor + ch.len_utf8()),
+                };
+                if !shift {
+                    self.anchor = self.cursor;
+                }
+            }
+            _ => return None,
+        }
+        self.reveal_cursor();
+        self.dirty();
+        None
+    }
     fn sync(&mut self, s: &LibrarySnapshot) {
         if self.snapshot_revision == Some(s.revision) {
             return;
         }
         let initial = self.snapshot_revision.is_none();
         self.snapshot_revision = Some(s.revision);
+        if self.search_revision != s.search.revision {
+            self.search_revision = s.search.revision;
+            self.search_track = None;
+            self.search_offset = 0;
+            self.search_remainder = 0.0;
+            self.search_click = None;
+        }
+        // Starting a search first clears old results, then publishes its query
+        // under the same request revision. Acknowledge either publication order.
+        if self
+            .search_pending
+            .as_ref()
+            .is_some_and(|(revision, query)| {
+                *revision != s.search.revision && query.as_str() == s.search.query.as_ref()
+            })
+        {
+            self.search_pending = None;
+        }
+        if !s.connected {
+            self.search_pending = None;
+        }
+        if initial && !s.search.query.is_empty() {
+            self.query = s.search.query.to_string();
+            self.cursor = self.query.len();
+            self.anchor = self.cursor;
+            self.reveal_cursor();
+        }
+        self.search_offset = self
+            .search_offset
+            .min(s.search.tracks.len().saturating_sub(RIGHT_ROWS));
+        if self
+            .search_track
+            .is_some_and(|i| i >= s.search.tracks.len())
+        {
+            self.search_track = None;
+        }
+
         // Loading and metadata updates can arrive between the two clicks.
         // Keep a playlist click only while the same available ID occupies its row.
         if !self.last_click.as_ref().is_some_and(|(id, target, _)| {
@@ -253,16 +502,35 @@ impl View {
         match b {
             Button::Minimize | Button::Close => true,
             Button::Refresh => s.connected && !s.busy && !s.loading,
+            Button::Search => s.connected && !self.query.trim().is_empty(),
+            Button::Clear => !self.query.is_empty() || !s.search.query.is_empty(),
             Button::Play | Button::Append => {
                 s.connected
                     && !s.busy
-                    && self.tracks_ready(s)
-                    && !s.tracks.is_empty()
-                    && self.selected(s).is_some_and(|e| e.available)
+                    && self.active_ready(s)
+                    && !self.active_tracks(s).is_empty()
+                    && if self.search_mode {
+                        self.search_track.is_some()
+                    } else {
+                        self.selected(s).is_some_and(|e| e.available)
+                    }
             }
         }
     }
     fn target(&self, x: usize, y: usize) -> Option<Target> {
+        if self.search_mode {
+            for b in [Button::Search, Button::Clear] {
+                if inside(b.rect(), x, y) {
+                    return Some(Target::Button(b));
+                }
+            }
+            if inside(SEARCH_INPUT, x, y) {
+                return Some(Target::SearchInput);
+            }
+        }
+        if inside((18, 65, 202, 24), x, y) {
+            return Some(Target::Search);
+        }
         for b in [
             Button::Minimize,
             Button::Close,
@@ -274,11 +542,11 @@ impl View {
                 return Some(Target::Button(b));
             }
         }
-        if inside((18, 91, 202, LEFT_ROWS * 28), x, y) {
-            return Some(Target::Playlist(self.left_offset + (y - 91) / 28));
+        if inside((18, LEFT_TOP, 202, LEFT_ROWS * 28), x, y) {
+            return Some(Target::Playlist(self.left_offset + (y - LEFT_TOP) / 28));
         }
         if inside((252, 120, 480, RIGHT_ROWS * 24), x, y) {
-            return Some(Target::Track(self.right_offset + (y - 120) / 24));
+            return Some(Target::Track(self.active_offset() + (y - 120) / 24));
         }
         None
     }
@@ -292,10 +560,18 @@ impl View {
         let allowed = match target {
             Some(Target::Button(b)) => self.enabled(b, s),
             Some(Target::Playlist(i)) => s.entries.get(i).is_some_and(|e| e.available),
-            Some(Target::Track(i)) => self.tracks_ready(s) && i < s.tracks.len(),
+            Some(Target::Track(i)) => self.active_ready(s) && i < self.active_tracks(s).len(),
+            Some(Target::Search | Target::SearchInput) => true,
             None => false,
         };
         if allowed {
+            if !matches!(target, Some(Target::Track(_))) {
+                self.search_click = None;
+            }
+            if self.input_focus && target != Some(Target::SearchInput) {
+                self.input_focus = false;
+                self.dirty();
+            }
             self.pressed = target;
             self.hovered = target;
             self.press_revision = s.revision;
@@ -306,6 +582,7 @@ impl View {
             self.dirty();
         } else {
             self.last_click = None;
+            self.search_click = None;
         }
         None
     }
@@ -332,20 +609,42 @@ impl View {
         }
         if !self.focused || pressed != self.hovered {
             self.last_click = None;
+            self.search_click = None;
             return None;
         }
         let target = pressed?;
         if self.press_revision != s.revision
             && !matches!(
                 target,
-                Target::Playlist(_) | Target::Button(Button::Close | Button::Minimize)
+                Target::Playlist(_)
+                    | Target::Search
+                    | Target::SearchInput
+                    | Target::Button(Button::Close | Button::Minimize)
             )
         {
             self.last_click = None;
+            self.search_click = None;
             return None;
         }
         match target {
             Target::Button(b) if self.enabled(b, s) => self.button(b, s),
+            Target::Search => {
+                self.open_search(true);
+                None
+            }
+            Target::SearchInput => {
+                self.open_search(true);
+                let column = position.map_or(0, |(x, _)| x.saturating_sub(SEARCH_INPUT.0 + 5) / 8)
+                    + self.input_offset;
+                self.cursor = self
+                    .query
+                    .char_indices()
+                    .nth(column)
+                    .map_or(self.query.len(), |(i, _)| i);
+                self.anchor = self.cursor;
+                self.reveal_cursor();
+                None
+            }
             Target::Playlist(index) => {
                 let Some(entry) = s
                     .entries
@@ -374,9 +673,20 @@ impl View {
                     selection
                 }
             }
-            Target::Track(index) if self.tracks_ready(s) && index < s.tracks.len() => {
+            Target::Track(index) if self.active_ready(s) && index < self.active_tracks(s).len() => {
                 self.left_focus = false;
+                self.input_focus = false;
                 self.select_track(index, s);
+                if self.search_mode {
+                    let double = self.search_click.is_some_and(|(revision, old, at)| {
+                        revision == s.search.revision
+                            && old == index
+                            && at.elapsed() < Duration::from_millis(450)
+                    });
+                    self.search_click =
+                        (!double).then(|| (s.search.revision, index, Instant::now()));
+                    return if double { self.queue(s, true) } else { None };
+                }
                 let id = self.selected_id.clone()?;
                 let double = self.is_double_click(&id, target);
                 self.last_click = (!double).then(|| (id, target, Instant::now()));
@@ -402,6 +712,9 @@ impl View {
             return None;
         }
         self.dirty();
+        self.search_mode = false;
+        self.input_focus = false;
+        self.search_click = None;
         self.last_click = None;
         if self.selected_id.as_ref() == Some(&entry.id) {
             return None;
@@ -416,6 +729,14 @@ impl View {
         Some(Action::Command(LibraryCommand::Select(entry.id.clone())))
     }
     fn select_track(&mut self, index: usize, s: &LibrarySnapshot) {
+        if self.search_mode {
+            if index < s.search.tracks.len() {
+                self.search_track = Some(index);
+                reveal(index, &mut self.search_offset, RIGHT_ROWS);
+                self.dirty();
+            }
+            return;
+        }
         if let Some(row) = s.tracks.get(index) {
             self.selected_track = Some(index);
             self.selected_uri = Some(row.uri.clone());
@@ -426,6 +747,13 @@ impl View {
     fn queue(&self, s: &LibrarySnapshot, play: bool) -> Option<Action> {
         if !self.enabled(if play { Button::Play } else { Button::Append }, s) {
             return None;
+        }
+        if self.search_mode {
+            return Some(Action::Command(LibraryCommand::QueueSearch {
+                revision: s.search.revision,
+                index: self.search_track?,
+                play,
+            }));
         }
         Some(Action::Command(LibraryCommand::Queue {
             id: self.selected_id.clone()?,
@@ -444,6 +772,23 @@ impl View {
             Button::Minimize => Some(Action::Minimize),
             Button::Close => Some(Action::Close),
             Button::Refresh => Some(Action::Command(LibraryCommand::Refresh)),
+            Button::Search => {
+                self.input_focus = true;
+                self.left_focus = false;
+                self.submit_search(s)
+            }
+            Button::Clear => {
+                self.query.clear();
+                self.cursor = 0;
+                self.anchor = 0;
+                self.input_offset = 0;
+                self.search_click = None;
+                self.search_track = None;
+                self.search_offset = 0;
+                self.search_pending = Some((s.search.revision, String::new()));
+                self.open_search(true);
+                Some(Action::Command(LibraryCommand::Search(String::new())))
+            }
             Button::Play => self.queue(s, true),
             Button::Append => self.queue(s, false),
         }
@@ -452,20 +797,57 @@ impl View {
         &mut self,
         key: Key,
         control: bool,
-        _shift: bool,
+        shift: bool,
         s: &LibrarySnapshot,
     ) -> Option<Action> {
         self.sync(s);
         self.cancel_pointer();
         self.last_click = None;
+        self.search_click = None;
         if !self.focused {
             return None;
+        }
+        if control && key == Key::F {
+            self.open_search(true);
+            self.anchor = 0;
+            self.cursor = self.query.len();
+            self.reveal_cursor();
+            return None;
+        }
+        if self.wants_text_input() {
+            match key {
+                Key::Enter => return self.submit_search(s),
+                Key::Escape => {
+                    self.input_focus = false;
+                    self.left_focus = true;
+                    self.dirty();
+                    return None;
+                }
+                Key::Tab => {
+                    self.input_focus = false;
+                    self.left_focus = shift;
+                    self.dirty();
+                    return None;
+                }
+                Key::Down => {
+                    self.input_focus = false;
+                    self.left_focus = false;
+                    self.dirty();
+                }
+                _ => return self.edit_key(key, control, shift),
+            }
         }
         match key {
             Key::Escape => return Some(Action::Close),
             Key::F5 if self.enabled(Button::Refresh, s) => return self.button(Button::Refresh, s),
             Key::Tab => {
-                self.left_focus = !self.left_focus;
+                if self.search_mode && ((self.left_focus && !shift) || (!self.left_focus && shift))
+                {
+                    self.input_focus = true;
+                    self.left_focus = false;
+                } else {
+                    self.left_focus = !self.left_focus;
+                }
                 self.dirty();
                 return None;
             }
@@ -485,10 +867,14 @@ impl View {
             key,
             Key::Up | Key::Down | Key::Home | Key::End | Key::PageUp | Key::PageDown
         ) {
+            if self.left_focus && key == Key::Home {
+                self.open_search(false);
+                return None;
+            }
             let length = if self.left_focus {
                 s.entries.len()
-            } else if self.tracks_ready(s) {
-                s.tracks.len()
+            } else if self.active_ready(s) {
+                self.active_tracks(s).len()
             } else {
                 0
             };
@@ -500,12 +886,23 @@ impl View {
                     .iter()
                     .position(|e| Some(&e.id) == self.selected_id.as_ref())
             } else {
-                self.selected_track
+                self.active_selection()
             };
             let page = if self.left_focus {
                 LEFT_ROWS
             } else {
                 RIGHT_ROWS
+            };
+            if self.left_focus
+                && (key == Key::Home || (key == Key::Up && (self.search_mode || old == Some(0))))
+            {
+                self.open_search(false);
+                return None;
+            }
+            let old = if self.left_focus && self.search_mode {
+                None
+            } else {
+                old
             };
             let mut index = match key {
                 Key::Home => 0,
@@ -531,6 +928,10 @@ impl View {
             return None;
         }
         if key == Key::Enter {
+            if self.search_mode && self.left_focus {
+                self.open_search(true);
+                return None;
+            }
             return self.queue(s, !control);
         }
         None
@@ -541,19 +942,25 @@ impl View {
             return;
         }
         let left = match position {
-            Some((x, y)) if (12..230).contains(&x) && (90..427).contains(&y) => true,
+            Some((x, y)) if (12..230).contains(&x) && (LEFT_TOP..427).contains(&y) => true,
             Some((x, y)) if (246..746).contains(&x) && (119..384).contains(&y) => false,
             _ => return,
         };
         let len = if left {
             s.entries.len()
-        } else if self.tracks_ready(s) {
-            s.tracks.len()
+        } else if self.active_ready(s) {
+            self.active_tracks(s).len()
         } else {
             0
         };
         let (offset, remainder, rows) = if left {
             (&mut self.left_offset, &mut self.left_remainder, LEFT_ROWS)
+        } else if self.search_mode {
+            (
+                &mut self.search_offset,
+                &mut self.search_remainder,
+                RIGHT_ROWS,
+            )
         } else {
             (
                 &mut self.right_offset,
@@ -572,6 +979,7 @@ impl View {
         }
         if *offset != old {
             self.last_click = None;
+            self.search_click = None;
             self.cancel_pointer();
             self.dirty();
         }
@@ -594,7 +1002,12 @@ impl View {
         }
         self.rendered = Some(fingerprint);
         let selected = self.selected(s);
-        let ready = self.tracks_ready(s);
+        let ready = self.active_ready(s);
+        let tracks = self.active_tracks(s);
+        let offset = self.active_offset();
+        let selection = self.active_selection();
+        let search_enabled = self.enabled(Button::Search, s);
+        let clear_enabled = self.enabled(Button::Clear, s);
         let enabled = [
             self.enabled(Button::Refresh, s),
             self.enabled(Button::Play, s),
@@ -645,40 +1058,111 @@ impl View {
             enabled[0],
             pressed == Some(Target::Button(Button::Refresh)),
         );
-        c.text(
-            192,
-            37,
-            language.text("VOS PLAYLISTS SPOTIFY", "YOUR SPOTIFY PLAYLISTS"),
-            palette.chrome_text,
-            36,
-        );
-        c.text(
-            574,
-            37,
-            if s.connected {
-                language.text("LECTURE SEULE", "READ ONLY")
-            } else {
-                language.text("HORS CONNEXION", "OFFLINE")
-            },
-            palette.chrome_muted,
-            21,
-        );
+        if self.search_mode {
+            c.text(
+                246,
+                37,
+                language.text("RECHERCHE", "SEARCH"),
+                palette.chrome_text,
+                9,
+            );
+            c.bevel(SEARCH_INPUT, palette.well, true);
+            let selected_text = self.cursor.min(self.anchor)..self.cursor.max(self.anchor);
+            if self.input_focus && self.focused && !selected_text.is_empty() {
+                let begin = self.query[..selected_text.start]
+                    .chars()
+                    .count()
+                    .saturating_sub(self.input_offset)
+                    .min(SEARCH_COLUMNS);
+                let end = self.query[..selected_text.end]
+                    .chars()
+                    .count()
+                    .saturating_sub(self.input_offset)
+                    .min(SEARCH_COLUMNS);
+                c.rect(
+                    (329 + begin * 8, 34, (end - begin) * 8, 12),
+                    palette.selection,
+                );
+            }
+            c.text_skip(
+                329,
+                37,
+                &self.query,
+                palette.primary,
+                self.input_offset,
+                SEARCH_COLUMNS,
+            );
+            if self.input_focus && self.focused {
+                let caret = self.query[..self.cursor]
+                    .chars()
+                    .count()
+                    .saturating_sub(self.input_offset)
+                    .min(SEARCH_COLUMNS);
+                c.rect((329 + caret * 8, 34, 1, 13), palette.accent);
+            }
+            c.button(
+                Button::Search,
+                language.text("CHERCHER", "SEARCH"),
+                search_enabled,
+                pressed == Some(Target::Button(Button::Search)),
+            );
+            c.button(
+                Button::Clear,
+                language.text("EFFACER", "CLEAR"),
+                clear_enabled,
+                pressed == Some(Target::Button(Button::Clear)),
+            );
+        } else {
+            c.text(
+                192,
+                37,
+                language.text("VOS PLAYLISTS SPOTIFY", "YOUR SPOTIFY PLAYLISTS"),
+                palette.chrome_text,
+                36,
+            );
+            c.text(
+                574,
+                37,
+                if s.connected {
+                    language.text("LECTURE SEULE", "READ ONLY")
+                } else {
+                    language.text("HORS CONNEXION", "OFFLINE")
+                },
+                palette.chrome_muted,
+                21,
+            );
+        }
         c.bevel((12, 60, 220, 377), palette.well, true);
-        c.bevel((13, 61, 218, 23), palette.header, false);
+        if self.search_mode {
+            c.rect((18, 65, 202, 24), palette.selection);
+        }
+        c.text(24, 73, ">", palette.accent, 1);
+        c.text(
+            40,
+            73,
+            language.text("Recherche", "Search"),
+            if self.search_mode {
+                palette.bright
+            } else {
+                palette.primary
+            },
+            22,
+        );
+        c.bevel((13, 93, 218, 21), palette.header, false);
         c.text(
             23,
-            69,
+            100,
             language.text("MES PLAYLISTS", "MY PLAYLISTS"),
             palette.bright,
             24,
         );
         if self.left_focus && self.focused {
-            c.rect((16, 86, 212, 1), palette.accent);
+            c.rect((16, 116, 212, 1), palette.accent);
         }
         if s.entries.is_empty() {
             c.text(
                 25,
-                112,
+                140,
                 if s.loading {
                     language.text("Chargement...", "Loading...")
                 } else {
@@ -689,7 +1173,7 @@ impl View {
             );
             c.text(
                 25,
-                131,
+                159,
                 if s.connected {
                     language.text("Actualiser avec F5", "Press F5 to refresh")
                 } else {
@@ -706,8 +1190,8 @@ impl View {
             .skip(self.left_offset)
             .take(LEFT_ROWS)
         {
-            let y = 91 + (row - self.left_offset) * 28;
-            let active = self.selected_id.as_ref() == Some(&entry.id);
+            let y = LEFT_TOP + (row - self.left_offset) * 28;
+            let active = !self.search_mode && self.selected_id.as_ref() == Some(&entry.id);
             if active {
                 c.rect((18, y, 202, 27), palette.selection);
             }
@@ -738,21 +1222,56 @@ impl View {
                 24,
             );
         }
-        c.scrollbar(222, 91, 336, s.entries.len(), LEFT_ROWS, self.left_offset);
+        c.scrollbar(
+            222,
+            LEFT_TOP,
+            LEFT_ROWS * 28,
+            s.entries.len(),
+            LEFT_ROWS,
+            self.left_offset,
+        );
         c.bevel((240, 60, 508, 341), palette.well, true);
         c.bevel((241, 61, 506, 37), palette.header_alt, false);
         c.text(
             252,
             68,
-            selected.map_or(
-                language.text("Sélectionnez une playlist", "Select a playlist"),
-                |e| e.name.as_str(),
-            ),
+            if self.search_mode {
+                language.text("Recherche Spotify", "Spotify search")
+            } else {
+                selected.map_or(
+                    language.text("Sélectionnez une playlist", "Select a playlist"),
+                    |e| e.name.as_str(),
+                )
+            },
             palette.bright,
             60,
         );
         let mut summary = Label::new();
-        if let Some(entry) = selected {
+        if self.search_mode {
+            if s.search.loading || self.search_pending.is_some() {
+                let _ = write!(
+                    summary,
+                    "{}",
+                    language.text("Recherche en cours...", "Searching...")
+                );
+            } else if !s.search.query.is_empty() {
+                let _ = write!(
+                    summary,
+                    "{} {}",
+                    s.search.tracks.len(),
+                    language.text("résultats", "results")
+                );
+            } else {
+                let _ = write!(
+                    summary,
+                    "{}",
+                    language.text(
+                        "Saisissez un titre ou un artiste.",
+                        "Enter a song or artist."
+                    )
+                );
+            }
+        } else if let Some(entry) = selected {
             if let Some(count) = entry.track_count {
                 let _ = write!(summary, "{count} {}", language.text("titres", "tracks"));
             } else {
@@ -792,11 +1311,22 @@ impl View {
             palette.bright,
             7,
         );
-        if !self.left_focus && self.focused {
+        if !self.left_focus && !self.input_focus && self.focused {
             c.rect((245, 118, 497, 1), palette.accent);
         }
-        if !ready || s.tracks.is_empty() {
-            let message = if s.loading || self.pending_selection.is_some() {
+        if !ready || tracks.is_empty() {
+            let message = if self.search_mode {
+                if s.search.loading || self.search_pending.is_some() {
+                    language.text("Recherche en cours...", "Searching...")
+                } else if s.search.query.is_empty() {
+                    language.text(
+                        "Saisissez un titre ou un artiste.",
+                        "Enter a song or artist.",
+                    )
+                } else {
+                    language.text("Aucun résultat.", "No results.")
+                }
+            } else if s.loading || self.pending_selection.is_some() {
                 language.text("Chargement des titres...", "Loading tracks...")
             } else if selected.is_some() {
                 language.text("Aucun titre chargé.", "No tracks loaded.")
@@ -810,23 +1340,24 @@ impl View {
             c.text(
                 260,
                 174,
-                language.text(
-                    "Entrée : lire    Ctrl+Entrée : ajouter à la file",
-                    "Enter: play    Ctrl+Enter: add to queue",
-                ),
+                if self.search_mode {
+                    language.text(
+                        "Entrée : rechercher    Ctrl+F : recherche",
+                        "Enter: search    Ctrl+F: search",
+                    )
+                } else {
+                    language.text(
+                        "Entrée : lire    Ctrl+Entrée : ajouter à la file",
+                        "Enter: play    Ctrl+Enter: add to queue",
+                    )
+                },
                 palette.muted,
                 58,
             );
         } else {
-            for (index, track) in s
-                .tracks
-                .iter()
-                .enumerate()
-                .skip(self.right_offset)
-                .take(RIGHT_ROWS)
-            {
-                let y = 120 + (index - self.right_offset) * 24;
-                let active = self.selected_track == Some(index);
+            for (index, track) in tracks.iter().enumerate().skip(offset).take(RIGHT_ROWS) {
+                let y = 120 + (index - offset) * 24;
+                let active = selection == Some(index);
                 if active {
                     c.rect((248, y, 486, 23), palette.selection);
                 }
@@ -850,7 +1381,7 @@ impl View {
                 let _ = write!(time, "{}:{:02}", seconds / 60, seconds % 60);
                 c.text(686, y + 8, time.as_str(), palette.primary, 6);
             }
-            c.scrollbar(738, 120, 264, s.tracks.len(), RIGHT_ROWS, self.right_offset);
+            c.scrollbar(738, 120, 264, tracks.len(), RIGHT_ROWS, offset);
         }
         c.button(
             Button::Play,
@@ -882,10 +1413,14 @@ impl View {
         c.text(506, 428, queue.as_str(), palette.chrome_muted, 30);
         c.rect((13, 443, 734, 1), palette.separator_shadow);
         c.rect((13, 444, 734, 1), palette.separator_highlight);
-        let status = self
-            .notice
-            .as_ref()
-            .map_or(s.status.text(language), |(text, _)| text.text(language));
+        let status = self.notice.as_ref().map_or(
+            if self.search_mode {
+                s.search.status.text(language)
+            } else {
+                s.status.text(language)
+            },
+            |(text, _)| text.text(language),
+        );
         c.text(15, 450, status, palette.chrome_text, 91);
         c.text_skip(15, 460, status, palette.chrome_text, 91, 91);
         true
@@ -1055,5 +1590,7 @@ impl std::fmt::Write for Label {
         Ok(())
     }
 }
+#[cfg(test)]
+mod search_tests;
 #[cfg(test)]
 mod tests;

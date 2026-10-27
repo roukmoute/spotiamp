@@ -11,6 +11,8 @@ pub(super) struct State {
     ready: Option<(PlaylistId, bool)>,
     pending_queue: Option<QueueRequest>,
     catalogue_loaded: bool,
+    search_generation: u64,
+    search_task: Option<JoinHandle<()>>,
 }
 
 #[derive(Clone, Copy)]
@@ -22,6 +24,10 @@ struct QueueRequest {
 }
 
 pub(super) enum Update {
+    Search {
+        generation: u64,
+        update: SearchUpdate,
+    },
     Catalogue {
         generation: u64,
         result: Result<Vec<PlaylistEntry>, LocalizedText>,
@@ -37,6 +43,12 @@ pub(super) enum Update {
     Finished {
         generation: u64,
     },
+}
+
+pub(super) enum SearchUpdate {
+    Loaded(Result<(Vec<TrackRow>, bool), LocalizedText>),
+    Metadata(Vec<TrackRow>),
+    Finished { timed_out: bool },
 }
 
 impl State {
@@ -62,6 +74,26 @@ impl State {
         }
         self.pending_queue = None;
         self.ready = None;
+    }
+
+    fn cancel_search(&mut self) {
+        self.replace_search("", false, LocalizedText::default());
+    }
+
+    fn replace_search(&mut self, query: &str, loading: bool, status: LocalizedText) {
+        self.search_generation = self.search_generation.wrapping_add(1);
+        if let Some(task) = self.search_task.take() {
+            task.abort();
+        }
+        self.edit(|s| {
+            s.search = crate::model::SearchSnapshot {
+                revision: self.search_generation,
+                query: query.into(),
+                loading,
+                status,
+                ..Default::default()
+            };
+        });
     }
 }
 
@@ -105,6 +137,12 @@ impl Worker {
     }
 
     pub(super) fn reset_library(&mut self, message: &'static str) {
+        self.finish_search_metadata();
+        self.library.cancel_search();
+        self.reset_playlist(message);
+    }
+
+    fn reset_playlist(&mut self, message: &'static str) {
         self.library.cancel();
         self.library.catalogue_loaded = false;
         self.library.edit(|s| {
@@ -139,6 +177,16 @@ impl Worker {
                 self.reset_library("");
             }
             LibraryCommand::Refresh if self.library.open => self.refresh_library(updates),
+            LibraryCommand::Search(query) if self.library.open => {
+                self.search_library(query, updates)
+            }
+            LibraryCommand::QueueSearch {
+                revision,
+                index,
+                play,
+            } if self.library.open => {
+                self.queue_search_result(revision, index, play);
+            }
             LibraryCommand::Select(id) if self.library.open => {
                 self.restore_library_selection = None;
                 if self
@@ -206,7 +254,7 @@ impl Worker {
     }
 
     pub(super) fn refresh_library(&mut self, updates: &mpsc::Sender<super::Update>) {
-        self.reset_library("Chargement de vos playlists Spotify...");
+        self.reset_playlist("Chargement de vos playlists Spotify...");
         let Some(session) = self.session.clone() else {
             self.library
                 .edit(|s| s.status = "Connectez Spotify pour afficher vos playlists".into());
@@ -274,16 +322,24 @@ impl Worker {
     }
 
     pub(super) fn library_update(&mut self, update: Update) {
+        if let Update::Search { generation, update } = update {
+            if self.library.open && generation == self.library.search_generation {
+                self.search_update(update);
+            }
+            return;
+        }
         let generation = match &update {
             Update::Catalogue { generation, .. }
             | Update::Loaded { generation, .. }
             | Update::Metadata { generation, .. }
             | Update::Finished { generation } => *generation,
+            Update::Search { .. } => unreachable!(),
         };
         if !self.library.open || generation != self.library.generation {
             return;
         }
         match update {
+            Update::Search { .. } => unreachable!(),
             Update::Catalogue { result, .. } => {
                 self.library.task = None;
                 self.library.catalogue_loaded = result.is_ok();
@@ -369,7 +425,7 @@ impl Worker {
                             .iter_mut()
                             .filter(|existing| existing.uri == row.uri)
                         {
-                            *existing = row.clone();
+                            merge_search_metadata(existing, &row);
                         }
                     }
                 });
@@ -379,6 +435,27 @@ impl Worker {
     }
 
     fn apply_library_queue(&mut self, rows: &[TrackRow], request: QueueRequest) {
+        let origin = self.library.ready.as_ref().map(|(id, _)| id.clone());
+        self.apply_tracks_queue(rows, request, origin, false);
+    }
+
+    fn queue_status(&self, message: LocalizedText, search: bool) {
+        self.library.edit(|s| {
+            if search {
+                s.search.status = message;
+            } else {
+                s.status = message;
+            }
+        });
+    }
+
+    fn apply_tracks_queue(
+        &mut self,
+        rows: &[TrackRow],
+        request: QueueRequest,
+        origin: Option<PlaylistId>,
+        search: bool,
+    ) {
         if request.audio_generation != self.generation {
             return;
         }
@@ -394,7 +471,7 @@ impl Worker {
             None
         };
         if let Some(message) = error {
-            self.library.edit(|s| s.status = message.into());
+            self.queue_status(message.into(), search);
             return;
         }
         let old_len = self
@@ -409,12 +486,12 @@ impl Worker {
         };
         let count = rows.len().min(capacity);
         if count == 0 || (request.play && request.start >= count) {
-            self.library.edit(|s| {
-                s.status = "File pleine : 500 titres maximum; la file a ete conservee".into()
-            });
+            self.queue_status(
+                "File pleine : 500 titres maximum; la file a ete conservee".into(),
+                search,
+            );
             return;
         }
-        let origin = self.library.ready.as_ref().map(|(id, _)| id.clone());
         self.merge_queue_origin(origin, request.replace);
         // All validation and network work has succeeded before stopping or
         // replacing anything. Incoming old import events cannot refill it.
@@ -430,22 +507,26 @@ impl Worker {
                 s.duration_ms = 0;
             }
             s.queue.extend(rows.iter().take(count).cloned());
-            s.status = LocalizedText::with_languages(
-                format!("{count} titre(s) de la playlist ajoutes"),
-                format!("{count} playlist track(s) added"),
-                format!("{count} Playlist-Titel hinzugefügt"),
-                format!("{count} canciones de la playlist añadidas"),
-                format!("{count} brani della playlist aggiunti"),
-                format!("{count} faixas da playlist adicionadas"),
-            );
+            s.status = if search {
+                "Titre ajoute depuis la recherche".into()
+            } else {
+                LocalizedText::with_languages(
+                    format!("{count} titre(s) de la playlist ajoutes"),
+                    format!("{count} playlist track(s) added"),
+                    format!("{count} Playlist-Titel hinzugefügt"),
+                    format!("{count} canciones de la playlist añadidas"),
+                    format!("{count} brani della playlist aggiunti"),
+                    format!("{count} faixas da playlist adicionadas"),
+                )
+            };
         });
         if request.replace {
             self.reset_order(None);
         } else {
             self.queue_appended();
         }
-        self.library.edit(|s| {
-            s.status = if count < rows.len() {
+        self.queue_status(
+            if count < rows.len() {
                 LocalizedText::with_languages(
                     format!("{count} titres ajoutes; file limitee a {MAX_QUEUE}"),
                     format!("{count} tracks added; queue limited to {MAX_QUEUE}"),
@@ -463,8 +544,9 @@ impl Worker {
                     format!("{count} brani aggiunti alla coda"),
                     format!("{count} faixas adicionadas à fila"),
                 )
-            }
-        });
+            },
+            search,
+        );
         if request.play {
             self.play(if request.replace {
                 request.start
@@ -474,6 +556,272 @@ impl Worker {
         }
         self.sync_library_summary();
     }
+
+    fn search_library(&mut self, query: String, updates: &mpsc::Sender<super::Update>) {
+        let query = crate::spotify_search::normalize_query(&query);
+        // Repeated Enter while this exact request is in flight reuses its job.
+        if self.library.search_task.is_some()
+            && query.as_ref().is_ok_and(|query| {
+                !query.is_empty()
+                    && self.library.shared.lock().is_ok_and(|s| {
+                        s.search.loading && s.search.query.as_ref() == query.as_str()
+                    })
+            })
+        {
+            return;
+        }
+        self.finish_search_metadata();
+        let query = match query {
+            Ok(query) => query,
+            Err(message) => {
+                self.library.replace_search("", false, message);
+                return;
+            }
+        };
+        if query.is_empty() {
+            self.library.cancel_search();
+            return;
+        }
+        let Some(session) = self.session.clone() else {
+            self.library.replace_search(
+                &query,
+                false,
+                "Connectez Spotify pour rechercher des titres".into(),
+            );
+            return;
+        };
+        // Publish query + revision + loading together so UI acknowledgements
+        // cannot observe the new request with a temporarily empty query.
+        self.library
+            .replace_search(&query, true, "Recherche Spotify en cours...".into());
+        let generation = self.library.search_generation;
+        let updates = updates.clone();
+        self.library.search_task = Some(tokio::spawn(search_tracks(
+            session, query, generation, updates,
+        )));
+    }
+
+    fn search_update(&mut self, update: SearchUpdate) {
+        match update {
+            SearchUpdate::Loaded(result) => {
+                self.library.edit(|s| {
+                    s.search.loading = false;
+                    match result {
+                        Ok((rows, truncated)) => {
+                            s.search.status = search_notice(rows.len(), truncated);
+                            s.search.tracks = Arc::new(rows);
+                        }
+                        Err(message) => s.search.status = message,
+                    }
+                });
+            }
+            SearchUpdate::Metadata(rows) => {
+                self.library.edit(|s| {
+                    let tracks = Arc::make_mut(&mut s.search.tracks);
+                    for row in &rows {
+                        if let Some(existing) =
+                            tracks.iter_mut().find(|existing| existing.uri == row.uri)
+                        {
+                            merge_search_metadata(existing, row);
+                        }
+                    }
+                });
+                // A result can be queued before its name is resolved.
+                edit(&self.state, |s| {
+                    for row in rows {
+                        for existing in s
+                            .queue
+                            .iter_mut()
+                            .filter(|existing| existing.uri == row.uri)
+                        {
+                            merge_search_metadata(existing, &row);
+                        }
+                    }
+                });
+            }
+            SearchUpdate::Finished { timed_out } => {
+                self.library.search_task = None;
+                if timed_out {
+                    self.finish_search_metadata();
+                    self.library.edit(|s| {
+                        s.search.loading = false;
+                        s.search.status =
+                            "Recherche incomplete; relancez la recherche pour reessayer".into();
+                        for row in Arc::make_mut(&mut s.search.tracks) {
+                            if row.title_kind == TrackTitleKind::Loading {
+                                row.title_kind = TrackTitleKind::Unavailable;
+                            }
+                        }
+                    });
+                }
+            }
+        }
+    }
+
+    fn finish_search_metadata(&self) {
+        let unfinished = self
+            .library
+            .shared
+            .lock()
+            .map(|s| s.search.tracks.clone())
+            .unwrap_or_default();
+        if unfinished.is_empty() {
+            return;
+        }
+        edit(&self.state, |s| {
+            for row in &mut s.queue {
+                if row.title_kind == TrackTitleKind::Loading
+                    && unfinished.iter().any(|result| result.uri == row.uri)
+                {
+                    row.title_kind = TrackTitleKind::Unavailable;
+                }
+            }
+        });
+    }
+
+    fn queue_search_result(&mut self, revision: u64, index: usize, play: bool) {
+        let row = self.library.shared.lock().ok().and_then(|s| {
+            (s.search.revision == revision && !s.search.loading)
+                .then(|| s.search.tracks.get(index).cloned())
+                .flatten()
+        });
+        let Some(row) = row else {
+            self.queue_status(
+                "Ce resultat a change; selectionnez-le a nouveau".into(),
+                true,
+            );
+            return;
+        };
+        if self.session.is_none() || (play && self.player.is_none()) {
+            self.queue_status("Connectez Spotify pour lire ce titre".into(), true);
+            return;
+        }
+        self.cancel_library_queue();
+        // Search is not a playlist: only the chosen result enters the queue.
+        // Reuse the playlist transaction's validation, capacity, shuffle and
+        // playback rules, with no playlist origin attached to these results.
+        self.apply_tracks_queue(
+            &[row],
+            QueueRequest {
+                replace: play,
+                play,
+                start: 0,
+                audio_generation: self.generation,
+            },
+            None,
+            true,
+        );
+    }
+}
+
+fn merge_search_metadata(existing: &mut TrackRow, row: &TrackRow) {
+    // A failed supplementary read must not erase names already present in the
+    // search context (or known metadata on a matching playback queue entry).
+    if row.title_kind == TrackTitleKind::Metadata || existing.title_kind != TrackTitleKind::Metadata
+    {
+        *existing = row.clone();
+    }
+}
+
+fn search_notice(count: usize, truncated: bool) -> LocalizedText {
+    if count == 0 {
+        return if truncated {
+            "Aucun titre charge; essayez une recherche plus precise".into()
+        } else {
+            "Aucun titre trouve. Essayez un autre nom ou artiste.".into()
+        };
+    }
+    LocalizedText::with_languages(
+        format!(
+            "{count} resultat(s){}. Double-clic : lire.",
+            if truncated { " (liste limitee)" } else { "" }
+        ),
+        format!(
+            "{count} result(s){}. Double-click to play.",
+            if truncated { " (limited list)" } else { "" }
+        ),
+        format!(
+            "{count} Ergebnisse{}. Doppelklick zum Abspielen.",
+            if truncated { " (begrenzte Liste)" } else { "" }
+        ),
+        format!(
+            "{count} resultados{}. Doble clic para reproducir.",
+            if truncated { " (lista limitada)" } else { "" }
+        ),
+        format!(
+            "{count} risultati{}. Doppio clic per riprodurre.",
+            if truncated { " (elenco limitato)" } else { "" }
+        ),
+        format!(
+            "{count} resultados{}. Duplo clique para reproduzir.",
+            if truncated { " (lista limitada)" } else { "" }
+        ),
+    )
+}
+
+async fn search_tracks(
+    session: Session,
+    query: String,
+    generation: u64,
+    updates: mpsc::Sender<super::Update>,
+) {
+    let send = |update| {
+        updates.send(super::Update::Library(Update::Search {
+            generation,
+            update,
+        }))
+    };
+    let result = tokio::time::timeout(Duration::from_secs(60), async {
+        // Coalesce rapid explicit submissions before any HTTP work begins.
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let (rows, truncated) = match crate::spotify_search::fetch(&session, &query).await {
+            Ok(result) => result,
+            Err(message) => {
+                let _ = send(SearchUpdate::Loaded(Err(message))).await;
+                return;
+            }
+        };
+        let mut pending: VecDeque<_> = rows
+            .iter()
+            .filter(|row| {
+                row.title_kind != TrackTitleKind::Metadata
+                    || row.artist.is_empty()
+                    || row.duration_ms == 0
+            })
+            .filter_map(|row| parse_input(&row.uri).ok())
+            .collect();
+        if send(SearchUpdate::Loaded(Ok((rows, truncated))))
+            .await
+            .is_err()
+        {
+            return;
+        }
+        let mut requests = JoinSet::new();
+        while !pending.is_empty() || !requests.is_empty() {
+            while requests.len() < 2 {
+                let Some(uri) = pending.pop_front() else {
+                    break;
+                };
+                let session = session.clone();
+                requests.spawn(async move {
+                    let mut row = track_metadata(&session, &uri).await;
+                    row.title = crate::spotify_search::display_text(&row.title);
+                    row.artist = crate::spotify_search::display_text(&row.artist);
+                    row
+                });
+            }
+            if let Some(Ok(row)) = requests.join_next().await
+                && send(SearchUpdate::Metadata(vec![row])).await.is_err()
+            {
+                return;
+            }
+        }
+    })
+    .await;
+    let _ = send(SearchUpdate::Finished {
+        timed_out: result.is_err(),
+    })
+    .await;
 }
 
 fn playlist_notice(count: usize, truncated: bool) -> LocalizedText {

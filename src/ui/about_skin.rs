@@ -461,6 +461,19 @@ impl View {
             (
                 109,
                 self.language
+                    .text("0.2.12 / RECHERCHE SPOTIFY", "0.2.12 / SPOTIFY SEARCH"),
+                self.language.text(
+                    "Rechercher un titre ou un artiste dans la bibliothèque.",
+                    "Find a song or artist in the library.",
+                ),
+                self.language.text(
+                    "Double-clic : lire. À la file : ajouter le titre.",
+                    "Double-click: play. Add to queue: append the track.",
+                ),
+            ),
+            (
+                154,
+                self.language
                     .text("0.2.11 / SIX LANGUES", "0.2.11 / SIX LANGUAGES"),
                 self.language.text(
                     "Français, anglais, allemand, espagnol,",
@@ -472,7 +485,7 @@ impl View {
                 ),
             ),
             (
-                154,
+                199,
                 self.language
                     .text("0.2.10 / REPRISE MÉMORISÉE", "0.2.10 / REMEMBERED PLAYBACK"),
                 self.language.text(
@@ -485,7 +498,7 @@ impl View {
                 ),
             ),
             (
-                199,
+                244,
                 self.language.text(
                     "0.2.9 / LANGUES DE L'INTERFACE",
                     "0.2.9 / INTERFACE LANGUAGES",
@@ -500,7 +513,7 @@ impl View {
                 ),
             ),
             (
-                244,
+                289,
                 self.language.text(
                     "0.2.8 / LECTEUR SPOTIFY NATIF",
                     "0.2.8 / NATIVE SPOTIFY PLAYER",
@@ -515,7 +528,7 @@ impl View {
                 ),
             ),
             (
-                289,
+                334,
                 self.language.text(
                     "0.2.7 / DISPOSITION MÉMORISÉE",
                     "0.2.7 / REMEMBERED WINDOW LAYOUT",
@@ -527,19 +540,6 @@ impl View {
                 self.language.text(
                     "Bibliothèque ouverte ou fermée retrouvée au lancement.",
                     "Library open/closed state restored at startup.",
-                ),
-            ),
-            (
-                334,
-                self.language
-                    .text("0.2.6 / FENÊTRES AIMANTÉES", "0.2.6 / MAGNETIC WINDOWS"),
-                self.language.text(
-                    "Glisser la bibliothèque pour la détacher.",
-                    "Drag the library to detach it.",
-                ),
-                self.language.text(
-                    "Rapprocher les bords et relâcher pour les recoller.",
-                    "Bring the edges together and release to attach them.",
                 ),
             ),
         ] {

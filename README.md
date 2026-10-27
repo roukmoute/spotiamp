@@ -3,9 +3,9 @@
 **L'esprit Winamp, dans un lecteur Spotify natif et léger pour Windows, macOS et Linux.**
 
 Spotiamp partage les mêmes skins **Classique** et **Modern** et la même base Rust
-sur les trois systèmes : une file de lecture, vos playlists Spotify et des mises
-à jour intégrées, en **français ou en anglais**. Le moteur audio actuel est librespot 0.8. Un compte Spotify
-Premium est nécessaire.
+sur les trois systèmes : une file de lecture, vos playlists Spotify, la recherche
+de musiques et des mises à jour intégrées, en **six langues**. Le moteur audio
+actuel est librespot 0.8. Un compte Spotify Premium est nécessaire.
 
 Des binaires natifs sont publiés pour **Windows x64, macOS Apple Silicon et
 Linux x64**. La compilation, les tests et la création des paquets sont automatisés
@@ -21,8 +21,9 @@ leurs résultats sont détaillés dans [PERFORMANCE.md](PERFORMANCE.md).
 | Linux | x64 — Intel/AMD 64 bits | [ZIP portable](https://github.com/roukmoute/spotiamp/releases/latest/download/Spotiamp-Linux-x64.zip) |
 
 **Windows.**
-Lancer `Spotiamp-Setup-Windows-x64.exe`, puis suivre l'assistant en français ou
-en anglais. L'installation concerne votre compte, sans droits administrateur.
+Lancer `Spotiamp-Setup-Windows-x64.exe`, puis suivre l'assistant en français,
+anglais, allemand, espagnol, italien ou portugais. L'installation concerne votre
+compte, sans droits administrateur.
 Le lecteur apparaît dans le menu Démarrer ; le raccourci sur le Bureau est optionnel.
 L'assistant propose de lancer Spotiamp à la fin. Pour la version portable,
 décompresser le ZIP et lancer `spotiamp.exe`.
@@ -109,8 +110,9 @@ l'une ou l'autre peut être déplacée pour les réunir. Elles se réduisent tou
 ensemble. Sur un écran trop étroit, la bibliothèque se place initialement
 juste en dessous. Les lancements suivants retrouvent les positions mémorisées,
 l'état attaché ou libre et la bibliothèque ouverte ou fermée.
-**BIBLIO. F3** ou **F3** la ferme ou la rouvre : playlists
-et dossiers à gauche, titres de la playlist choisie à droite, en lecture seule.
+**BIBLIO. F3** ou **F3** la ferme ou la rouvre : **Recherche**, playlists
+et dossiers à gauche, résultats ou titres de la playlist choisie à droite, en
+lecture seule.
 Le catalogue est chargé à l'ouverture et les titres seulement à la sélection.
 La découverte de bibliothèque reste à vérifier avec un compte Spotify réel ;
 ses tests automatisés fonctionnent hors connexion.
@@ -141,8 +143,10 @@ avec le runtime C statique. L'interface minifb utilise Win32/GDI et l'audio WASA
    le navigateur, puis revenir dans le lecteur. Aux lancements suivants,
    Spotiamp tente automatiquement de réutiliser la session mémorisée.
    Aucun mot de passe n'est demandé dans Spotiamp.
-3. Copier un lien Spotify de titre, d'album ou de playlist. Dans Spotiamp :
-   **Ctrl+V** (**Cmd+V** fonctionne également sous macOS), puis **+ AJ.** ou Entrée.
+3. Dans la bibliothèque, choisir **Recherche**, saisir un titre ou un artiste,
+   puis valider avec **Entrée** ou **Chercher**. Il est aussi possible de copier
+   un lien Spotify de titre, d'album ou de playlist dans le lecteur avec
+   **Ctrl+V** (**Cmd+V** sous macOS), puis **+ AJ.** ou Entrée.
 4. Double-cliquer sur un titre. Les boutons et la barre de position pilotent
    le moteur audio local. Le client Spotify officiel peut être fermé.
 
@@ -210,6 +214,27 @@ playlist vide conserve la file précédente. Le double-clic sur un titre utilise
 la même action en démarrant à cette ligne. **À la file** ajoute la playlist à la
 file existante sans remplacer son contenu ni lancer une nouvelle lecture.
 
+Pour chercher une musique dans le catalogue Spotify, choisir **Recherche** dans
+la colonne de gauche, au-dessus des playlists. **Ctrl+F** (**Cmd+F** sous macOS)
+dans la bibliothèque ouvre aussi la recherche et place le curseur dans le champ.
+Saisir un titre,
+un artiste ou les deux, puis appuyer sur **Entrée** ou cliquer sur **Chercher**.
+La recherche utilise la session Spotify déjà connectée ; aucune clé d'API
+supplémentaire n'est nécessaire.
+
+Les résultats s'affichent à droite avec le titre, l'artiste et la durée.
+**Double-clic** ou **Lire** remplace la file par le seul résultat sélectionné
+et démarre sa lecture ; **À la file** ajoute ce titre à la suite sans interrompre
+la musique. **Effacer** annule la recherche et vide ses résultats, en conservant
+la file et la playlist consultée. Revenir à une playlist retrouve sa vue.
+
+Une recherche affiche jusqu'à **50 titres** : si la liste est limitée, préciser
+le titre ou l'artiste. Le champ accepte **256 caractères**. Les requêtes partent
+seulement après validation ; une nouvelle recherche annule la précédente et
+ignore ses réponses tardives. Les résultats ne sont pas sauvegardés et sont
+libérés à la fermeture de la bibliothèque ou à la déconnexion. Les six langues
+et les deux skins utilisent ces mêmes contrôles natifs.
+
 Quand vous lancez ou relancez explicitement un titre, sa ligne est sélectionnée
 et centrée dans la partie visible de la file du lecteur, y compris depuis la
 bibliothèque. Près du début ou de la fin, le défilement s'arrête aux limites
@@ -234,11 +259,12 @@ Le catalogue est plafonné à **1 000 playlists** et **2 000 entrées** en compt
 les marqueurs de dossiers ; un dépassement est signalé au lieu de charger une
 liste partielle silencieusement.
 
-Dans la bibliothèque, **Tab** ou **Gauche/Droite** change de panneau ;
+Dans la bibliothèque, hors du champ de saisie, **Tab** ou **Gauche/Droite** change de panneau ;
 **Haut/Bas**, **Début/Fin** et **Page précédente/suivante** parcourent les lignes.
-**Entrée** lance la lecture, **Ctrl+Entrée** ajoute à la file, et la molette
-déplace d'une ligne par cran le panneau survolé. **F3**, **Échap** ou la croix
-ferme cette fenêtre. La lecture du lecteur continue ; les données de bibliothèque
+Dans les listes, **Entrée** lance la lecture, **Ctrl+Entrée** ajoute à la file,
+et la molette déplace d'une ligne par cran le panneau survolé. **F3**, **Échap**
+ou la croix ferme cette fenêtre ; lorsque le champ de recherche est actif,
+le premier **Échap** quitte seulement la saisie. La lecture du lecteur continue ; les données de bibliothèque
 et son buffer graphique sont relâchés à la fermeture.
 **F3** depuis le lecteur la rouvre à sa position mémorisée, attachée ou libre.
 Si elle était attachée, son emplacement suit les déplacements du lecteur
@@ -430,6 +456,9 @@ une petite police bitmap : les glyphes absents sont affichés avec `?`.
   ses buffers graphiques et les données du catalogue affiché ; les mesures du
   lecteur seul doivent donc préciser que la bibliothèque est fermée.
 - File limitée à 500 titres, deux requêtes de métadonnées simultanées.
+- Recherche limitée à 50 résultats, sans pochettes ni cache persistant,
+  réutilisant la connexion et le moteur asynchrone existants. Aucun thread
+  supplémentaire ni requête à chaque caractère saisi.
 - Buffer graphique réutilisé ; rendu seulement lorsque l'état visible change.
 - Pas de préchargement du morceau suivant ; cela peut introduire un silence
   entre les titres. Les buffers internes de librespot ne sont pas tous bornés
@@ -438,12 +467,11 @@ une petite police bitmap : les glyphes absents sont affichés avec `?`.
   threads nécessaires aux chargements et à la sortie audio. Ce plafond est
   documenté dans `vendor/librespot-playback/PATCH.md`.
 
-Le lecteur comprend connexion, import par lien, bibliothèque de playlists Spotify,
-file, lecture locale, pause, arrêt, précédent/suivant, volume et déplacement dans
-le titre. Il n'inclut pas encore recherche de catalogue, vue albums/artistes/titres
-likés, égaliseur,
-skins `.wsz`, lecture hors ligne, icône de notification, touches multimédia
-globales ni sauvegarde de la file. L'accessibilité et la saisie complexe sont
+Le lecteur comprend connexion, import par lien, recherche de musiques, bibliothèque
+de playlists Spotify, file mémorisée, lecture locale, pause, arrêt, précédent/suivant,
+volume et déplacement dans le titre. Il n'inclut pas encore de vue albums/artistes/
+titres likés, d'égaliseur, de skins `.wsz`, de lecture hors ligne, d'icône de
+notification ni de touches multimédia globales. L'accessibilité et la saisie complexe sont
 limitées par cette interface bitmap.
 Un déplacement dans le titre peut laisser entendre brièvement les données
 déjà présentes dans le petit buffer de sortie.
@@ -491,7 +519,10 @@ Les tests de bibliothèque utilisent des données synthétiques : sélection et
 défilement dans chaque panneau, changements de liste pendant un chargement,
 double-clic sur le bon titre, commandes désactivées et conservation du framebuffer.
 Ils ne remplacent pas un essai authentifié de découverte des playlists et de
-lecture Spotify.
+lecture Spotify. Ceux de la recherche couvrent les limites et l'encodage des
+requêtes, les réponses anciennes, l'annulation, la sélection du bon résultat,
+la conservation de la lecture pendant la saisie et les traductions. La réponse
+réelle du catalogue nécessite également un essai connecté à Spotify.
 
 Windows : Rust avec la cible `x86_64-pc-windows-msvc` et les outils de compilation
 Visual Studio C++. macOS : outils Xcode. Linux Debian/Ubuntu :

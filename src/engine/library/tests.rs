@@ -530,3 +530,341 @@ fn existing_playlist_notice_retains_count_in_all_six_languages() {
         assert_eq!(notice.text(language), expected);
     }
 }
+
+fn search_loaded(worker: &mut Worker, rows: Vec<TrackRow>) -> u64 {
+    worker.library.cancel_search();
+    let generation = worker.library.search_generation;
+    worker.library_update(Update::Search {
+        generation,
+        update: SearchUpdate::Loaded(Ok((rows, false))),
+    });
+    generation
+}
+
+#[test]
+fn search_updates_do_not_replace_playlist_preview_or_interrupt_audio() {
+    let mut worker = worker();
+    worker.library.edit(|s| {
+        s.tracks = Arc::new(vec![row("Playlist preview")]);
+        s.status = "Playlist status".into();
+    });
+    let before = worker.snapshot();
+    let preview = worker.library.shared.lock().unwrap().clone();
+    let generation = search_loaded(&mut worker, vec![row("Search result")]);
+    let library = worker.library.shared.lock().unwrap().clone();
+    assert_eq!(worker.snapshot(), before);
+    assert!(Arc::ptr_eq(&preview.tracks, &library.tracks));
+    assert!(Arc::ptr_eq(&preview.entries, &library.entries));
+    assert_eq!(library.selected_id, preview.selected_id);
+    assert_eq!(library.status, preview.status);
+    assert_eq!(library.search.revision, generation);
+    assert_eq!(library.search.tracks[0].title, "Search result");
+    worker.library.cancel();
+    worker.library_update(Update::Search {
+        generation,
+        update: SearchUpdate::Metadata(vec![row("Search metadata")]),
+    });
+    let library = worker.library.shared.lock().unwrap();
+    assert_eq!(library.search.tracks[0].title, "Search metadata");
+    assert_eq!(library.search.revision, generation);
+    assert_eq!(library.tracks[0].title, "Playlist preview");
+}
+
+#[test]
+fn search_play_queues_only_clicked_result_and_append_preserves_playback() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let _guard = runtime.enter();
+    for play in [false, true] {
+        let (mut worker, player, id) = connected_worker();
+        worker.queue_playlist = Some(id.clone());
+        worker.library.ready = Some((id, false));
+        let second = TrackRow {
+            uri: "spotify:track:0000000000000000000002".into(),
+            ..row("Chosen")
+        };
+        let generation = search_loaded(&mut worker, vec![row("Other result"), second.clone()]);
+        let (updates, _) = mpsc::channel(1);
+        worker.command(
+            Command::Library(LibraryCommand::QueueSearch {
+                revision: generation,
+                index: 1,
+                play,
+            }),
+            &updates,
+        );
+        let snapshot = worker.snapshot();
+        if play {
+            assert_eq!(snapshot.queue, vec![second.clone()]);
+            assert_eq!(snapshot.current, Some(0));
+            assert_eq!(
+                player.take(),
+                vec![
+                    TransportCall::Stop,
+                    TransportCall::Load(
+                        parse_input(&second.uri).unwrap(),
+                        true,
+                        0,
+                        Bitrate::Bitrate320
+                    )
+                ]
+            );
+        } else {
+            assert_eq!(snapshot.queue, vec![row("Existing"), second]);
+            assert!(snapshot.playing);
+            assert_eq!(snapshot.current, Some(0));
+            assert_eq!(snapshot.position_ms, 42_000);
+            assert!(player.take().is_empty());
+        }
+        assert_eq!(
+            worker.queue_playlist, None,
+            "search is not the previewed playlist"
+        );
+    }
+}
+
+#[test]
+fn stale_invalid_or_full_search_queue_requests_preserve_audio() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let _guard = runtime.enter();
+    let (mut worker, player, _) = connected_worker();
+    let generation = search_loaded(&mut worker, vec![row("Chosen")]);
+    let before = worker.snapshot();
+    worker.queue_search_result(generation.wrapping_sub(1), 0, true);
+    worker.queue_search_result(generation, 1, true);
+    assert_eq!(worker.snapshot(), before);
+    assert!(player.take().is_empty());
+    edit(&worker.state, |s| {
+        s.queue.resize(MAX_QUEUE, row("Existing"))
+    });
+    let before = worker.snapshot();
+    worker.queue_search_result(generation, 0, false);
+    assert_eq!(worker.snapshot(), before);
+    assert!(player.take().is_empty());
+}
+
+#[test]
+fn new_search_clear_close_and_logout_abort_work_and_reject_late_results() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let _guard = runtime.enter();
+    for action in ["search", "clear", "close", "logout"] {
+        let (mut worker, _, _) = connected_worker();
+        let (updates, _) = mpsc::channel(1);
+        worker.library_command(LibraryCommand::Search("old".into()), &updates);
+        let old = worker.library.search_generation;
+        let old_task = worker.library.search_task.as_ref().unwrap().id();
+        worker.library_command(LibraryCommand::Search("old".into()), &updates);
+        assert_eq!(worker.library.search_task.as_ref().unwrap().id(), old_task);
+        match action {
+            "search" => worker.library_command(LibraryCommand::Search("new".into()), &updates),
+            "clear" => worker.library_command(LibraryCommand::Search(" \t ".into()), &updates),
+            "close" => worker.library_command(LibraryCommand::Close, &updates),
+            "logout" => worker.reset_library("Logged out"),
+            _ => unreachable!(),
+        }
+        assert_ne!(worker.library.search_generation, old);
+        worker.library_update(Update::Search {
+            generation: old,
+            update: SearchUpdate::Loaded(Ok((vec![row("Stale")], false))),
+        });
+        worker.library_update(Update::Search {
+            generation: old,
+            update: SearchUpdate::Finished { timed_out: false },
+        });
+        let search = worker.library.shared.lock().unwrap().search.clone();
+        assert!(search.tracks.is_empty());
+        if action == "search" {
+            assert_eq!(search.query.as_ref(), "new");
+            assert!(search.loading);
+            assert!(worker.library.search_task.is_some());
+        } else {
+            assert_eq!(search.query.as_ref(), "");
+            assert!(!search.loading);
+            assert!(worker.library.search_task.is_none());
+        }
+    }
+}
+
+#[test]
+fn failed_search_and_metadata_timeout_leave_no_infinite_loading_rows() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let _guard = runtime.enter();
+    let (mut worker, _, _) = connected_worker();
+    let generation = search_loaded(
+        &mut worker,
+        vec![TrackRow {
+            title_kind: TrackTitleKind::Loading,
+            ..row("")
+        }],
+    );
+    worker.queue_search_result(generation, 0, false);
+    worker.library_update(Update::Search {
+        generation,
+        update: SearchUpdate::Finished { timed_out: true },
+    });
+    assert_eq!(
+        worker.library.shared.lock().unwrap().search.tracks[0].title_kind,
+        TrackTitleKind::Unavailable
+    );
+    assert_eq!(
+        worker.snapshot().queue[1].title_kind,
+        TrackTitleKind::Unavailable
+    );
+    let before = worker.snapshot();
+    worker.library_update(Update::Search {
+        generation,
+        update: SearchUpdate::Loaded(Err("Unavailable".into())),
+    });
+    assert_eq!(worker.snapshot(), before);
+    assert!(!worker.library.shared.lock().unwrap().search.loading);
+}
+
+#[test]
+fn search_requests_without_connection_or_with_invalid_queries_never_touch_playback() {
+    let mut worker = worker();
+    let (updates, _) = mpsc::channel(1);
+    let before = worker.snapshot();
+    for query in ["A song".to_owned(), "x".repeat(257)] {
+        worker.library_command(LibraryCommand::Search(query), &updates);
+        assert!(worker.library.search_task.is_none());
+        assert!(!worker.library.shared.lock().unwrap().search.loading);
+        assert_eq!(worker.snapshot(), before);
+    }
+}
+
+#[test]
+fn repeated_query_after_results_arrive_starts_a_new_atomic_request() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let _guard = runtime.enter();
+    let (mut worker, _, _) = connected_worker();
+    let (updates, _) = mpsc::channel(1);
+    worker.library_command(LibraryCommand::Search("same query".into()), &updates);
+    let previous = worker.library.search_generation;
+    worker.library_update(Update::Search {
+        generation: previous,
+        update: SearchUpdate::Loaded(Ok((vec![row("First response")], false))),
+    });
+    // Metadata is still in flight, but another explicit submission must be
+    // acknowledged by a fresh request revision rather than leave UI pending.
+    assert!(worker.library.search_task.is_some());
+    let library_revision = worker.library.shared.lock().unwrap().revision;
+    worker.library_command(LibraryCommand::Search("same query".into()), &updates);
+    let current = worker.library.shared.lock().unwrap().clone();
+    assert_ne!(current.search.revision, previous);
+    assert_eq!(current.search.query.as_ref(), "same query");
+    assert!(current.search.loading);
+    assert!(current.search.tracks.is_empty());
+    assert_eq!(
+        current.revision,
+        library_revision + 1,
+        "request published in one edit"
+    );
+    let cloned = current.clone();
+    assert!(Arc::ptr_eq(&current.search.query, &cloned.search.query));
+    assert!(Arc::ptr_eq(&current.search.tracks, &cloned.search.tracks));
+}
+
+#[test]
+fn clearing_search_finishes_queued_placeholders_and_failed_enrichment_keeps_known_names() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let _guard = runtime.enter();
+    let (mut worker, _, _) = connected_worker();
+    let generation = search_loaded(
+        &mut worker,
+        vec![TrackRow {
+            title_kind: TrackTitleKind::Loading,
+            ..row("")
+        }],
+    );
+    worker.queue_search_result(generation, 0, false);
+    let (updates, _) = mpsc::channel(1);
+    worker.library_command(LibraryCommand::Search("".into()), &updates);
+    assert_eq!(
+        worker.snapshot().queue[1].title_kind,
+        TrackTitleKind::Unavailable
+    );
+    let generation = search_loaded(&mut worker, vec![row("Known title")]);
+    worker.library_update(Update::Search {
+        generation,
+        update: SearchUpdate::Metadata(vec![TrackRow {
+            title_kind: TrackTitleKind::Unavailable,
+            ..row("")
+        }]),
+    });
+    assert_eq!(
+        worker.library.shared.lock().unwrap().search.tracks[0].title,
+        "Known title"
+    );
+    assert_eq!(worker.snapshot().queue[0].title, "Existing");
+}
+
+#[test]
+fn canceled_search_releases_in_flight_task_data() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let (mut worker, _, _) = connected_worker();
+        let retained = Arc::new(vec![row("In-flight response")]);
+        let weak = Arc::downgrade(&retained);
+        worker.library.search_task = Some(tokio::spawn(async move {
+            std::future::pending::<()>().await;
+            drop(retained);
+        }));
+        tokio::task::yield_now().await;
+        let (updates, _) = mpsc::channel(1);
+        worker.library_command(LibraryCommand::Search("".into()), &updates);
+        tokio::task::yield_now().await;
+        assert!(weak.upgrade().is_none());
+        assert!(worker.library.search_task.is_none());
+    });
+}
+
+#[test]
+fn late_failed_playlist_metadata_preserves_named_search_results_in_the_queue() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let _guard = runtime.enter();
+    for play in [false, true] {
+        let (mut worker, player, _) = connected_worker();
+        let chosen = TrackRow {
+            artist: "Known artist".into(),
+            ..row("Named search result")
+        };
+        let generation = search_loaded(&mut worker, vec![chosen.clone()]);
+        worker.queue_search_result(generation, 0, play);
+        let before = worker.snapshot();
+        player.take();
+        worker.library_update(Update::Metadata {
+            generation: worker.library.generation,
+            rows: vec![TrackRow {
+                uri: TRACK.into(),
+                title_kind: TrackTitleKind::Unavailable,
+                ..TrackRow::default()
+            }],
+        });
+        assert_eq!(worker.snapshot(), before);
+        assert!(player.take().is_empty());
+        assert_eq!(worker.snapshot().queue.last(), Some(&chosen));
+    }
+}

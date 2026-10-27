@@ -171,7 +171,7 @@ impl App {
         } else {
             self.player.update();
         }
-        assert!(self.library.frame(&self.engine).unwrap());
+        assert!(self.library.frame(&self.engine, &mut None).unwrap());
         assert!(
             matches!(
                 self.commands.try_recv(),

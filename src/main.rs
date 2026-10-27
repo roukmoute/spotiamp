@@ -28,6 +28,8 @@ mod settings;
 mod skin_settings;
 #[cfg(feature = "spotify")]
 mod spotify_library;
+#[cfg(feature = "spotify")]
+mod spotify_search;
 mod translations;
 mod ui;
 mod updater;
@@ -917,7 +919,10 @@ fn run(initial_notice: Option<LocalizedText>) -> Result<(), Box<dyn std::error::
         } else {
             window.update();
         }
-        let close_library = match library.as_mut().map(|library| library.frame(&engine)) {
+        let close_library = match library
+            .as_mut()
+            .map(|library| library.frame(&engine, &mut clipboard))
+        {
             Some(Ok(open)) => !open,
             Some(Err(_)) => {
                 view.notice(LocalizedText::new(

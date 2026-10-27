@@ -864,10 +864,8 @@ impl View {
                 "Le moteur peut choisir un debit de repli.",
                 "The engine may fall back to a lower bitrate.",
             ),
-            self.language.text(
-                "Recherche et egaliseur non inclus.",
-                "Search and equalizer are not included.",
-            ),
+            self.language
+                .text("Egaliseur non inclus.", "Equalizer is not included."),
             self.language.text(
                 "F1, Echap ou clic : fermer cette aide.",
                 "F1, Esc or click: close this help.",

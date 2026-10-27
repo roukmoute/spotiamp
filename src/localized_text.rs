@@ -111,6 +111,34 @@ impl From<&'static str> for LocalizedText {
             "Titre indisponible, acces refuse ou erreur audio. Essayez Suivant." => {
                 "Track unavailable, access denied or audio error. Try Next."
             }
+            "Titre ajoute depuis la recherche" => "Track added from search",
+            "Connectez Spotify pour rechercher des titres" => {
+                "Connect Spotify to search for tracks"
+            }
+            "Recherche Spotify en cours..." => "Searching Spotify...",
+            "Recherche incomplete; relancez la recherche pour reessayer" => {
+                "Search incomplete; submit it again to retry"
+            }
+            "Ce resultat a change; selectionnez-le a nouveau" => {
+                "This result changed; select it again"
+            }
+            "Connectez Spotify pour lire ce titre" => "Connect Spotify to play this track",
+            "Aucun titre charge; essayez une recherche plus precise" => {
+                "No tracks loaded; try a more specific search"
+            }
+            "Aucun titre trouve. Essayez un autre nom ou artiste." => {
+                "No tracks found. Try another name or artist."
+            }
+            "Recherche limitee a 256 caracteres" => "Search is limited to 256 characters",
+            "Spotify ne repond pas a la recherche; reessayez" => {
+                "Spotify did not respond to the search; try again"
+            }
+            "Recherche Spotify indisponible; reessayez dans un instant" => {
+                "Spotify search is unavailable; try again shortly"
+            }
+            "Reponse de recherche Spotify trop volumineuse" => {
+                "Spotify search response is too large"
+            }
             "Connectez Spotify pour afficher vos playlists" => {
                 "Connect Spotify to view your playlists"
             }
@@ -330,6 +358,41 @@ impl PartialEq<String> for LocalizedText {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn search_messages_are_borrowed_and_available_in_every_language() {
+        for french in [
+            "Recherche limitee a 256 caracteres",
+            "Spotify ne repond pas a la recherche; reessayez",
+            "Recherche Spotify indisponible; reessayez dans un instant",
+            "Reponse de recherche Spotify trop volumineuse",
+            "Titre ajoute depuis la recherche",
+            "Connectez Spotify pour rechercher des titres",
+            "Recherche Spotify en cours...",
+            "Recherche incomplete; relancez la recherche pour reessayer",
+            "Ce resultat a change; selectionnez-le a nouveau",
+            "Connectez Spotify pour lire ce titre",
+            "Aucun titre charge; essayez une recherche plus precise",
+            "Aucun titre trouve. Essayez un autre nom ou artiste.",
+        ] {
+            let text = LocalizedText::from(french);
+            let Some(Cow::Borrowed(english)) = text.english else {
+                panic!("Search message has no static English translation: {french}");
+            };
+            assert!(matches!(text.french, Cow::Borrowed(_)));
+            assert!(text.additional.is_none());
+            for language in Language::ALL[2..].iter().copied() {
+                let expected = crate::translations::lookup(english, language)
+                    .unwrap_or_else(|| panic!("Missing {language:?} search message: {english}"));
+                assert_eq!(text.text(language), expected);
+                assert!(std::ptr::eq(
+                    text.text(language).as_ptr(),
+                    expected.as_ptr()
+                ));
+            }
+        }
+    }
+
     #[test]
     fn static_messages_borrow_and_switch_without_recreating_state() {
         let text = LocalizedText::from("Connectez Spotify pour lire la file");

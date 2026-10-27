@@ -108,6 +108,15 @@ mod tests {
             ("INSTALL / RESTART", 24),
             ("Play / pause (outside text input)", 35),
             ("Current version:", 40),
+            ("Search", 24),
+            ("SEARCH", 9),
+            ("CLEAR", 10),
+            ("Spotify search", 60),
+            ("Enter a song or artist.", 58),
+            ("Enter: search    Ctrl+F: search", 58),
+            ("Searching...", 58),
+            ("No results.", 58),
+            ("results", 24),
         ] {
             for language in Language::ALL[2..].iter().copied() {
                 let text = lookup(key, language).unwrap();

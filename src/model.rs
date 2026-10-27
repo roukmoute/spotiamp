@@ -66,6 +66,12 @@ pub enum LibraryCommand {
     Close,
     Refresh,
     Select(PlaylistId),
+    Search(String),
+    QueueSearch {
+        revision: u64,
+        index: usize,
+        play: bool,
+    },
     Queue {
         id: PlaylistId,
         replace: bool,
@@ -74,8 +80,8 @@ pub enum LibraryCommand {
     },
 }
 
-/// Cheap to copy: library contents are shared and only the selected playlist
-/// has track rows in memory. Audio snapshots never contain this library.
+/// Cheap to copy: catalogue, selected playlist, and bounded search results are
+/// shared. Audio snapshots never contain this library.
 #[derive(Clone, Debug, Default)]
 pub struct LibrarySnapshot {
     pub revision: u64,
@@ -87,6 +93,21 @@ pub struct LibrarySnapshot {
     pub status: LocalizedText,
     pub connected: bool,
     pub queue_len: usize,
+    pub search: SearchSnapshot,
+}
+
+pub const SEARCH_QUERY_MAX_CHARS: usize = 256;
+pub const SEARCH_QUERY_MAX_BYTES: usize = 1024;
+
+/// Search rows are independent of the selected playlist and absent until an
+/// explicit search. Revision identifies one request, including its metadata.
+#[derive(Clone, Debug, Default)]
+pub struct SearchSnapshot {
+    pub revision: u64,
+    pub query: std::sync::Arc<str>,
+    pub tracks: std::sync::Arc<Vec<TrackRow>>,
+    pub loading: bool,
+    pub status: LocalizedText,
 }
 
 #[derive(Clone, Default, Debug, PartialEq, Eq, Hash)]
