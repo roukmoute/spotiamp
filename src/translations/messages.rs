@@ -389,6 +389,15 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
         ],
     ),
     (
+        "Could not verify the playlist; no tracks moved",
+        [
+            "Playlist konnte nicht geprüft werden; keine Titel verschoben",
+            "No se pudo verificar la playlist; no se movieron canciones",
+            "Impossibile verificare la playlist; nessun brano spostato",
+            "Não foi possível verificar a playlist; nenhuma faixa movida",
+        ],
+    ),
+    (
         "Could not verify your playlists; no tracks added",
         [
             "Deine Playlists konnten nicht geprüft werden; keine Titel hinzugefügt",
@@ -587,6 +596,15 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
         ],
     ),
     (
+        "Invalid selection; no tracks moved",
+        [
+            "Ungültige Auswahl; keine Titel verschoben",
+            "Selección no válida; no se movieron canciones",
+            "Selezione non valida; nessun brano spostato",
+            "Seleção inválida; nenhuma faixa movida",
+        ],
+    ),
+    (
         "Invalid selection; no tracks removed",
         [
             "Ungültige Auswahl; keine Titel entfernt",
@@ -686,6 +704,24 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
         ],
     ),
     (
+        "Move unconfirmed; refreshing the playlist",
+        [
+            "Verschieben nicht bestätigt; Playlist wird aktualisiert",
+            "Movimiento sin confirmar; actualizando la playlist",
+            "Spostamento non confermato; aggiornamento della playlist",
+            "Movimento não confirmado; a atualizar a playlist",
+        ],
+    ),
+    (
+        "Moving tracks in the Spotify playlist...",
+        [
+            "Titel in der Spotify-Playlist werden verschoben...",
+            "Moviendo canciones en la playlist de Spotify...",
+            "Spostamento dei brani nella playlist Spotify...",
+            "A mover faixas na playlist Spotify...",
+        ],
+    ),
+    (
         "No accessible music tracks in this link",
         [
             "Keine zugänglichen Musiktitel in diesem Link",
@@ -728,6 +764,15 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
             "Solo se admiten enlaces de Spotify a canciones, álbumes y playlists",
             "Sono supportati solo link Spotify a brani, album e playlist",
             "Só são suportadas ligações do Spotify a faixas, álbuns e playlists",
+        ],
+    ),
+    (
+        "Only the owner can move tracks in this playlist",
+        [
+            "Nur der Eigentümer kann Titel in dieser Playlist verschieben",
+            "Solo el propietario puede mover canciones en esta playlist",
+            "Solo il proprietario può spostare brani in questa playlist",
+            "Só o proprietário pode mover faixas nesta playlist",
         ],
     ),
     (
@@ -984,6 +1029,15 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
         ],
     ),
     (
+        "Spotify is limiting moves; wait before retrying",
+        [
+            "Spotify begrenzt das Verschieben; vor erneutem Versuch warten",
+            "Spotify limita los movimientos; espera antes de reintentar",
+            "Spotify limita gli spostamenti; attendi prima di riprovare",
+            "O Spotify limita os movimentos; aguarda antes de tentar novamente",
+        ],
+    ),
+    (
         "Spotify is limiting playlist creation; wait before retrying",
         [
             "Spotify begrenzt neue Playlists; vor erneutem Versuch warten",
@@ -1047,12 +1101,30 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
         ],
     ),
     (
+        "Spotify playlist order updated",
+        [
+            "Reihenfolge der Spotify-Playlist geändert",
+            "Orden de la playlist de Spotify actualizado",
+            "Ordine della playlist Spotify aggiornato",
+            "Ordem da playlist Spotify atualizada",
+        ],
+    ),
+    (
         "Spotify refused the addition; no tracks added",
         [
             "Spotify hat das Hinzufügen abgelehnt; keine Titel hinzugefügt",
             "Spotify rechazó la adición; no se añadieron canciones",
             "Spotify ha rifiutato l'aggiunta; nessun brano aggiunto",
             "O Spotify recusou a adição; nenhuma faixa adicionada",
+        ],
+    ),
+    (
+        "Spotify refused the move; no tracks moved",
+        [
+            "Spotify hat das Verschieben abgelehnt; keine Titel verschoben",
+            "Spotify rechazó el movimiento; no se movieron canciones",
+            "Spotify ha rifiutato lo spostamento; nessun brano spostato",
+            "O Spotify recusou o movimento; nenhuma faixa movida",
         ],
     ),
     (
@@ -1261,6 +1333,15 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
             "La página del proyecto ya se está abriendo.",
             "La pagina del progetto si sta già aprendo.",
             "A página do projeto já está a abrir.",
+        ],
+    ),
+    (
+        "The queue changed; no tracks moved",
+        [
+            "Die Warteschlange wurde geändert; keine Titel verschoben",
+            "La cola ha cambiado; no se movieron canciones",
+            "La coda è cambiata; nessun brano spostato",
+            "A fila mudou; nenhuma faixa movida",
         ],
     ),
     (

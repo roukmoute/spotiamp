@@ -1852,3 +1852,160 @@ fn drop_on_replaced_same_length_queue_is_rejected_without_retargeting_insertion(
     assert_eq!(worker.snapshot().queue[1], before.queue[0]);
     assert_eq!(worker.snapshot().current, Some(1));
 }
+
+#[test]
+fn reorder_outcomes_refresh_remote_state_without_optimistic_rows_or_audio_changes() {
+    for success in [true, false] {
+        let mut worker = worker();
+        let destination = PlaylistId::Spotify(PLAYLIST.into());
+        let rows = Arc::new(vec![row("First duplicate"), row("Second duplicate")]);
+        worker.library.write_reordering = true;
+        worker.library.edit(|s| {
+            s.tracks = rows.clone();
+            s.selected_owned = true;
+            s.selected_playlist_revision = Arc::from([1]);
+            s.playlist_write_busy = true;
+        });
+        let before = worker.snapshot();
+        worker.library_update(Update::Reordered {
+            generation: 0,
+            auth_generation: 0,
+            id: destination.clone(),
+            previous_revision: Arc::from([1]),
+            order: vec![1, 0],
+            result: if success {
+                Ok(crate::spotify_playlist_write::ReorderReceipt { revision: vec![2] })
+            } else {
+                Err("Deplacement non confirme; actualisation de la playlist".into())
+            },
+        });
+        let snapshot = worker.library.shared.lock().unwrap().clone();
+        assert!(!snapshot.selected_owned && !snapshot.playlist_write_busy);
+        assert_eq!(snapshot.playlist_remove_revision, 1);
+        assert!(Arc::ptr_eq(&snapshot.tracks, &rows));
+        assert_eq!(worker.library.write_refresh, Some(destination.clone()));
+        assert_eq!(worker.snapshot(), before);
+        assert!(!worker.library.write_reordering);
+        if success {
+            let receipt = snapshot.playlist_reorder_result.unwrap();
+            assert_eq!(receipt.id, destination);
+            assert_eq!(&*receipt.previous_revision, &[1]);
+            assert_eq!(&*receipt.revision, &[2]);
+            assert_eq!(receipt.order, [1, 0]);
+            worker.library_update(Update::Loaded {
+                generation: 0,
+                result: Err("Unavailable".into()),
+            });
+            assert!(
+                worker
+                    .library
+                    .shared
+                    .lock()
+                    .unwrap()
+                    .playlist_reorder_result
+                    .is_none()
+            );
+        } else {
+            assert!(snapshot.playlist_reorder_result.is_none());
+        }
+    }
+}
+
+#[tokio::test]
+async fn stale_reorder_results_cannot_replace_current_write_or_selection() {
+    let mut worker = worker();
+    worker.library.write_generation = 8;
+    worker.auth_generation = 3;
+    worker.library.write_task = Some(tokio::spawn(std::future::pending()));
+    worker.library.write_reordering = true;
+    worker.library.edit(|s| {
+        s.playlist_write_busy = true;
+        s.selected_owned = true;
+    });
+    let before = worker.snapshot();
+    for (generation, auth_generation) in [(7, 3), (8, 2)] {
+        worker.library_update(Update::Reordered {
+            generation,
+            auth_generation,
+            id: PlaylistId::Spotify(PLAYLIST.into()),
+            previous_revision: Arc::from([1]),
+            order: vec![1, 0],
+            result: Ok(crate::spotify_playlist_write::ReorderReceipt { revision: vec![2] }),
+        });
+        assert!(worker.library.write_task.is_some());
+        assert!(worker.library.write_refresh.is_none());
+        let snapshot = worker.library.shared.lock().unwrap();
+        assert!(snapshot.playlist_write_busy && snapshot.selected_owned);
+        assert_eq!(snapshot.playlist_remove_revision, 0);
+        assert!(snapshot.playlist_reorder_result.is_none());
+        assert_eq!(worker.snapshot(), before);
+    }
+    worker.library.write_task.take().unwrap().abort();
+}
+
+#[tokio::test]
+async fn reorder_rejections_emit_terminal_signal_without_starting_a_write() {
+    for case in [
+        "offline",
+        "not-owned",
+        "stale-revision",
+        "stale-rows",
+        "loading",
+        "invalid-gap",
+        "busy",
+    ] {
+        let mut worker = worker();
+        if case != "offline" {
+            worker.session = Some(Session::new(SessionConfig::default(), None));
+        }
+        let id = PlaylistId::Spotify(PLAYLIST.into());
+        let rows = Arc::new(vec![row("One"), row("Two")]);
+        worker.library.edit(|s| {
+            s.selected_id = Some(id.clone());
+            s.selected_owned = case != "not-owned";
+            s.tracks = rows.clone();
+            s.selected_playlist_revision = Arc::from([1]);
+            s.loading = case == "loading";
+            if case == "stale-revision" {
+                s.selected_playlist_revision = Arc::from([2]);
+            }
+            if case == "stale-rows" {
+                s.tracks = Arc::new(vec![row("Only one")]);
+            }
+            s.entries = Arc::new(vec![PlaylistEntry {
+                id: id.clone(),
+                name: "Mine".into(),
+                track_count: Some(2),
+                duration_ms: None,
+                folder: String::new(),
+                available: true,
+            }]);
+        });
+        if case == "busy" {
+            worker.library.write_task = Some(tokio::spawn(std::future::pending()));
+        }
+        let (updates, _) = mpsc::channel(1);
+        worker.library_command(
+            LibraryCommand::ReorderPlaylist {
+                id,
+                expected_tracks: rows,
+                expected_revision: Arc::from([1]),
+                indices: vec![1],
+                insert_before: if case == "invalid-gap" { 3 } else { 0 },
+            },
+            &updates,
+        );
+        let snapshot = worker.library.shared.lock().unwrap();
+        assert_eq!(snapshot.playlist_remove_revision, 1, "{case}");
+        assert!(snapshot.playlist_reorder_result.is_none(), "{case}");
+        assert_eq!(
+            worker.library.write_task.is_some(),
+            case == "busy",
+            "{case}"
+        );
+        drop(snapshot);
+        if let Some(task) = worker.library.write_task.take() {
+            task.abort();
+        }
+    }
+}

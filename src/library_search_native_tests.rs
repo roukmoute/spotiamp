@@ -574,3 +574,70 @@ fn x11_playlist_delete_held_across_completion_never_repeats_or_changes_playback(
         assert_eq!(app.engine.state.lock().unwrap().queue, rows);
     }
 }
+
+#[test]
+#[ignore = "requires isolated Xvfb and xdotool"]
+fn x11_left_drag_reorders_owned_playlist_occurrences_in_both_skins_without_playing() {
+    for skin in [Skin::Classic, Skin::Modern] {
+        let mut app = App::new(skin);
+        let id = model::PlaylistId::Spotify("owned-reorder-fixture".into());
+        let rows: Vec<_> = (0..16)
+            .map(|index| model::TrackRow {
+                uri: format!("spotify:track:{index:022}"),
+                title: format!("Reorder track {index}"),
+                ..Default::default()
+            })
+            .collect();
+        {
+            let mut snapshot = app.engine.library.lock().unwrap();
+            snapshot.revision += 1;
+            snapshot.selected_id = Some(id.clone());
+            snapshot.selected_owned = true;
+            snapshot.selected_playlist_revision = Arc::from([1, 2, 3]);
+            snapshot.entries = Arc::new(vec![model::PlaylistEntry {
+                id,
+                name: "Reorder fixture".into(),
+                track_count: Some(rows.len()),
+                duration_ms: None,
+                folder: String::new(),
+                available: true,
+            }]);
+            snapshot.tracks = Arc::new(rows.clone());
+        }
+        app.frame();
+        let source = (app.library.window.get_window_handle() as usize).to_string();
+        app.xdotool(&["windowfocus", "--sync", &source]);
+        app.click(320, 132, false);
+        app.xdotool(&["keydown", "ctrl"]);
+        app.click(320, 180, false);
+        app.xdotool(&["keyup", "ctrl"]);
+        app.xdotool(&[
+            "mousemove",
+            "--window",
+            &source,
+            "320",
+            "132",
+            "mousedown",
+            "1",
+        ]);
+        app.xdotool(&["mousemove", "--window", &source, "320", "265"]);
+        assert!(app.commands.is_empty(), "held drag must not submit or play");
+        app.xdotool(&["mouseup", "1"]);
+        assert!(
+            matches!(app.commands.as_slice(), [model::LibraryCommand::ReorderPlaylist {
+            indices, insert_before: 6, expected_tracks, expected_revision, ..
+        }] if indices == &[0, 2] && expected_tracks.as_ref() == &rows && expected_revision.as_ref() == [1, 2, 3]),
+            "native commands: {:?}",
+            app.commands
+        );
+        assert_eq!(
+            app.library.view.selected_tracks(&app.library.snapshot),
+            vec![rows[0].clone(), rows[2].clone()]
+        );
+        app.commands.clear();
+        for _ in 0..5 {
+            app.frame();
+        }
+        assert!(app.commands.is_empty());
+    }
+}

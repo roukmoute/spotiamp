@@ -554,6 +554,7 @@ impl Worker {
                 | Command::Next
                 | Command::Previous
                 | Command::Remove(_)
+                | Command::ReorderQueue { .. }
                 | Command::Clear
         ) {
             self.cancel_library_queue();
@@ -711,6 +712,49 @@ impl Worker {
                 if self.state.lock().is_ok_and(|s| s.queue.is_empty()) {
                     self.queue_playlist = None;
                     self.restore_library_selection = None;
+                }
+            }
+            Command::ReorderQueue {
+                request_id,
+                expected_queue,
+                indices,
+                insert_before,
+            } => {
+                let before = self.snapshot();
+                if self.import_task.is_some()
+                    || expected_queue.len() != before.queue.len()
+                    || expected_queue
+                        .iter()
+                        .zip(&before.queue)
+                        .any(|(uri, row)| uri != &row.uri)
+                {
+                    edit(&self.state, |s| {
+                        s.status = "La file a change; aucun titre deplace".into()
+                    });
+                    return;
+                }
+                let Some(order) =
+                    crate::model::reorder_indices(before.queue.len(), &indices, insert_before)
+                else {
+                    return;
+                };
+                let mut old_to_new = vec![0; order.len()];
+                for (new, &old) in order.iter().enumerate() {
+                    old_to_new[old] = new;
+                }
+                // The decoder, pending load and shuffle history keep identifying
+                // the same occurrences; only their display positions change.
+                edit(&self.state, |s| {
+                    let mut rows = std::mem::take(&mut s.queue)
+                        .into_iter()
+                        .map(Some)
+                        .collect::<Vec<_>>();
+                    s.queue = order.iter().map(|&old| rows[old].take().unwrap()).collect();
+                    s.current = s.current.map(|old| old_to_new[old]);
+                    s.queue_reorder_request = request_id;
+                });
+                if before.shuffle {
+                    self.order.reorder(&old_to_new);
                 }
             }
             Command::Clear => {

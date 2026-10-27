@@ -24,14 +24,14 @@ use http_body_util::{BodyExt, Limited};
 use librespot_core::{Session, SpotifyId};
 use librespot_protocol::playlist4_external::{
     Add, ChangeInfo, CreateListReply, Delta, Item, ListAttributes, ListAttributesPartialState,
-    ListChanges, Op, OpList, Rem, SelectedListContent, SourceInfo, UpdateListAttributes, op,
+    ListChanges, Mov, Op, OpList, Rem, SelectedListContent, SourceInfo, UpdateListAttributes, op,
     source_info,
 };
 use protobuf::{Message, MessageField};
 
 use crate::{
     localized_text::LocalizedText,
-    model::{PlaylistId, TrackRow, normalized_playlist_name},
+    model::{PlaylistId, TrackRow, normalized_playlist_name, reorder_indices},
 };
 
 pub const MAX_SELECTION: usize = 500;
@@ -47,11 +47,20 @@ const ROOTLIST_REFUSED: &str = "Spotify a refuse l'ajout a votre bibliotheque; a
 const REMOVE_UNCERTAIN: &str = "Retrait non confirme; verifiez la playlist avant de reessayer";
 const REMOVE_VERIFY_FAILED: &str = "Impossible de verifier la playlist; aucun titre retire";
 const REMOVE_OWNER_ONLY: &str = "Seul le proprietaire peut retirer des titres de cette playlist";
+const REORDER_UNCERTAIN: &str = "Deplacement non confirme; actualisation de la playlist";
+const REORDER_VERIFY_FAILED: &str = "Impossible de verifier la playlist; aucun titre deplace";
+const REORDER_OWNER_ONLY: &str =
+    "Seul le proprietaire peut deplacer des titres dans cette playlist";
 const PLAYLIST_CHANGED: &str = "La playlist a change; actualisez avant de reessayer";
 
 #[derive(Debug)]
 pub struct Receipt {
     pub total: Option<usize>,
+}
+
+#[derive(Debug)]
+pub struct ReorderReceipt {
+    pub revision: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -234,9 +243,44 @@ async fn remove_with(
     {
         return Err("Selection invalide; aucun titre retire".into());
     }
+    let (endpoint, base) = verified_edit_base(
+        transport,
+        id,
+        expected_tracks,
+        expected_revision,
+        username,
+        REMOVE_VERIFY_FAILED,
+        REMOVE_OWNER_ONLY,
+    )
+    .await?;
+    let body = removal_changes(&base, indices)
+        .write_to_bytes()
+        .map_err(|_| LocalizedText::from(REMOVE_VERIFY_FAILED))?;
+    if !still_connected() {
+        return Err("Connectez Spotify pour modifier une playlist".into());
+    }
+    let result = tokio::time::timeout(
+        TIMEOUT,
+        transport.request(Method::POST, &format!("{endpoint}/changes"), body),
+    )
+    .await
+    .map_err(|_| LocalizedText::from(REMOVE_UNCERTAIN))?
+    .map_err(|_| LocalizedText::from(REMOVE_UNCERTAIN))?;
+    removal_receipt(result, &base, expected_tracks.len() - indices.len())
+}
+
+async fn verified_edit_base(
+    transport: &impl Transport,
+    id: &PlaylistId,
+    expected_tracks: &[TrackRow],
+    expected_revision: &[u8],
+    username: &str,
+    verify_failed: &'static str,
+    owner_only: &'static str,
+) -> Result<(String, SelectedListContent), LocalizedText> {
     let PlaylistId::Spotify(uri) = id;
-    let id = canonical_id(uri, "spotify:playlist:")
-        .ok_or_else(|| LocalizedText::from(REMOVE_VERIFY_FAILED))?;
+    let id =
+        canonical_id(uri, "spotify:playlist:").ok_or_else(|| LocalizedText::from(verify_failed))?;
     let endpoint = format!("/playlist/v2/playlist/{id}");
     let read = format!(
         "{endpoint}?decorate=revision,attributes,length,owner,capabilities&from=0&length={}",
@@ -244,13 +288,12 @@ async fn remove_with(
     );
     let response = tokio::time::timeout(TIMEOUT, transport.request(Method::GET, &read, Vec::new()))
         .await
-        .map_err(|_| LocalizedText::from(REMOVE_VERIFY_FAILED))?
-        .map_err(|_| LocalizedText::from(REMOVE_VERIFY_FAILED))?;
+        .map_err(|_| LocalizedText::from(verify_failed))?
+        .map_err(|_| LocalizedText::from(verify_failed))?;
     if !(200..300).contains(&response.status) {
-        return Err(REMOVE_VERIFY_FAILED.into());
+        return Err(verify_failed.into());
     }
-    let base =
-        checked_content(&response.body).ok_or_else(|| LocalizedText::from(REMOVE_VERIFY_FAILED))?;
+    let base = checked_content(&response.body).ok_or_else(|| LocalizedText::from(verify_failed))?;
     // Collaborative write permission is insufficient for this owner-only UI.
     if base.owner_username() != username
         || base.attributes.get_or_default().deleted_by_owner()
@@ -259,7 +302,7 @@ async fn remove_with(
             .as_ref()
             .is_some_and(|caps| caps.has_can_edit_items() && !caps.can_edit_items())
     {
-        return Err(REMOVE_OWNER_ONLY.into());
+        return Err(owner_only.into());
     }
     let same_items = base.contents.as_ref().is_some_and(|contents| {
         contents.pos() == 0
@@ -280,20 +323,151 @@ async fn remove_with(
     {
         return Err(PLAYLIST_CHANGED.into());
     }
-    let body = removal_changes(&base, indices)
+    Ok((endpoint, base))
+}
+
+/// A single revision-guarded delta contains all MOV ranges. Native moves retain
+/// occurrence attributes (added-by, timestamps and item IDs), even for duplicates.
+pub async fn reorder(
+    session: Session,
+    id: &PlaylistId,
+    expected_tracks: &[TrackRow],
+    expected_revision: &[u8],
+    indices: &[usize],
+    insert_before: usize,
+    auth_epoch: Arc<AtomicU64>,
+    generation: u64,
+) -> Result<ReorderReceipt, LocalizedText> {
+    let username = session.username();
+    let transport = SessionTransport {
+        session,
+        auth_epoch: auth_epoch.clone(),
+        generation,
+    };
+    reorder_with(
+        &transport,
+        id,
+        expected_tracks,
+        expected_revision,
+        indices,
+        insert_before,
+        &username,
+        || auth_epoch.load(Ordering::Acquire) == generation,
+    )
+    .await
+}
+
+async fn reorder_with(
+    transport: &impl Transport,
+    id: &PlaylistId,
+    expected_tracks: &[TrackRow],
+    expected_revision: &[u8],
+    indices: &[usize],
+    insert_before: usize,
+    username: &str,
+    still_connected: impl Fn() -> bool,
+) -> Result<ReorderReceipt, LocalizedText> {
+    if !still_connected() || username.is_empty() {
+        return Err("Connectez Spotify pour modifier une playlist".into());
+    }
+    if !valid_tracks(expected_tracks) || expected_revision.is_empty() {
+        return Err(REORDER_VERIFY_FAILED.into());
+    }
+    let order = reorder_indices(expected_tracks.len(), indices, insert_before)
+        .ok_or_else(|| LocalizedText::from("Selection invalide; aucun titre deplace"))?;
+    let (endpoint, base) = verified_edit_base(
+        transport,
+        id,
+        expected_tracks,
+        expected_revision,
+        username,
+        REORDER_VERIFY_FAILED,
+        REORDER_OWNER_ONLY,
+    )
+    .await?;
+    let body = reorder_changes(&base, &order)
         .write_to_bytes()
-        .map_err(|_| LocalizedText::from(REMOVE_VERIFY_FAILED))?;
+        .map_err(|_| LocalizedText::from(REORDER_VERIFY_FAILED))?;
     if !still_connected() {
         return Err("Connectez Spotify pour modifier une playlist".into());
     }
-    let result = tokio::time::timeout(
+    let response = tokio::time::timeout(
         TIMEOUT,
         transport.request(Method::POST, &format!("{endpoint}/changes"), body),
     )
     .await
-    .map_err(|_| LocalizedText::from(REMOVE_UNCERTAIN))?
-    .map_err(|_| LocalizedText::from(REMOVE_UNCERTAIN))?;
-    removal_receipt(result, &base, expected_tracks.len() - indices.len())
+    .map_err(|_| LocalizedText::from(REORDER_UNCERTAIN))?
+    .map_err(|_| LocalizedText::from(REORDER_UNCERTAIN))?;
+    match response.status {
+        401 | 403 => return Err(REORDER_OWNER_ONLY.into()),
+        409 | 412 => return Err(PLAYLIST_CHANGED.into()),
+        429 => return Err("Spotify limite les deplacements; patientez avant de reessayer".into()),
+        400 | 404 | 405 | 413 | 422 => {
+            return Err("Spotify a refuse le deplacement; aucun titre deplace".into());
+        }
+        200..=299 => {}
+        _ => return Err(REORDER_UNCERTAIN.into()),
+    }
+    let result =
+        checked_content(&response.body).ok_or_else(|| LocalizedText::from(REORDER_UNCERTAIN))?;
+    let revision = if !result.revision().is_empty() && result.revision() != base.revision() {
+        Some(result.revision())
+    } else {
+        result
+            .resulting_revisions
+            .iter()
+            .rev()
+            .find(|revision| !revision.is_empty() && revision.as_slice() != base.revision())
+            .map(Vec::as_slice)
+    };
+    if result.multiple_heads()
+        || result.changes_require_resync()
+        || (result.has_length()
+            && usize::try_from(result.length()).ok() != Some(expected_tracks.len()))
+    {
+        return Err(REORDER_UNCERTAIN.into());
+    }
+    Ok(ReorderReceipt {
+        revision: revision
+            .ok_or_else(|| LocalizedText::from(REORDER_UNCERTAIN))?
+            .to_vec(),
+    })
+}
+
+fn reorder_changes(base: &SelectedListContent, order: &[usize]) -> ListChanges {
+    let mut current: Vec<usize> = (0..order.len()).collect();
+    let mut ops = Vec::new();
+    let mut to = 0;
+    while to < order.len() {
+        if current[to] == order[to] {
+            to += 1;
+            continue;
+        }
+        let from = current[to + 1..]
+            .iter()
+            .position(|&old| old == order[to])
+            .unwrap()
+            + to
+            + 1;
+        let mut length = 1;
+        while from + length < current.len() && current[from + length] == order[to + length] {
+            length += 1;
+        }
+        // Only upward moves are emitted: the destination gap has identical
+        // coordinates before and after removing this range. Each next operation
+        // uses the result of its predecessor in the same atomic delta.
+        let mut mov = Mov::new();
+        mov.set_from_index(from as i32);
+        mov.set_to_index(to as i32);
+        mov.set_length(length as i32);
+        let mut op = Op::new();
+        op.set_kind(op::Kind::MOV);
+        op.mov = MessageField::some(mov);
+        ops.push(op);
+        current[to..from + length].rotate_right(length);
+        to += length;
+    }
+    operations_changes(base, ops)
 }
 
 fn removal_changes(base: &SelectedListContent, indices: &[usize]) -> ListChanges {
@@ -1536,6 +1710,173 @@ mod tests {
                 }
             );
             assert_eq!(fake.calls.get(), if read { 1 } else { 2 });
+        }
+    }
+    #[test]
+    fn every_small_reorder_is_one_atomic_delta_of_occurrence_preserving_moves() {
+        for len in 2..9 {
+            for mask in 1..1usize << len {
+                let indices = (0..len)
+                    .filter(|i| mask & (1 << i) != 0)
+                    .collect::<Vec<_>>();
+                for gap in 0..=len {
+                    let Some(order) = reorder_indices(len, &indices, gap) else {
+                        continue;
+                    };
+                    let changes = reorder_changes(&base(), &order);
+                    assert_eq!(changes.base_revision(), &[1]);
+                    assert_eq!(changes.deltas.len(), 1);
+                    let mut items = (0..len).collect::<Vec<_>>();
+                    for op in &changes.deltas[0].ops {
+                        assert_eq!(op.kind(), op::Kind::MOV);
+                        assert!(op.add.is_none() && op.rem.is_none());
+                        let mov = op.mov.as_ref().unwrap();
+                        assert!(mov.items.is_empty());
+                        let (from, to, length) = (
+                            mov.from_index() as usize,
+                            mov.to_index() as usize,
+                            mov.length() as usize,
+                        );
+                        assert!(to < from && length > 0 && from + length <= len);
+                        let moved = items.drain(from..from + length).collect::<Vec<_>>();
+                        items.splice(to..to, moved);
+                    }
+                    assert_eq!(items, order);
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn reorder_posts_once_with_exact_revision_and_returns_confirmed_revision() {
+        let tracks = vec![row(); 6];
+        let mut after = base();
+        after.set_revision(vec![9, 3]);
+        after.set_length(6);
+        let fake = Fake::new(vec![reply(removable_base(&tracks)), reply(after)]);
+        let result = reorder_with(&fake, &id(), &tracks, &[1], &[1, 3], 6, "me", || true)
+            .await
+            .unwrap();
+        assert_eq!(result.revision, [9, 3]);
+        let requests = fake.requests.borrow();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0].0, Method::GET);
+        assert!(requests[0].1.ends_with("&from=0&length=6"));
+        assert_eq!(requests[1].0, Method::POST);
+        let changes = ListChanges::parse_from_bytes(&requests[1].2).unwrap();
+        assert_eq!(changes.base_revision(), &[1]);
+        assert!(changes.want_resulting_revisions());
+        assert_eq!(changes.deltas.len(), 1);
+        assert!(
+            changes.deltas[0]
+                .ops
+                .iter()
+                .all(|op| op.kind() == op::Kind::MOV)
+        );
+    }
+
+    #[tokio::test]
+    async fn reorder_rejects_invalid_noop_or_stale_snapshots_and_unauthorized_writes() {
+        let tracks = vec![row(); 3];
+        let fake = Fake::new(vec![]);
+        for (indices, gap) in [
+            (vec![], 0),
+            (vec![0], 0),
+            (vec![0], 1),
+            (vec![3], 0),
+            (vec![1, 1], 0),
+            (vec![2, 1], 0),
+            (vec![0], 4),
+        ] {
+            assert!(
+                reorder_with(&fake, &id(), &tracks, &[1], &indices, gap, "me", || true)
+                    .await
+                    .is_err()
+            );
+        }
+        assert!(fake.requests.borrow().is_empty());
+        let mut variants = Vec::new();
+        let mut before = removable_base(&tracks);
+        before.set_owner_username("another-account".into());
+        variants.push(before);
+        let mut before = removable_base(&tracks);
+        before.set_revision(vec![2]);
+        variants.push(before);
+        let mut before = removable_base(&tracks);
+        before.contents.as_mut().unwrap().items[0]
+            .set_uri("spotify:track:0000000000000000000001".into());
+        variants.push(before);
+        let mut before = removable_base(&tracks);
+        before.contents.as_mut().unwrap().set_truncated(true);
+        variants.push(before);
+        let mut before = removable_base(&tracks);
+        before
+            .capabilities
+            .as_mut()
+            .unwrap()
+            .set_can_edit_items(false);
+        variants.push(before);
+        for before in variants {
+            let fake = Fake::new(vec![reply(before)]);
+            assert!(
+                reorder_with(&fake, &id(), &tracks, &[1], &[0], 3, "me", || true)
+                    .await
+                    .is_err()
+            );
+            assert_eq!(fake.requests.borrow().len(), 1);
+        }
+        let fake = Fake::new(vec![reply(removable_base(&tracks))]);
+        let checks = std::cell::Cell::new(0);
+        assert!(
+            reorder_with(&fake, &id(), &tracks, &[1], &[0], 3, "me", || {
+                let n = checks.get();
+                checks.set(n + 1);
+                n == 0
+            })
+            .await
+            .is_err()
+        );
+        assert_eq!(fake.requests.borrow().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn reorder_never_retries_conflicts_or_ambiguous_acknowledgements() {
+        let tracks = vec![row(); 2];
+        let mut bad_length = base();
+        bad_length.set_revision(vec![2]);
+        bad_length.set_length(1);
+        let mut resync = base();
+        resync.set_revision(vec![2]);
+        resync.set_changes_require_resync(true);
+        for response in [
+            Err(()),
+            Ok(Reply {
+                status: 500,
+                body: vec![],
+            }),
+            Ok(Reply {
+                status: 409,
+                body: vec![],
+            }),
+            Ok(Reply {
+                status: 429,
+                body: vec![],
+            }),
+            Ok(Reply {
+                status: 200,
+                body: vec![0xff],
+            }),
+            reply(base()),
+            reply(bad_length),
+            reply(resync),
+        ] {
+            let fake = Fake::new(vec![reply(removable_base(&tracks)), response]);
+            assert!(
+                reorder_with(&fake, &id(), &tracks, &[1], &[1], 0, "me", || true)
+                    .await
+                    .is_err()
+            );
+            assert_eq!(fake.requests.borrow().len(), 2, "must never retry a move");
         }
     }
 }

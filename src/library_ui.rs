@@ -10,12 +10,15 @@ use crate::{
 };
 mod modern;
 mod picker;
+mod reorder;
 mod selection;
 mod send_menu;
 mod text_input;
 use font8x8::UnicodeFonts;
 use minifb::Key;
 use picker::PlaylistPicker;
+use reorder::PendingReorder;
+pub use reorder::ReorderDrag;
 use selection::TrackSelection;
 use send_menu::SendMenu;
 use std::{
@@ -117,6 +120,10 @@ pub struct View {
     send_menu: Option<SendMenu>,
     submitted_picker: Option<PlaylistPicker>,
     pending_removal: Option<PendingRemoval>,
+    pending_reorder: Option<PendingReorder>,
+    reorder_gap: Option<usize>,
+    reorder_scroll: Option<(bool, Instant)>,
+    playlist_selection_epoch: u64,
     press_collapse: bool,
     press_modified: bool,
     selected_uri: Option<String>,
@@ -165,6 +172,10 @@ impl Default for View {
             send_menu: None,
             submitted_picker: None,
             pending_removal: None,
+            pending_reorder: None,
+            reorder_gap: None,
+            reorder_scroll: None,
+            playlist_selection_epoch: 0,
             press_collapse: false,
             press_modified: false,
             selected_uri: None,
@@ -239,6 +250,7 @@ impl View {
         }
     }
     pub fn cancel_pointer(&mut self) {
+        self.clear_reorder_drop();
         // Win32 also reports capture loss after a normal button release.
         // Only an interrupted press should break the double-click sequence.
         if self.pressed.is_some() {
@@ -354,6 +366,20 @@ impl View {
     /// rejected command, never an unrelated command from the same input batch.
     pub fn command_rejected(&mut self, command: &LibraryCommand) {
         match command {
+            LibraryCommand::ReorderPlaylist {
+                id,
+                expected_tracks,
+                expected_revision,
+                ..
+            } if self.pending_reorder.as_ref().is_some_and(|pending| {
+                &pending.source.id == id
+                    && Arc::ptr_eq(&pending.source.tracks, expected_tracks)
+                    && &pending.source.revision == expected_revision
+            }) =>
+            {
+                self.pending_reorder = None;
+                self.dirty();
+            }
             LibraryCommand::RemoveFromPlaylist {
                 id,
                 expected_tracks,
@@ -497,6 +523,7 @@ impl View {
                 .and_then(|index| self.search_choices.remapped_focus(index, &s.search.tracks));
             self.search_choices.reconcile(&s.search.tracks);
         }
+        self.reconcile_reorder(s);
         if self.observed_playlist_revision != s.selected_playlist_revision {
             // Spotify revisions distinguish identical track occurrences. A
             // selection made against an older revision must be chosen again.
@@ -1022,6 +1049,7 @@ impl View {
             && self.picker.is_none()
             && self.submitted_picker.is_none()
             && self.pending_removal.is_none()
+            && self.pending_reorder.is_none()
             && s.connected
             && s.selected_owned
             && !s.selected_playlist_revision.is_empty()
@@ -1165,6 +1193,7 @@ impl View {
             if self.search_mode {
                 self.search_choices.all(&s.search.tracks);
             } else {
+                self.playlist_selection_epoch = self.playlist_selection_epoch.wrapping_add(1);
                 self.playlist_choices.all(&s.tracks);
             }
             if self.active_selection().is_none() && !self.active_tracks(s).is_empty() {
@@ -1706,6 +1735,13 @@ impl View {
             }
             c.scrollbar(738, 120, 264, tracks.len(), RIGHT_ROWS, offset);
         }
+        if let Some(gap) = self.reorder_gap.filter(|_| !self.search_mode) {
+            let y = 120 + gap.saturating_sub(offset).min(RIGHT_ROWS) * 24;
+            let y = y.min(382);
+            c.rect((248, y, 486, 2), palette.bright);
+            c.rect((248, y.saturating_sub(2), 3, 6), palette.bright);
+            c.rect((731, y.saturating_sub(2), 3, 6), palette.bright);
+        }
         c.button(
             Button::SendTo,
             language.text("ENVOYER VERS...", "SEND TO..."),
@@ -1926,3 +1962,6 @@ mod selection_tests;
 mod send_menu_tests;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod reorder_tests;

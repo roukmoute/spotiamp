@@ -90,6 +90,12 @@ impl Order {
         self.queue_len = self.queue_len.saturating_sub(1);
     }
 
+    pub(super) fn reorder(&mut self, old_to_new: &[usize]) {
+        for entry in &mut self.entries {
+            *entry = old_to_new[*entry];
+        }
+    }
+
     pub(super) fn next(&mut self, repeat: bool, rng: &mut impl Rng) -> Option<usize> {
         let next = self.position + usize::from(self.has_current);
         if next < self.entries.len() {
@@ -131,6 +137,44 @@ impl Order {
 mod tests {
     use super::*;
     use rand::{SeedableRng, rngs::StdRng};
+
+    #[test]
+    fn reordering_remaps_two_shuffle_cycles_without_changing_history() {
+        let mut rng = StdRng::seed_from_u64(83);
+        let mut order = Order::default();
+        order.reset(5, Some(2), &mut rng);
+        for _ in 0..7 {
+            order.next(true, &mut rng);
+        }
+        order.previous();
+        let entries = order.entries.clone();
+        let state = (
+            order.position,
+            order.cycle_start,
+            order.has_current,
+            order.queue_len,
+        );
+        let remap = [2, 0, 4, 1, 3];
+        order.reorder(&remap);
+        assert_eq!(
+            order.entries,
+            entries
+                .iter()
+                .map(|&index| remap[index])
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            (
+                order.position,
+                order.cycle_start,
+                order.has_current,
+                order.queue_len
+            ),
+            state
+        );
+        assert_eq!(order.previous(), Some(remap[entries[state.0 - 1]]));
+        assert_eq!(order.next(false, &mut rng), Some(remap[entries[state.0]]));
+    }
 
     #[test]
     fn insertion_remaps_current_and_history_without_replaying_old_tracks() {

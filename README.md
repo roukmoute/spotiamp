@@ -198,6 +198,11 @@ ordre est préparé à chaque tour. Sans Repeat, la lecture s'arrête à la fin.
 Avec un seul titre et Repeat activé, ce titre joue en boucle.
 Les deux modes sont désactivés au lancement et n'altèrent pas vos playlists Spotify.
 
+Pour **changer l'ordre de la file du lecteur**, maintenez le clic gauche sur
+un morceau et faites-le glisser à la position souhaitée. Relâchez sur le repère
+entre les lignes. La liste défile automatiquement près de ses bords. Déplacer
+le morceau en cours ne le relance pas : sa position de lecture est conservée.
+
 Pour retrouver vos playlists sans copier de lien, connectez Spotify et ouvrez
 la bibliothèque avec **BIBLIO. F3** si elle est fermée. Elle affiche les playlists
 enregistrées ou suivies de votre compte, avec leur dossier en sous-titre.
@@ -231,6 +236,16 @@ sélectionne une plage ; **Maj+Haut/Bas**, **Maj+Début/Fin** et **Maj+Page pré
 suivante** l'étendent au clavier. **Ctrl+A** (**Cmd+A**) sélectionne tous les titres
 lorsque la liste des titres est active. La sélection reste dans l'ordre de la liste,
 même si vous avez choisi les lignes dans un autre ordre.
+
+Pour **réordonner une playlist Spotify qui vous appartient**, maintenez le clic
+gauche sur un titre choisi, puis glissez-le vers le repère d'insertion dans la
+même liste. Si plusieurs titres sont sélectionnés, ils sont déplacés ensemble,
+dans leur ordre de liste. Le défilement aux bords permet d'atteindre le début ou
+la fin de la playlist. Le nouvel ordre est enregistré sur Spotify après
+confirmation ; la file et la lecture du lecteur restent indépendantes.
+**Échap** ou un dépôt hors de la liste annule le déplacement interne.
+Les résultats de recherche et les playlists d'autres personnes ne se réordonnent
+pas ; leurs titres peuvent toujours être glissés vers la file du lecteur.
 
 Avec des titres sélectionnés, **Envoyer vers… → Lire la sélection** ou **Entrée**
 remplace la file par cette sélection et démarre son premier titre.

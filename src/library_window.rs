@@ -253,8 +253,11 @@ impl LibraryWindow {
                 &mut self.drag,
             );
             if active {
-                self.drag
-                    .moved(self.window.get_mouse_pos(MouseMode::Pass), &mut self.view);
+                self.drag.preview(
+                    self.window.get_mouse_pos(MouseMode::Pass),
+                    &mut self.view,
+                    &self.snapshot,
+                );
                 self.view.pointer_move(pointer);
             }
         }

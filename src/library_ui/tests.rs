@@ -693,6 +693,10 @@ fn export_library_preview() {
         row.artist = artist.into();
     }
     s.status = "16 playlists / F5 : actualiser / Tab : changer de panneau".into();
+    if std::env::var_os("SPOTIAMP_LIBRARY_REORDER").is_some() {
+        s.selected_owned = true;
+        s.selected_playlist_revision = Arc::from([1, 2, 3]);
+    }
     if std::env::var_os("SPOTIAMP_LIBRARY_SEARCH").is_some() {
         s.search.query = "jazz".into();
         s.search.revision = 1;
@@ -704,6 +708,12 @@ fn export_library_preview() {
     if std::env::var_os("SPOTIAMP_LIBRARY_MULTI").is_some() {
         view.choose_track(4, true, false, &s);
         view.choose_track(6, true, false, &s);
+    }
+    if std::env::var_os("SPOTIAMP_LIBRARY_REORDER").is_some() {
+        let source = view
+            .capture_reorder_drag(&s)
+            .expect("editable preview playlist");
+        view.show_reorder_drop(Some(&source), Some((320.0, 313.0)), &s);
     }
     if std::env::var_os("SPOTIAMP_LIBRARY_PICKER").is_some() {
         view.open_picker(&s);

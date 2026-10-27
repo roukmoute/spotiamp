@@ -145,6 +145,7 @@ pub(super) struct PointerDrag {
     origin: Option<(f32, f32)>,
     tracks: Vec<crate::model::TrackRow>,
     playlist: Option<crate::model::PlaylistId>,
+    reorder: Option<library_ui::ReorderDrag>,
     pub(super) active: bool,
     pub(super) completed: Vec<(
         Vec<crate::model::TrackRow>,
@@ -158,6 +159,7 @@ impl PointerDrag {
         self.origin = None;
         self.tracks.clear();
         self.playlist = None;
+        self.reorder = None;
         self.active = false;
     }
 
@@ -169,6 +171,20 @@ impl PointerDrag {
             self.active = true;
             view.cancel_pointer();
         }
+    }
+
+    pub(super) fn preview(
+        &mut self,
+        position: Option<(f32, f32)>,
+        view: &mut library_ui::View,
+        snapshot: &LibrarySnapshot,
+    ) {
+        self.moved(position, view);
+        view.show_reorder_drop(
+            self.reorder.as_ref().filter(|_| self.active),
+            position,
+            snapshot,
+        );
     }
 }
 
@@ -184,6 +200,7 @@ pub(super) fn process_with_drag(
 ) {
     if !active {
         drag.cancel();
+        view.clear_reorder_drop();
         return;
     }
     for &event in events {
@@ -201,8 +218,13 @@ pub(super) fn process_with_drag(
                 drag.cancel();
                 Some(library_ui::Action::Close)
             }
-            Input::Key(key, control, shift) => view.key(key, control, shift, snapshot),
+            Input::Key(key, control, shift) => {
+                drag.cancel();
+                view.key(key, control, shift, snapshot)
+            }
             Input::Char(character) => {
+                drag.cancel();
+                view.clear_reorder_drop();
                 view.type_char(character);
                 None
             }
@@ -247,20 +269,28 @@ pub(super) fn process_with_drag(
                         drag.origin = Some((x, y));
                         drag.tracks = tracks;
                         drag.playlist = view.selection_origin();
+                        drag.reorder = view.capture_reorder_drag(snapshot);
                     }
                     action
                 } else {
                     // The release may be the only event after a very fast drag.
                     drag.moved(Some((x, y)), view);
                     if drag.active {
-                        drag.completed.push((
-                            std::mem::take(&mut drag.tracks),
-                            drag.playlist.take(),
-                            (x, y),
-                        ));
+                        let action = if position.is_some() {
+                            drag.reorder.take().and_then(|source| {
+                                view.finish_reorder_drag(source, Some((x, y)), snapshot)
+                            })
+                        } else {
+                            drag.completed.push((
+                                std::mem::take(&mut drag.tracks),
+                                drag.playlist.take(),
+                                (x, y),
+                            ));
+                            None
+                        };
                         drag.cancel();
                         view.cancel_pointer();
-                        None
+                        action
                     } else {
                         drag.cancel();
                         view.pointer_up(position, snapshot)
@@ -279,6 +309,9 @@ pub(super) fn process_with_drag(
         // The event dismissing an overlay must not start a background drag.
         if overlay_was_open || view.has_overlay() {
             drag.cancel();
+        }
+        if !drag.active {
+            view.clear_reorder_drop();
         }
         if let Some(action) = action {
             let close = matches!(action, library_ui::Action::Close);
@@ -299,9 +332,12 @@ pub(super) fn process_with_drag(
             && !events
                 .iter()
                 .any(|input| matches!(input, Input::Key(candidate, _, _) if *candidate == key))
-            && let Some(action) = view.key(key, control, shift, snapshot)
         {
-            dispatch(view, action, clipboard, actions);
+            drag.cancel();
+            view.clear_reorder_drop();
+            if let Some(action) = view.key(key, control, shift, snapshot) {
+                dispatch(view, action, clipboard, actions);
+            }
         }
     }
 }

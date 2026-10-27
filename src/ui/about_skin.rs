@@ -461,6 +461,19 @@ impl View {
             (
                 109,
                 self.language
+                    .text("0.2.18 / DÉPLACER LES TITRES", "0.2.18 / REORDER TRACKS"),
+                self.language.text(
+                    "Glisser les titres pour réordonner file ou playlists.",
+                    "Drag tracks to reorder the queue or your playlists.",
+                ),
+                self.language.text(
+                    "Lecture conservée, dépôt sur le repère d'insertion.",
+                    "Playback continues; drop at the insertion marker.",
+                ),
+            ),
+            (
+                154,
+                self.language
                     .text("0.2.17 / MENU AU CLIC DROIT", "0.2.17 / RIGHT-CLICK MENU"),
                 self.language.text(
                     "Clic droit sur un titre pour ouvrir ses actions.",
@@ -472,7 +485,7 @@ impl View {
                 ),
             ),
             (
-                154,
+                199,
                 self.language
                     .text("0.2.16 / MENU ENVOYER VERS", "0.2.16 / SEND TO MENU"),
                 self.language.text(
@@ -485,7 +498,7 @@ impl View {
                 ),
             ),
             (
-                199,
+                244,
                 self.language.text(
                     "0.2.15 / RETRAIT DE TITRES",
                     "0.2.15 / REMOVE PLAYLIST TRACKS",
@@ -500,7 +513,7 @@ impl View {
                 ),
             ),
             (
-                244,
+                289,
                 self.language.text(
                     "0.2.14 / MISE À JOUR IMMÉDIATE",
                     "0.2.14 / IMMEDIATE UPDATE CHECK",
@@ -515,7 +528,7 @@ impl View {
                 ),
             ),
             (
-                289,
+                334,
                 self.language
                     .text("0.2.13 / NOUVELLES PLAYLISTS", "0.2.13 / NEW PLAYLISTS"),
                 self.language.text(
@@ -525,19 +538,6 @@ impl View {
                 self.language.text(
                     "Nom et titres choisis, sans interrompre la lecture.",
                     "Name and selected tracks, without interrupting playback.",
-                ),
-            ),
-            (
-                334,
-                self.language
-                    .text("0.2.12 / RECHERCHE SPOTIFY", "0.2.12 / SPOTIFY SEARCH"),
-                self.language.text(
-                    "Rechercher un titre ou un artiste dans la bibliothèque.",
-                    "Find a song or artist in the library.",
-                ),
-                self.language.text(
-                    "Sélection multiple, file et playlists Spotify.",
-                    "Multiple selection, queue and Spotify playlists.",
                 ),
             ),
         ] {

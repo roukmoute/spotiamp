@@ -76,6 +76,15 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
     ),
     (
+        "0.2.18 / REORDER TRACKS",
+        [
+            "0.2.18 / TITEL VERSCHIEBEN",
+            "0.2.18 / REORDENAR CANCIONES",
+            "0.2.18 / RIORDINA BRANI",
+            "0.2.18 / REORDENAR FAIXAS",
+        ],
+    ),
+    (
         "0.2.6 / MAGNETIC WINDOWS",
         [
             "0.2.6 / MAGNETISCHE FENSTER",
@@ -567,6 +576,15 @@ pub(super) const ENTRIES: &[Entry] = &[
             "Arrastra la biblioteca para separarla.",
             "Trascina la libreria per sganciarla.",
             "Arrasta a biblioteca para a separar.",
+        ],
+    ),
+    (
+        "Drag tracks to reorder the queue or your playlists.",
+        [
+            "Titel ziehen, um Warteschlange oder Playlists zu ordnen.",
+            "Arrastra temas para reordenar la cola o tus playlists.",
+            "Trascina i brani per riordinare coda o playlist.",
+            "Arrasta faixas para reordenar a fila ou as playlists.",
         ],
     ),
     ("Engine", ["Engine", "Motor", "Motore", "Motor"]),
@@ -1067,6 +1085,15 @@ pub(super) const ENTRIES: &[Entry] = &[
             "La reproducción continúa durante la descarga.",
             "La riproduzione continua durante il download.",
             "A reprodução continua durante a transferência.",
+        ],
+    ),
+    (
+        "Playback continues; drop at the insertion marker.",
+        [
+            "Wiedergabe läuft weiter; am Einfügepunkt ablegen.",
+            "La música sigue; suelta en la marca de inserción.",
+            "La musica continua; rilascia sul punto di inserimento.",
+            "A música continua; larga na marca de inserção.",
         ],
     ),
     (

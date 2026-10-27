@@ -868,3 +868,187 @@ fn repeated_delete_still_edits_text_without_issuing_a_playlist_command() {
     assert_eq!(copied.as_deref(), Some("azz"));
     assert!(actions.is_empty());
 }
+
+fn owned_reorder_state() -> LibrarySnapshot {
+    let id = crate::model::PlaylistId::Spotify("reorder-input".into());
+    LibrarySnapshot {
+        connected: true,
+        revision: 1,
+        selected_id: Some(id.clone()),
+        selected_owned: true,
+        selected_playlist_revision: std::sync::Arc::from([1, 2, 3]),
+        entries: std::sync::Arc::new(vec![crate::model::PlaylistEntry {
+            id,
+            name: "Owned playlist".into(),
+            track_count: Some(15),
+            duration_ms: None,
+            folder: String::new(),
+            available: true,
+        }]),
+        tracks: std::sync::Arc::new(
+            (0..15)
+                .map(|index| crate::model::TrackRow {
+                    uri: format!("spotify:track:{index:022}"),
+                    title: format!("Track {index}"),
+                    ..Default::default()
+                })
+                .collect(),
+        ),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn fast_native_left_drag_reorders_selected_group_once_without_playing_or_cross_window_drop() {
+    for skin in [
+        crate::appearance::Skin::Classic,
+        crate::appearance::Skin::Modern,
+    ] {
+        let s = owned_reorder_state();
+        let mut view = library_ui::View::default();
+        view.set_skin(skin);
+        view.render(&s);
+        let mut drag = PointerDrag::default();
+        let mut actions = Vec::new();
+        let modified = |down, y| {
+            Input::Mouse(
+                MouseInput::Button {
+                    button: MouseButton::Left,
+                    down,
+                    x: 320.0,
+                    y,
+                },
+                true,
+                false,
+            )
+        };
+        process_with_drag(
+            &mut view,
+            &s,
+            true,
+            &[
+                mouse(true, 320.0, 132.0),
+                mouse(false, 320.0, 132.0),
+                modified(true, 180.0),
+                modified(false, 180.0),
+                mouse(true, 320.0, 132.0),
+                mouse(false, 320.0, 265.0),
+                Input::Mouse(MouseInput::Cancel, false, false),
+            ],
+            &[],
+            &mut |_| Err(()),
+            &mut actions,
+            &mut drag,
+        );
+        assert!(
+            matches!(actions.as_slice(), [library_ui::Action::Command(LibraryCommand::ReorderPlaylist {indices, insert_before: 6, ..})] if indices == &[0, 2])
+        );
+        assert_eq!(
+            view.selected_tracks(&s),
+            vec![s.tracks[0].clone(), s.tracks[2].clone()]
+        );
+        assert!(drag.completed.is_empty() && !drag.active && drag.origin.is_none());
+        process_with_drag(
+            &mut view,
+            &s,
+            true,
+            &[],
+            &[],
+            &mut |_| Err(()),
+            &mut actions,
+            &mut drag,
+        );
+        assert_eq!(actions.len(), 1);
+    }
+}
+
+#[test]
+fn left_drag_of_unselected_track_selects_it_and_cancellation_never_reorders() {
+    for case in 0..7 {
+        let mut s = owned_reorder_state();
+        let mut view = library_ui::View::default();
+        view.render(&s);
+        let mut drag = PointerDrag::default();
+        let mut actions = Vec::new();
+        process_with_drag(
+            &mut view,
+            &s,
+            true,
+            &[
+                mouse(true, 320.0, 132.0),
+                mouse(false, 320.0, 132.0),
+                mouse(true, 320.0, 180.0),
+            ],
+            &[],
+            &mut |_| Err(()),
+            &mut actions,
+            &mut drag,
+        );
+        assert_eq!(view.selected_tracks(&s), vec![s.tracks[2].clone()]);
+        drag.preview(Some((320.0, 265.0)), &mut view, &s);
+        assert!(drag.active);
+        let event = match case {
+            0 => Input::Key(Key::Escape, false, false),
+            1 => Input::Mouse(MouseInput::Cancel, false, false),
+            2 => Input::Overflow,
+            3 => right_mouse(true, 320.0, 180.0),
+            4 => {
+                s.selected_playlist_revision = std::sync::Arc::from([4, 5, 6]);
+                s.revision += 1;
+                mouse(false, 320.0, 265.0)
+            }
+            5 => mouse(false, 200.0, 265.0),
+            6 => Input::Key(Key::Down, false, false),
+            _ => unreachable!(),
+        };
+        process_with_drag(
+            &mut view,
+            &s,
+            true,
+            &[event, mouse(false, 320.0, 265.0)],
+            &[],
+            &mut |_| Err(()),
+            &mut actions,
+            &mut drag,
+        );
+        assert!(actions.is_empty(), "case {case}: {actions:?}");
+        assert!(drag.completed.is_empty() && !drag.active);
+    }
+}
+
+#[test]
+fn readonly_playlist_and_search_drags_still_copy_outside_but_never_reorder_inside() {
+    for search in [false, true] {
+        for outside in [false, true] {
+            let mut s = owned_reorder_state();
+            s.selected_owned = false;
+            s.search.tracks = s.tracks.clone();
+            s.search.revision = 1;
+            let mut view = library_ui::View::default();
+            view.render(&s);
+            if search {
+                view.key(Key::F, true, false, &s);
+            }
+            let mut drag = PointerDrag::default();
+            let mut actions = Vec::new();
+            process_with_drag(
+                &mut view,
+                &s,
+                true,
+                &[
+                    mouse(true, 320.0, 132.0),
+                    mouse(false, if outside { -20.0 } else { 320.0 }, 265.0),
+                ],
+                &[],
+                &mut |_| Err(()),
+                &mut actions,
+                &mut drag,
+            );
+            assert!(actions.is_empty());
+            assert_eq!(drag.completed.len(), usize::from(outside));
+            if outside {
+                assert_eq!(drag.completed[0].0, vec![s.tracks[0].clone()]);
+            }
+        }
+    }
+}

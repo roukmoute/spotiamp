@@ -309,6 +309,9 @@ pub struct View {
     offset: usize,
     drop_marker: Option<usize>,
     drop_scroll_tick: Option<Instant>,
+    queue_drag: Option<queue_drag::QueueDrag>,
+    pending_queue_reorder: Option<queue_drag::PendingQueueReorder>,
+    next_queue_reorder_request: u64,
     scroll_remainder: f64,
     observed_playback_revision: u64,
     dragging: u8,
@@ -340,6 +343,9 @@ impl Default for View {
             offset: 0,
             drop_marker: None,
             drop_scroll_tick: None,
+            queue_drag: None,
+            pending_queue_reorder: None,
+            next_queue_reorder_request: 0,
             scroll_remainder: 0.0,
             observed_playback_revision: 0,
             dragging: 0,
@@ -353,10 +359,12 @@ impl View {
     /// Center explicit starts once; reveal automatic starts only if offscreen.
     /// Position/metadata updates must leave the user's browsing position alone.
     pub fn sync_playback(&mut self, snapshot: &Snapshot) -> bool {
+        self.sync_queue_reorder(snapshot);
         if self.observed_playback_revision == snapshot.playback_revision {
             return false;
         }
         self.observed_playback_revision = snapshot.playback_revision;
+        self.pending_queue_reorder = None;
         let Some(index) = snapshot
             .current
             .filter(|&index| index < snapshot.queue.len())
@@ -636,6 +644,7 @@ impl View {
 
     pub fn pointer_down(&mut self, x: usize, y: usize, s: &Snapshot) -> Option<Action> {
         self.cancel_pointer();
+        self.pending_queue_reorder = None;
         if !self.focused {
             return None;
         }
@@ -654,6 +663,9 @@ impl View {
                     self.pressed_connection = Some(ConnectionAction::for_state(s));
                 }
             }
+            return None;
+        }
+        if self.begin_queue_drag(x, y, s) {
             return None;
         }
         self.click(x, y, s)
@@ -677,6 +689,9 @@ impl View {
     }
 
     pub fn pointer_up(&mut self, position: Option<(usize, usize)>, s: &Snapshot) -> Option<Action> {
+        if self.queue_drag.is_some() {
+            return self.release_queue_drag(position, s);
+        }
         let pressed = self.pressed_button.take();
         let connection = self.pressed_connection.take();
         self.end_drag();
@@ -735,6 +750,14 @@ impl View {
     }
 
     pub fn show_queue_drop(&mut self, position: Option<(f32, f32)>, len: usize) {
+        // The library refreshes its drop target every frame, even with no drag.
+        // Do not erase the main queue's own insertion marker.
+        if self.queue_drag.is_none() {
+            self.update_queue_drop(position, len);
+        }
+    }
+
+    fn update_queue_drop(&mut self, position: Option<(f32, f32)>, len: usize) {
         self.drop_marker = position.and_then(|point| self.queue_drop_index(point, len));
         let edge = position
             .filter(|_| self.drop_marker.is_some())
@@ -813,6 +836,8 @@ impl View {
         }
     }
     pub fn move_selection(&mut self, delta: i32, len: usize) {
+        self.cancel_pointer();
+        self.pending_queue_reorder = None;
         if self.about.is_some() {
             return;
         }
@@ -956,6 +981,7 @@ impl View {
     }
     pub fn end_drag(&mut self) {
         self.dragging = 0;
+        self.cancel_queue_drag();
     }
     pub fn fingerprint(&self, s: &Snapshot) -> u64 {
         let mut hash = std::hash::DefaultHasher::new();
@@ -1002,6 +1028,7 @@ impl View {
 
 mod about_skin;
 mod modern_skin;
+mod queue_drag;
 mod skin;
 
 #[cfg(test)]
@@ -1021,6 +1048,9 @@ mod playback_follow_tests;
 
 #[cfg(test)]
 mod transport_tests;
+
+#[cfg(test)]
+mod queue_drag_tests;
 
 #[cfg(test)]
 mod connection_tests;

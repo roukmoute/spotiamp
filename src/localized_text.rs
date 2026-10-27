@@ -189,6 +189,27 @@ impl From<&'static str> for LocalizedText {
             "Position d'insertion invalide; la file a ete conservee" => {
                 "Invalid insertion position; the queue was retained"
             }
+            "La file a change; aucun titre deplace" => "The queue changed; no tracks moved",
+            "Deplacement non confirme; actualisation de la playlist" => {
+                "Move unconfirmed; refreshing the playlist"
+            }
+            "Impossible de verifier la playlist; aucun titre deplace" => {
+                "Could not verify the playlist; no tracks moved"
+            }
+            "Seul le proprietaire peut deplacer des titres dans cette playlist" => {
+                "Only the owner can move tracks in this playlist"
+            }
+            "Selection invalide; aucun titre deplace" => "Invalid selection; no tracks moved",
+            "Spotify limite les deplacements; patientez avant de reessayer" => {
+                "Spotify is limiting moves; wait before retrying"
+            }
+            "Spotify a refuse le deplacement; aucun titre deplace" => {
+                "Spotify refused the move; no tracks moved"
+            }
+            "Ordre de la playlist Spotify modifie" => "Spotify playlist order updated",
+            "Deplacement dans la playlist Spotify en cours..." => {
+                "Moving tracks in the Spotify playlist..."
+            }
             "Titre ajoute depuis la recherche" => "Track added from search",
             "Connectez Spotify pour rechercher des titres" => {
                 "Connect Spotify to search for tracks"
@@ -470,6 +491,15 @@ mod tests {
             "Spotify a refuse l'ajout; aucun titre ajoute",
             "La destination n'est plus disponible; actualisez les playlists",
             "Position d'insertion invalide; la file a ete conservee",
+            "La file a change; aucun titre deplace",
+            "Deplacement non confirme; actualisation de la playlist",
+            "Impossible de verifier la playlist; aucun titre deplace",
+            "Seul le proprietaire peut deplacer des titres dans cette playlist",
+            "Selection invalide; aucun titre deplace",
+            "Spotify limite les deplacements; patientez avant de reessayer",
+            "Spotify a refuse le deplacement; aucun titre deplace",
+            "Ordre de la playlist Spotify modifie",
+            "Deplacement dans la playlist Spotify en cours...",
             "Recherche limitee a 256 caracteres",
             "Spotify ne repond pas a la recherche; reessayez",
             "Recherche Spotify indisponible; reessayez dans un instant",

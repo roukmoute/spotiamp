@@ -108,11 +108,14 @@ fn double_click_still_explicitly_starts_the_selected_row() {
                 .is_none()
         );
         assert!(view.pointer_up(Some(other_row), &state).is_none());
+        assert!(
+            view.pointer_down(other_row.0, other_row.1, &state)
+                .is_none()
+        );
         assert!(matches!(
-            view.pointer_down(other_row.0, other_row.1, &state),
+            view.pointer_up(Some(other_row), &state),
             Some(Action::Send(Command::PlayIndex(2)))
         ));
-        assert!(view.pointer_up(Some(other_row), &state).is_none());
     }
 }
 

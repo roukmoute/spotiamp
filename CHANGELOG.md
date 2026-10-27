@@ -1,5 +1,20 @@
 # Changements
 
+## 0.2.18 — 27 octobre 2026
+
+- Maintenir le clic gauche puis glisser un morceau permet de changer sa place
+  dans la file du lecteur. Un repère indique la destination, avec défilement
+  automatique aux bords ; la lecture en cours conserve son morceau et sa position.
+- Dans une playlist Spotify qui vous appartient, le même geste déplace le morceau
+  ou la sélection multiple, en conservant son ordre. Les occurrences identiques
+  sont distinguées par leur position. L'ordre confirmé est enregistré sur Spotify.
+- Un déplacement sans changement ne déclenche aucune écriture. La source et la
+  révision sont contrôlées avant l'envoi, avec une seule modification à la fois
+  et sans nouvel envoi automatique en cas de réponse incertaine.
+- Les deux skins et les six langues sont conservés, sans nouvelle dépendance
+  ni tâche permanente. Le glisser-déposer de la bibliothèque vers le lecteur
+  reste disponible pour ajouter des titres sans interrompre la lecture.
+
 ## 0.2.17 — 27 octobre 2026
 
 - Un clic droit sur un morceau d'une playlist ou des résultats de recherche

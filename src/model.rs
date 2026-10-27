@@ -38,6 +38,12 @@ pub enum Command {
     SetQuality(AudioQuality),
     SetLanguage(Language),
     Remove(usize),
+    ReorderQueue {
+        request_id: u64,
+        expected_queue: Vec<String>,
+        indices: Vec<usize>,
+        insert_before: usize,
+    },
     Clear,
     Library(LibraryCommand),
     Shutdown,
@@ -87,6 +93,13 @@ pub enum LibraryCommand {
         expected_revision: std::sync::Arc<[u8]>,
         indices: Vec<usize>,
     },
+    ReorderPlaylist {
+        id: PlaylistId,
+        expected_tracks: std::sync::Arc<Vec<TrackRow>>,
+        expected_revision: std::sync::Arc<[u8]>,
+        indices: Vec<usize>,
+        insert_before: usize,
+    },
     CreatePlaylist {
         name: String,
         tracks: Vec<TrackRow>,
@@ -123,7 +136,47 @@ pub struct LibrarySnapshot {
     pub playlist_write_busy: bool,
     pub playlist_write_status: LocalizedText,
     pub playlist_remove_revision: u64,
+    pub playlist_reorder_result: Option<std::sync::Arc<PlaylistReorderResult>>,
     pub search: SearchSnapshot,
+}
+
+/// A confirmed move identifies occurrences by their old positions, including
+/// repeated tracks. The view waits for this revision's refreshed contents.
+#[derive(Clone, Debug)]
+pub struct PlaylistReorderResult {
+    pub id: PlaylistId,
+    pub previous_revision: std::sync::Arc<[u8]>,
+    pub revision: std::sync::Arc<[u8]>,
+    pub order: Vec<usize>,
+}
+
+/// Move a sorted selection to a gap in the original list. Returns the new
+/// sequence of original indices; an invalid request or unchanged order is None.
+pub fn reorder_indices(len: usize, indices: &[usize], insert_before: usize) -> Option<Vec<usize>> {
+    if indices.is_empty()
+        || insert_before > len
+        || indices.last().is_some_and(|&index| index >= len)
+        || indices.windows(2).any(|pair| pair[0] >= pair[1])
+    {
+        return None;
+    }
+    let mut selected = indices.iter().copied().peekable();
+    let mut order = Vec::with_capacity(len);
+    for index in 0..=len {
+        if index == insert_before {
+            order.extend_from_slice(indices);
+        }
+        if selected.peek() == Some(&index) {
+            selected.next();
+        } else if index < len {
+            order.push(index);
+        }
+    }
+    order
+        .iter()
+        .enumerate()
+        .any(|(i, &old)| i != old)
+        .then_some(order)
 }
 
 pub const SEARCH_QUERY_MAX_CHARS: usize = 256;
@@ -200,6 +253,8 @@ pub struct Snapshot {
     pub status: LocalizedText,
     pub queue: Vec<TrackRow>,
     pub current: Option<usize>,
+    /// Acknowledges an accepted local move without disturbing playback events.
+    pub queue_reorder_request: u64,
     /// Changes once per accepted load or explicit restart, including the same
     /// queue index, so a view can reveal it without following progress ticks.
     pub playback_revision: u64,
@@ -222,6 +277,7 @@ impl Default for Snapshot {
             status: "Connectez Spotify pour commencer.".into(),
             queue: Vec::new(),
             current: None,
+            queue_reorder_request: 0,
             playback_revision: 0,
             playback_origin: PlaybackOrigin::default(),
             position_ms: 0,
@@ -237,6 +293,48 @@ impl Default for Snapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reordering_uses_original_gaps_and_preserves_selected_occurrences() {
+        assert_eq!(reorder_indices(6, &[1, 3], 6), Some(vec![0, 2, 4, 5, 1, 3]));
+        assert_eq!(reorder_indices(6, &[1, 3], 0), Some(vec![1, 3, 0, 2, 4, 5]));
+        assert_eq!(reorder_indices(6, &[1, 3], 3), Some(vec![0, 2, 1, 3, 4, 5]));
+        for (indices, gap) in [
+            (vec![], 0),
+            (vec![1, 1], 0),
+            (vec![3, 1], 0),
+            (vec![6], 0),
+            (vec![1], 7),
+            (vec![1, 2], 1),
+            (vec![1, 2], 2),
+            (vec![1, 2], 3),
+            ((0..6).collect(), 4),
+        ] {
+            assert_eq!(reorder_indices(6, &indices, gap), None);
+        }
+    }
+
+    #[test]
+    fn every_small_selection_and_gap_produces_the_requested_stable_partition() {
+        for len in 1..9 {
+            for mask in 1..1usize << len {
+                let selected = (0..len)
+                    .filter(|i| mask & (1 << i) != 0)
+                    .collect::<Vec<_>>();
+                for gap in 0..=len {
+                    let mut expected = (0..gap)
+                        .filter(|i| mask & (1 << i) == 0)
+                        .collect::<Vec<_>>();
+                    expected.extend(&selected);
+                    expected.extend((gap..len).filter(|i| mask & (1 << i) == 0));
+                    let actual = reorder_indices(len, &selected, gap);
+                    assert_eq!(
+                        actual,
+                        (expected != (0..len).collect::<Vec<_>>()).then_some(expected)
+                    );
+                }
+            }
+        }
+    }
     #[test]
     fn playlist_names_preserve_unicode_and_obey_editor_and_worker_limits() {
         assert_eq!(

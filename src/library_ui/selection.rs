@@ -130,6 +130,7 @@ impl View {
             self.search_choices
                 .select(index, control, shift, &s.search.tracks);
         } else {
+            self.playlist_selection_epoch = self.playlist_selection_epoch.wrapping_add(1);
             self.playlist_choices
                 .select(index, control, shift, &s.tracks);
         }

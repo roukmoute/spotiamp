@@ -18,6 +18,7 @@ pub(super) struct State {
     write_refresh: Option<PlaylistId>,
     write_creating: bool,
     write_removing: bool,
+    write_reordering: bool,
     // Only protects creations acknowledged while a catalogue read was in flight.
     // A later explicit refresh remains authoritative.
     catalogue_created: Vec<PlaylistEntry>,
@@ -32,6 +33,14 @@ struct QueueRequest {
 }
 
 pub(super) enum Update {
+    Reordered {
+        generation: u64,
+        auth_generation: u64,
+        id: PlaylistId,
+        previous_revision: Arc<[u8]>,
+        order: Vec<usize>,
+        result: Result<crate::spotify_playlist_write::ReorderReceipt, LocalizedText>,
+    },
     Removed {
         generation: u64,
         auth_generation: u64,
@@ -199,6 +208,8 @@ impl Worker {
                     s.playlist_write_busy = false;
                     s.playlist_write_status = if self.library.write_creating {
                         "Creation ou ajout non confirme; verifiez vos playlists avant de reessayer"
+                    } else if self.library.write_reordering {
+                        "Deplacement non confirme; actualisation de la playlist"
                     } else if self.library.write_removing {
                         "Retrait non confirme; verifiez la playlist avant de reessayer"
                     } else {
@@ -217,8 +228,10 @@ impl Worker {
             self.library.write_refresh = None;
             self.library.write_creating = false;
             self.library.write_removing = false;
+            self.library.write_reordering = false;
             self.library.edit(|s| {
                 s.playlist_remove_revision = s.playlist_remove_revision.wrapping_add(1);
+                s.playlist_reorder_result = None;
             });
         }
         // Hiding the library does not cancel an already submitted mutation.
@@ -308,6 +321,22 @@ impl Worker {
             }
             LibraryCommand::CreatePlaylist { name, tracks } if self.library.open => {
                 self.create_playlist_from_selection(name, tracks, updates);
+            }
+            LibraryCommand::ReorderPlaylist {
+                id,
+                expected_tracks,
+                expected_revision,
+                indices,
+                insert_before,
+            } if self.library.open => {
+                self.reorder_playlist_selection(
+                    id,
+                    expected_tracks,
+                    expected_revision,
+                    indices,
+                    insert_before,
+                    updates,
+                );
             }
             LibraryCommand::RemoveFromPlaylist {
                 id,
@@ -467,6 +496,49 @@ impl Worker {
     }
 
     pub(super) fn library_update(&mut self, update: Update) {
+        if let Update::Reordered {
+            generation,
+            auth_generation,
+            id,
+            previous_revision,
+            order,
+            result,
+        } = update
+        {
+            if generation == self.library.write_generation
+                && auth_generation == self.auth_generation
+            {
+                self.library.write_task = None;
+                self.library.write_reordering = false;
+                // Even a timeout may have committed. Re-read the remote state,
+                // never repeat the mutation or retain stale occurrence indices.
+                self.library.write_refresh = Some(id.clone());
+                self.library.edit(|s| {
+                    if s.selected_id.as_ref() == Some(&id) {
+                        s.selected_owned = false;
+                    }
+                    s.playlist_write_busy = false;
+                    s.playlist_remove_revision = s.playlist_remove_revision.wrapping_add(1);
+                    match result {
+                        Ok(receipt) => {
+                            s.playlist_reorder_result =
+                                Some(Arc::new(crate::model::PlaylistReorderResult {
+                                    id,
+                                    previous_revision,
+                                    revision: receipt.revision.into(),
+                                    order,
+                                }));
+                            s.playlist_write_status = "Ordre de la playlist Spotify modifie".into();
+                        }
+                        Err(message) => {
+                            s.playlist_reorder_result = None;
+                            s.playlist_write_status = message;
+                        }
+                    }
+                });
+            }
+            return;
+        }
         if let Update::Removed {
             generation,
             auth_generation,
@@ -572,7 +644,8 @@ impl Worker {
             Update::Search { .. }
             | Update::Written { .. }
             | Update::Creation { .. }
-            | Update::Removed { .. } => {
+            | Update::Removed { .. }
+            | Update::Reordered { .. } => {
                 unreachable!()
             }
         };
@@ -583,7 +656,8 @@ impl Worker {
             Update::Search { .. }
             | Update::Written { .. }
             | Update::Creation { .. }
-            | Update::Removed { .. } => {
+            | Update::Removed { .. }
+            | Update::Reordered { .. } => {
                 unreachable!()
             }
             Update::PlaylistAccess {
@@ -662,6 +736,7 @@ impl Worker {
                         s.busy = false;
                         s.selected_owned = false;
                         s.selected_playlist_revision = Arc::default();
+                        s.playlist_reorder_result = None;
                         s.status = message;
                     });
                 }
@@ -692,6 +767,92 @@ impl Worker {
             }
             Update::Finished { .. } => self.library.task = None,
         }
+    }
+
+    fn reorder_playlist_selection(
+        &mut self,
+        id: PlaylistId,
+        expected_tracks: Arc<Vec<TrackRow>>,
+        expected_revision: Arc<[u8]>,
+        indices: Vec<usize>,
+        insert_before: usize,
+        updates: &mpsc::Sender<super::Update>,
+    ) {
+        let order = crate::model::reorder_indices(expected_tracks.len(), &indices, insert_before);
+        let reject = if self.library.write_task.is_some() {
+            Some("Modification de playlist en cours; attendez sa confirmation")
+        } else if self.session.is_none() {
+            Some("Connectez Spotify pour modifier une playlist")
+        } else if order.is_none()
+            || expected_revision.is_empty()
+            || !crate::spotify_playlist_write::valid_tracks(&expected_tracks)
+        {
+            Some("Selection invalide; aucun titre deplace")
+        } else if !self.library.shared.lock().is_ok_and(|s| {
+            s.selected_id.as_ref() == Some(&id)
+                && s.selected_owned
+                && !s.loading
+                && !s.busy
+                && s.selected_playlist_revision == expected_revision
+                && s.tracks.len() == expected_tracks.len()
+                && s.tracks
+                    .iter()
+                    .zip(expected_tracks.iter())
+                    .all(|(a, b)| a.uri == b.uri)
+                && s.entries
+                    .iter()
+                    .any(|entry| entry.id == id && entry.available)
+        }) {
+            Some("Impossible de verifier la playlist; aucun titre deplace")
+        } else {
+            None
+        };
+        if let Some(message) = reject {
+            self.library.edit(|s| {
+                s.playlist_remove_revision = s.playlist_remove_revision.wrapping_add(1);
+                s.playlist_reorder_result = None;
+                s.playlist_write_status = message.into();
+            });
+            return;
+        }
+        let session = self.session.clone().unwrap();
+        self.library.write_generation = self.library.write_generation.wrapping_add(1);
+        self.library.write_creating = false;
+        self.library.write_removing = false;
+        self.library.write_reordering = true;
+        let generation = self.library.write_generation;
+        let auth_generation = self.auth_generation;
+        let epoch = self.auth_epoch.clone();
+        let updates = updates.clone();
+        let order = order.unwrap();
+        self.library.edit(|s| {
+            s.playlist_write_busy = true;
+            s.playlist_reorder_result = None;
+            s.playlist_write_status = "Deplacement dans la playlist Spotify en cours...".into();
+        });
+        self.library.write_task = Some(tokio::spawn(async move {
+            let result = crate::spotify_playlist_write::reorder(
+                session,
+                &id,
+                &expected_tracks,
+                &expected_revision,
+                &indices,
+                insert_before,
+                epoch,
+                auth_generation,
+            )
+            .await;
+            let _ = updates
+                .send(super::Update::Library(Update::Reordered {
+                    generation,
+                    auth_generation,
+                    id,
+                    previous_revision: expected_revision,
+                    order,
+                    result,
+                }))
+                .await;
+        }));
     }
 
     fn remove_playlist_selection(
@@ -745,6 +906,7 @@ impl Worker {
         self.library.write_generation = self.library.write_generation.wrapping_add(1);
         self.library.write_creating = false;
         self.library.write_removing = true;
+        self.library.write_reordering = false;
         let generation = self.library.write_generation;
         let auth_generation = self.auth_generation;
         let epoch = self.auth_epoch.clone();
@@ -814,6 +976,7 @@ impl Worker {
         let updates = updates.clone();
         self.library.write_creating = false;
         self.library.write_removing = false;
+        self.library.write_reordering = false;
         self.library.edit(|s| {
             s.playlist_write_busy = true;
             s.playlist_write_status = "Ajout a la playlist Spotify en cours...".into();
@@ -868,6 +1031,7 @@ impl Worker {
         let session = self.session.clone().unwrap();
         self.library.write_generation = self.library.write_generation.wrapping_add(1);
         self.library.write_creating = true;
+        self.library.write_reordering = false;
         self.library.write_removing = false;
         let generation = self.library.write_generation;
         let auth_generation = self.auth_generation;

@@ -265,6 +265,17 @@ fn process_frame_input(
             modal_closed = view.about.is_none();
         }
     }
+    // Native keys and mouse events have separate queues. A cancellation in
+    // this batch must win over a captured row release, including a fast drag.
+    let cancel_queue_gesture = input.keys.iter().any(|(key, _, _)| {
+        matches!(
+            key,
+            Key::Escape | Key::F1 | Key::F2 | Key::F3 | Key::F4 | Key::Tab
+        )
+    });
+    if cancel_queue_gesture {
+        view.cancel_pointer();
+    }
     for &event in input.mouse {
         if modal_closed {
             // A release closing the dialog must not expose another click in
@@ -280,13 +291,24 @@ fn process_frame_input(
                 y,
             } => {
                 let position = inside_window(x, y);
-                if down {
+                if cancel_queue_gesture
+                    && view
+                        .queue_drop_index((x, y), snapshot.queue.len())
+                        .is_some()
+                {
+                    view.cancel_pointer();
+                    None
+                } else if down {
                     position.and_then(|(x, y)| view.pointer_down(x, y, snapshot))
                 } else {
                     view.pointer_up(position, snapshot)
                 }
             }
-            MouseInput::Cancel => {
+            MouseInput::Cancel
+            | MouseInput::Button {
+                button: MouseButton::Right,
+                ..
+            } => {
                 view.cancel_pointer();
                 None
             }
@@ -379,10 +401,14 @@ fn process_frame_input(
         view.input_active = !view.input_active;
     }
     let mut action = None;
-    if input.mouse_down
-        && let Some((x, y)) = input.pointer
-    {
-        action = view.drag(x as usize, y as usize, snapshot);
+    if input.mouse_down {
+        view.poll_queue_drag(
+            input.pointer.and_then(|(x, y)| inside_window(x, y)),
+            snapshot,
+        );
+        if let Some((x, y)) = input.pointer {
+            action = view.drag(x as usize, y as usize, snapshot);
+        }
     }
     if let Some(y) = input.wheel {
         view.scroll_at(
@@ -921,7 +947,14 @@ fn run(initial_notice: Option<LocalizedText>) -> Result<(), Box<dyn std::error::
                 }
             };
             if let Some(c) = command {
+                let reorder_request = match &c {
+                    Command::ReorderQueue { request_id, .. } => Some(*request_id),
+                    _ => None,
+                };
                 if let Err(e) = engine.tx.try_send(c) {
+                    if let Some(request_id) = reorder_request {
+                        view.reject_queue_reorder(request_id);
+                    }
                     view.notice(engine::command_error(&e));
                 } else {
                     view.input_active = false;
@@ -1002,6 +1035,12 @@ mod language_input_tests;
 
 #[cfg(test)]
 mod playback_follow_input_tests;
+
+#[cfg(test)]
+mod queue_reorder_input_tests;
+
+#[cfg(all(test, target_os = "linux"))]
+mod queue_reorder_native_tests;
 
 #[cfg(test)]
 mod wheel_input_tests;
