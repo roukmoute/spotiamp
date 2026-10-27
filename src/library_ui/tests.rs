@@ -95,6 +95,11 @@ pub(super) fn click(view: &mut View, x: usize, y: usize, s: &LibrarySnapshot) ->
     view.pointer_up(Some((x, y)), s)
 }
 
+pub(super) fn send_menu(view: &mut View, item: usize, s: &LibrarySnapshot) -> Option<Action> {
+    assert!(click(view, 280, 425, s).is_none());
+    click(view, 280, 282 + item * 28, s)
+}
+
 #[test]
 fn render_reuses_its_buffer_and_shared_tracks_and_skips_unchanged_state() {
     let mut view = View::default();
@@ -328,7 +333,7 @@ fn playlist_selection_hides_old_tracks_while_new_selection_is_pending() {
     view.render(&s);
     assert!(view.tracks_ready(&s));
     assert!(matches!(
-        click(&mut view, 280, 425, &s),
+        send_menu(&mut view, 0, &s),
         Some(Action::Command(LibraryCommand::Queue {
             start: 0,
             replace: true,
@@ -709,6 +714,10 @@ fn export_library_preview() {
         view.open_picker(&s);
         view.new_playlist();
         view.paste("Jazz - découvertes du soir");
+    }
+    if std::env::var_os("SPOTIAMP_LIBRARY_SEND_MENU").is_some() {
+        click(&mut view, 280, 425, &s);
+        view.pointer_move(Some((300, 338)));
     }
     if std::env::var_os("SPOTIAMP_LIBRARY_INACTIVE").is_some() {
         view.set_focus(false);

@@ -11,11 +11,13 @@ use crate::{
 mod modern;
 mod picker;
 mod selection;
+mod send_menu;
 mod text_input;
 use font8x8::UnicodeFonts;
 use minifb::Key;
 use picker::PlaylistPicker;
 use selection::TrackSelection;
+use send_menu::SendMenu;
 use std::{
     fmt::Write,
     sync::Arc,
@@ -57,7 +59,7 @@ enum Button {
     Clear,
     Play,
     Append,
-    ToPlaylist,
+    SendTo,
     PickerConfirm,
     PickerNew,
     PickerCreate,
@@ -73,7 +75,7 @@ impl Button {
             Self::Clear => (662, 29, 86, 23),
             Self::Play => (246, 413, 106, 24),
             Self::Append => (360, 413, 128, 24),
-            Self::ToPlaylist => (496, 413, 168, 24),
+            Self::SendTo => (246, 413, 168, 24),
             Self::PickerNew => (192, 348, 128, 24),
             Self::PickerConfirm | Self::PickerCreate => (328, 348, 110, 24),
             Self::PickerCancel => (450, 348, 110, 24),
@@ -89,6 +91,8 @@ enum Target {
     Track(usize),
     Destination(usize),
     PlaylistName,
+    MenuItem(usize),
+    MenuOutside,
 }
 
 struct PendingRemoval {
@@ -110,6 +114,7 @@ pub struct View {
     playlist_choices: TrackSelection,
     search_choices: TrackSelection,
     picker: Option<PlaylistPicker>,
+    send_menu: Option<SendMenu>,
     submitted_picker: Option<PlaylistPicker>,
     pending_removal: Option<PendingRemoval>,
     press_collapse: bool,
@@ -157,6 +162,7 @@ impl Default for View {
             playlist_choices: TrackSelection::default(),
             search_choices: TrackSelection::default(),
             picker: None,
+            send_menu: None,
             submitted_picker: None,
             pending_removal: None,
             press_collapse: false,
@@ -226,6 +232,7 @@ impl View {
             self.dirty();
         }
         if !focused {
+            self.close_send_menu();
             self.cancel_pointer();
             self.last_click = None;
             self.search_click = None;
@@ -293,6 +300,7 @@ impl View {
     }
     pub fn wants_text_input(&self) -> bool {
         self.focused
+            && self.send_menu.is_none()
             && self
                 .picker
                 .as_ref()
@@ -416,6 +424,13 @@ impl View {
         }
         let initial = self.snapshot_revision.is_none();
         self.snapshot_revision = Some(s.revision);
+        if self
+            .send_menu
+            .as_ref()
+            .is_some_and(|menu| !menu.source_matches(self, s))
+        {
+            self.close_send_menu();
+        }
         if self
             .pending_removal
             .as_ref()
@@ -576,6 +591,16 @@ impl View {
     fn enabled(&self, b: Button, s: &LibrarySnapshot) -> bool {
         match b {
             Button::Minimize | Button::Close | Button::PickerCancel => true,
+            Button::SendTo => {
+                s.connected
+                    && self.active_ready(s)
+                    && if !self.search_mode && self.left_focus {
+                        self.selected(s).is_some_and(|entry| entry.available)
+                            && !s.tracks.is_empty()
+                    } else {
+                        self.active_choices().len() > 0
+                    }
+            }
             Button::PickerNew => self.picker.is_some() && s.connected && !s.playlist_write_busy,
             Button::PickerCreate => self.picker.as_ref().is_some_and(|picker| {
                 picker.creating
@@ -593,13 +618,6 @@ impl View {
                             .any(|entry| &entry.id == id && entry.available)
                     })
             }),
-            Button::ToPlaylist => {
-                s.connected
-                    && self.pending_removal.is_none()
-                    && !s.playlist_write_busy
-                    && self.active_ready(s)
-                    && self.active_choices().len() > 0
-            }
             Button::Refresh => s.connected && !s.busy && !s.loading,
             Button::Search => s.connected && !self.query.trim().is_empty(),
             Button::Clear => !self.query.is_empty() || !s.search.query.is_empty(),
@@ -618,6 +636,9 @@ impl View {
         }
     }
     fn target(&self, x: usize, y: usize) -> Option<Target> {
+        if let Some(menu) = &self.send_menu {
+            return Some(menu.target(x, y));
+        }
         if let Some(picker) = &self.picker {
             return picker.target(x, y);
         }
@@ -638,9 +659,7 @@ impl View {
             Button::Minimize,
             Button::Close,
             Button::Refresh,
-            Button::Play,
-            Button::Append,
-            Button::ToPlaylist,
+            Button::SendTo,
         ] {
             if inside(b.rect(), x, y) {
                 return Some(Target::Button(b));
@@ -665,8 +684,16 @@ impl View {
         shift: bool,
         s: &LibrarySnapshot,
     ) -> Option<Action> {
+        let menu_was_open = self.send_menu.is_some();
         self.sync(s);
         self.clear_press();
+        if menu_was_open && self.send_menu.is_none() {
+            return None;
+        }
+        if self.send_menu.is_some() && self.target(x, y) == Some(Target::MenuOutside) {
+            self.close_send_menu();
+            return None;
+        }
         self.press_collapse = false;
         self.press_modified = control || shift;
         if !self.focused {
@@ -675,6 +702,8 @@ impl View {
         let target = self.target(x, y);
         let allowed = match target {
             Some(Target::Button(b)) => self.enabled(b, s),
+            Some(Target::MenuItem(index)) => self.menu_item_enabled(index, s),
+            Some(Target::MenuOutside) => false,
             Some(Target::Playlist(i)) => s.entries.get(i).is_some_and(|e| e.available),
             Some(Target::Track(i)) => self.active_ready(s) && i < self.active_tracks(s).len(),
             Some(Target::Search | Target::SearchInput | Target::PlaylistName) => true,
@@ -697,7 +726,12 @@ impl View {
             if !matches!(target, Some(Target::Track(_))) {
                 self.search_click = None;
             }
-            if self.input_focus && target != Some(Target::SearchInput) {
+            if self.input_focus
+                && !matches!(
+                    target,
+                    Some(Target::SearchInput | Target::Button(Button::SendTo))
+                )
+            {
                 self.input_focus = false;
                 self.dirty();
             }
@@ -717,6 +751,19 @@ impl View {
     }
     pub fn pointer_move(&mut self, position: Option<(usize, usize)>) {
         let target = position.and_then(|(x, y)| self.target(x, y));
+        if let Some(menu) = &mut self.send_menu {
+            // Native polling also reports an unchanged pointer after keyboard input.
+            // Keep this separate from pressed/hovered, which cancel_pointer clears.
+            let moved = menu.pointer_position != position;
+            menu.pointer_position = position;
+            if moved
+                && let Some(Target::MenuItem(index)) = target
+                && menu.focus != index
+            {
+                menu.focus = index;
+                self.dirty();
+            }
+        }
         if self.hovered != target {
             self.hovered = target;
             if self.pressed.is_some() {
@@ -749,6 +796,7 @@ impl View {
                     | Target::Search
                     | Target::SearchInput
                     | Target::PlaylistName
+                    | Target::MenuItem(_)
                     | Target::Destination(_)
                     | Target::Button(Button::Close | Button::Minimize)
             )
@@ -758,6 +806,7 @@ impl View {
             return None;
         }
         match target {
+            Target::MenuItem(index) => self.activate_menu_item(index, s),
             Target::PlaylistName => {
                 if let Some(picker) = &mut self.picker {
                     picker.position_name(position.map_or(0, |(x, _)| x));
@@ -948,12 +997,12 @@ impl View {
                 self.open_search(true);
                 Some(Action::Command(LibraryCommand::Search(String::new())))
             }
-            Button::Play => self.queue(s, true),
-            Button::Append => self.queue(s, false),
-            Button::ToPlaylist => {
-                self.open_picker(s);
+            Button::SendTo => {
+                self.open_send_menu(s);
                 None
             }
+            Button::Play => self.queue(s, true),
+            Button::Append => self.queue(s, false),
             Button::PickerNew => {
                 self.new_playlist();
                 None
@@ -966,42 +1015,66 @@ impl View {
             Button::PickerConfirm => self.confirm_picker(s),
         }
     }
+    fn can_remove_selected(&self, s: &LibrarySnapshot) -> bool {
+        !self.search_mode
+            && !self.left_focus
+            && !self.input_focus
+            && self.picker.is_none()
+            && self.submitted_picker.is_none()
+            && self.pending_removal.is_none()
+            && s.connected
+            && s.selected_owned
+            && !s.selected_playlist_revision.is_empty()
+            && !s.busy
+            && !s.playlist_write_busy
+            && self.tracks_ready(s)
+            && self.selected(s).is_some_and(|entry| entry.available)
+    }
+
     fn remove_selected(&mut self, s: &LibrarySnapshot) -> Option<Action> {
-        if self.search_mode
-            || self.left_focus
-            || self.input_focus
-            || self.picker.is_some()
-            || self.submitted_picker.is_some()
-            || self.pending_removal.is_some()
-            || !s.connected
-            || !s.selected_owned
-            || s.selected_playlist_revision.is_empty()
-            || s.busy
-            || s.playlist_write_busy
-            || !self.tracks_ready(s)
-            || !self.selected(s).is_some_and(|entry| entry.available)
+        if !self.can_remove_selected(s) {
+            return None;
+        }
+        self.remove_captured(
+            s,
+            self.selected_id.clone()?,
+            s.tracks.clone(),
+            s.selected_playlist_revision.clone(),
+            self.playlist_choices.indices(&s.tracks),
+        )
+    }
+
+    fn remove_captured(
+        &mut self,
+        s: &LibrarySnapshot,
+        id: PlaylistId,
+        tracks: Arc<Vec<TrackRow>>,
+        revision: Arc<[u8]>,
+        indices: Vec<usize>,
+    ) -> Option<Action> {
+        if !self.can_remove_selected(s)
+            || indices.is_empty()
+            || Some(&id) != self.selected_id.as_ref()
+            || revision != s.selected_playlist_revision
+            || tracks.len() != s.tracks.len()
+            || tracks
+                .iter()
+                .zip(s.tracks.iter())
+                .any(|(a, b)| a.uri != b.uri)
         {
-            return None;
-        }
-        let id = self.selected_id.clone()?;
-        if !matches!(id, PlaylistId::Spotify(_)) {
-            return None;
-        }
-        let indices = self.playlist_choices.indices(&s.tracks);
-        if indices.is_empty() {
             return None;
         }
         self.pending_removal = Some(PendingRemoval {
             id: id.clone(),
-            tracks: s.tracks.clone(),
-            playlist_revision: s.selected_playlist_revision.clone(),
+            tracks: tracks.clone(),
+            playlist_revision: revision.clone(),
             revision: s.playlist_remove_revision,
         });
         self.dirty();
         Some(Action::Command(LibraryCommand::RemoveFromPlaylist {
             id,
-            expected_tracks: s.tracks.clone(),
-            expected_revision: s.selected_playlist_revision.clone(),
+            expected_tracks: tracks,
+            expected_revision: revision,
             indices,
         }))
     }
@@ -1013,6 +1086,7 @@ impl View {
         shift: bool,
         s: &LibrarySnapshot,
     ) -> Option<Action> {
+        let menu_was_open = self.send_menu.is_some();
         self.sync(s);
         self.cancel_pointer();
         self.last_click = None;
@@ -1020,8 +1094,15 @@ impl View {
         if !self.focused {
             return None;
         }
+        if menu_was_open {
+            return self.send_menu_key(key, s);
+        }
         if self.picker.is_some() {
             return self.picker_key(key, control, shift, s);
+        }
+        if (key == Key::Menu || (key == Key::F10 && shift)) && !self.wants_text_input() {
+            self.open_send_menu(s);
+            return None;
         }
         if control && key == Key::F {
             self.open_search(true);
@@ -1171,7 +1252,7 @@ impl View {
     }
     pub fn scroll(&mut self, y: f32, position: Option<(usize, usize)>, s: &LibrarySnapshot) {
         self.sync(s);
-        if !y.is_finite() {
+        if !y.is_finite() || self.send_menu.is_some() {
             return;
         }
         if self.picker.is_some() {
@@ -1249,15 +1330,12 @@ impl View {
         };
         let search_enabled = self.enabled(Button::Search, s);
         let clear_enabled = self.enabled(Button::Clear, s);
-        let playlist_enabled = self.enabled(Button::ToPlaylist, s);
+        let send_enabled = self.enabled(Button::SendTo, s);
+        let menu_enabled = std::array::from_fn(|index| self.menu_item_enabled(index, s));
         let picker_confirm_enabled = self.enabled(Button::PickerConfirm, s);
         let picker_new_enabled = self.enabled(Button::PickerNew, s);
         let picker_create_enabled = self.enabled(Button::PickerCreate, s);
-        let enabled = [
-            self.enabled(Button::Refresh, s),
-            self.enabled(Button::Play, s),
-            self.enabled(Button::Append, s),
-        ];
+        let refresh_enabled = self.enabled(Button::Refresh, s);
         let pressed = self.pressed.filter(|p| Some(*p) == self.hovered);
         let palette = modern::Palette::new(self.skin, self.focused);
         let language = self.language;
@@ -1300,7 +1378,7 @@ impl View {
         c.button(
             Button::Refresh,
             language.text("ACTUALISER", "REFRESH"),
-            enabled[0],
+            refresh_enabled,
             pressed == Some(Target::Button(Button::Refresh)),
         );
         if self.search_mode {
@@ -1629,22 +1707,10 @@ impl View {
             c.scrollbar(738, 120, 264, tracks.len(), RIGHT_ROWS, offset);
         }
         c.button(
-            Button::Play,
-            language.text("LIRE", "PLAY"),
-            enabled[1],
-            pressed == Some(Target::Button(Button::Play)),
-        );
-        c.button(
-            Button::Append,
-            language.text("À LA FILE", "ADD TO QUEUE"),
-            enabled[2],
-            pressed == Some(Target::Button(Button::Append)),
-        );
-        c.button(
-            Button::ToPlaylist,
-            language.text("VERS PLAYLIST...", "TO PLAYLIST..."),
-            playlist_enabled,
-            pressed == Some(Target::Button(Button::ToPlaylist)),
+            Button::SendTo,
+            language.text("ENVOYER VERS...", "SEND TO..."),
+            send_enabled,
+            pressed == Some(Target::Button(Button::SendTo)) || self.send_menu.is_some(),
         );
         let mut count = Label::new();
         let _ = write!(count, "{}/{}", choices.len(), tracks.len());
@@ -1663,6 +1729,9 @@ impl View {
         );
         c.text(15, 450, status, palette.chrome_text, 91);
         c.text_skip(15, 460, status, palette.chrome_text, 91, 91);
+        if let Some(menu) = &self.send_menu {
+            menu.render(&mut c, &palette, language, menu_enabled, pressed);
+        }
         if let Some(picker) = &self.picker {
             picker.render(
                 &mut c,
@@ -1851,5 +1920,7 @@ mod remove_playlist_tests;
 mod search_tests;
 #[cfg(test)]
 mod selection_tests;
+#[cfg(test)]
+mod send_menu_tests;
 #[cfg(test)]
 mod tests;

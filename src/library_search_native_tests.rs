@@ -178,7 +178,8 @@ fn x11_search_typing_submit_result_double_click_and_append_use_real_library_fram
             }] if tracks.len() == 1 && tracks[0].uri.ends_with('1')
         ));
         app.commands.clear();
-        app.click(420, 425, false);
+        app.click(330, 425, false);
+        app.click(390, 310, false);
         assert!(matches!(
             app.commands.as_slice(),
             [model::LibraryCommand::QueueTracks {
@@ -275,8 +276,8 @@ fn x11_create_playlist_uses_control_selection_unicode_clipboard_and_enter_in_bot
         app.xdotool(&["keydown", "ctrl"]);
         app.click(320, 180, false);
         app.xdotool(&["keyup", "ctrl"]);
-        app.click(550, 425, false);
-        app.xdotool(&["key", "ctrl+n"]);
+        app.click(330, 425, false);
+        app.click(390, 366, false);
         assert!(
             app.commands.is_empty(),
             "Opening the name editor must not write a playlist or play audio"
@@ -299,6 +300,97 @@ fn x11_create_playlist_uses_control_selection_unicode_clipboard_and_enter_in_bot
         );
         assert!(app.engine.state.lock().unwrap().queue.is_empty());
         // The held-key pump and subsequent idle frames must not create again.
+        app.commands.clear();
+        for _ in 0..8 {
+            app.frame();
+        }
+        assert!(app.commands.is_empty());
+    }
+}
+
+#[test]
+#[ignore = "requires isolated Xvfb and xdotool"]
+fn x11_send_menu_preserves_selection_dismisses_on_focus_loss_and_dispatches_once() {
+    for skin in [Skin::Classic, Skin::Modern] {
+        let mut app = App::new(skin);
+        let id = model::PlaylistId::Spotify("owned-menu-test-playlist".into());
+        let rows: Vec<_> = (0..4)
+            .map(|index| model::TrackRow {
+                uri: format!("spotify:track:{index:022}"),
+                title: format!("Track {index}"),
+                ..Default::default()
+            })
+            .collect();
+        {
+            let mut snapshot = app.engine.library.lock().unwrap();
+            snapshot.revision += 1;
+            snapshot.selected_id = Some(id.clone());
+            snapshot.selected_owned = true;
+            snapshot.selected_playlist_revision = Arc::from([1, 2, 3]);
+            snapshot.entries = Arc::new(vec![model::PlaylistEntry {
+                id: id.clone(),
+                name: "Owned menu fixture".into(),
+                track_count: Some(rows.len()),
+                duration_ms: None,
+                folder: String::new(),
+                available: true,
+            }]);
+            snapshot.tracks = Arc::new(rows.clone());
+        }
+        app.engine.state.lock().unwrap().queue = rows.clone();
+        app.frame();
+        let library = (app.library.window.get_window_handle() as usize).to_string();
+        let player = (app.player.get_window_handle() as usize).to_string();
+        app.xdotool(&["windowfocus", "--sync", &library]);
+        app.click(320, 132, false);
+        app.xdotool(&["keydown", "ctrl"]);
+        app.click(320, 180, false);
+        app.xdotool(&["keyup", "ctrl"]);
+
+        // Clicking the covered list dismisses the menu without changing the
+        // explicitly selected rows or starting a drag from the background.
+        app.click(330, 425, false);
+        assert!(app.library.view.has_overlay());
+        app.click(320, 156, false);
+        assert!(!app.library.view.has_overlay());
+        assert!(app.commands.is_empty());
+        assert_eq!(
+            app.library
+                .view
+                .selected_tracks(&app.engine.library.lock().unwrap()),
+            vec![rows[0].clone(), rows[2].clone()]
+        );
+
+        // Native Shift+F10 opens the same menu and its append item captures
+        // both rows, without sending a playback or replace operation.
+        app.xdotool(&["key", "shift+F10"]);
+        assert!(app.library.view.has_overlay());
+        app.xdotool(&["mousemove", "--window", &library, "390", "282"]);
+        app.xdotool(&["key", "Down"]);
+        // Several native frames with the mouse resting over Play must keep
+        // the newer keyboard choice (Append), rather than reset its focus.
+        app.xdotool(&["key", "Return"]);
+        assert!(
+            matches!(app.commands.as_slice(), [model::LibraryCommand::QueueTracks {
+            tracks, origin: _, expected_queue: _, replace: false, play: false, insert_at: None,
+        }] if tracks == &vec![rows[0].clone(), rows[2].clone()])
+        );
+        app.commands.clear();
+
+        app.click(330, 425, false);
+        app.xdotool(&["windowfocus", "--sync", &player]);
+        assert!(!app.library.view.has_overlay());
+        assert!(app.commands.is_empty());
+        app.xdotool(&["windowfocus", "--sync", &library]);
+        app.click(330, 425, false);
+        app.click(390, 394, false);
+        assert!(
+            matches!(app.commands.as_slice(), [model::LibraryCommand::RemoveFromPlaylist {
+            id: requested_id, indices, expected_revision, expected_tracks,
+        }] if requested_id == &id && indices == &[0, 2]
+            && expected_revision.as_ref() == [1, 2, 3] && expected_tracks.as_ref() == &rows)
+        );
+        assert_eq!(app.engine.state.lock().unwrap().queue, rows);
         app.commands.clear();
         for _ in 0..8 {
             app.frame();

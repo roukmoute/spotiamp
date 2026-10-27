@@ -460,6 +460,19 @@ impl View {
         for (y, version, first, second) in [
             (
                 109,
+                self.language
+                    .text("0.2.16 / MENU ENVOYER VERS", "0.2.16 / SEND TO MENU"),
+                self.language.text(
+                    "Lire, ajouter à la file ou gérer vos playlists.",
+                    "Play, queue or manage your playlists.",
+                ),
+                self.language.text(
+                    "Un menu pour agir sur les morceaux sélectionnés.",
+                    "One menu for the selected tracks.",
+                ),
+            ),
+            (
+                154,
                 self.language.text(
                     "0.2.15 / RETRAIT DE TITRES",
                     "0.2.15 / REMOVE PLAYLIST TRACKS",
@@ -474,7 +487,7 @@ impl View {
                 ),
             ),
             (
-                154,
+                199,
                 self.language.text(
                     "0.2.14 / MISE À JOUR IMMÉDIATE",
                     "0.2.14 / IMMEDIATE UPDATE CHECK",
@@ -489,7 +502,7 @@ impl View {
                 ),
             ),
             (
-                199,
+                244,
                 self.language
                     .text("0.2.13 / NOUVELLES PLAYLISTS", "0.2.13 / NEW PLAYLISTS"),
                 self.language.text(
@@ -502,7 +515,7 @@ impl View {
                 ),
             ),
             (
-                244,
+                289,
                 self.language
                     .text("0.2.12 / RECHERCHE SPOTIFY", "0.2.12 / SPOTIFY SEARCH"),
                 self.language.text(
@@ -515,7 +528,7 @@ impl View {
                 ),
             ),
             (
-                289,
+                334,
                 self.language
                     .text("0.2.11 / SIX LANGUES", "0.2.11 / SIX LANGUAGES"),
                 self.language.text(
@@ -525,19 +538,6 @@ impl View {
                 self.language.text(
                     "italien et portugais. Choix mémorisé.",
                     "Italian and Portuguese. Remembered choice.",
-                ),
-            ),
-            (
-                334,
-                self.language
-                    .text("0.2.10 / REPRISE MÉMORISÉE", "0.2.10 / REMEMBERED PLAYBACK"),
-                self.language.text(
-                    "Playlist, morceau et position retrouvés au lancement.",
-                    "Playlist, track and position restored at startup.",
-                ),
-                self.language.text(
-                    "Lecture reprend où vous vous êtes arrêté.",
-                    "Play resumes where you left off.",
                 ),
             ),
         ] {

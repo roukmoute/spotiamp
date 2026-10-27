@@ -1,5 +1,15 @@
 # Changements
 
+## 0.2.16 — 27 octobre 2026
+
+- Un bouton Envoyer vers… regroupe les actions de la bibliothèque : lire la
+  sélection, l'ajouter à la file, l'envoyer vers une playlist existante ou créer
+  une nouvelle playlist Spotify avec les morceaux choisis.
+- Le même menu permet de retirer la sélection d'une playlist dont vous êtes
+  propriétaire. Les raccourcis existants et le glisser-déposer sont conservés.
+- Menu intégré aux skins Classique et Modern, traduit dans les six langues,
+  utilisant les commandes existantes sans dépendance ni tâche permanente.
+
 ## 0.2.15 — 27 octobre 2026
 
 - Suppr retire les morceaux sélectionnés d'une playlist Spotify dont vous êtes

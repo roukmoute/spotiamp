@@ -1,4 +1,4 @@
-use super::tests::{click, snapshot};
+use super::tests::{click, send_menu, snapshot};
 use super::*;
 
 fn searched() -> (View, LibrarySnapshot) {
@@ -120,7 +120,7 @@ fn double_click_and_enter_capture_exact_search_result() {
     let actions = [
         (click(&mut view, 310, 152, &s), true),
         (view.key(Key::Enter, true, false, &s), false),
-        (click(&mut view, 390, 425, &s), false),
+        (send_menu(&mut view, 1, &s), false),
     ];
     for (action, expected) in actions {
         assert!(

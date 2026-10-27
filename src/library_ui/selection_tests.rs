@@ -1,4 +1,4 @@
-use super::tests::{click, snapshot};
+use super::tests::{click, send_menu, snapshot};
 use super::*;
 use std::sync::Arc;
 
@@ -80,11 +80,7 @@ fn control_toggle_and_shift_ranges_capture_selected_rows_in_list_order_in_both_s
             &[2, 3, 4, 5, 6, 7, 8],
             false,
         );
-        assert_tracks(
-            click(&mut view, 400, 425, &s),
-            &[2, 3, 4, 5, 6, 7, 8],
-            false,
-        );
+        assert_tracks(send_menu(&mut view, 1, &s), &[2, 3, 4, 5, 6, 7, 8], false);
     }
 }
 #[test]
@@ -168,7 +164,7 @@ fn picker_captures_chosen_tracks_and_requires_explicit_destination() {
     let (mut view, mut s) = setup(true);
     choose(&mut view, 2, false, false, &s);
     choose(&mut view, 5, true, false, &s);
-    click(&mut view, 540, 425, &s);
+    send_menu(&mut view, 2, &s);
     assert!(view.picker.is_some());
     assert!(!view.enabled(Button::PickerConfirm, &s));
     assert!(view.key(Key::Enter, false, false, &s).is_none());
@@ -203,7 +199,7 @@ fn picker_cancel_removed_destination_and_disconnect_never_add_tracks() {
     s.connected = false;
     view.render(&s);
     assert!(view.picker.is_none());
-    assert!(!view.enabled(Button::ToPlaylist, &s));
+    assert!(!view.enabled(Button::SendTo, &s));
 }
 #[test]
 fn picker_scroll_and_selection_never_change_source_tracks_or_browse_playlist() {
@@ -256,7 +252,7 @@ fn returning_to_same_playlist_navigation_plays_the_whole_playlist() {
     assert_eq!(indices(&view, &s), [2, 5]);
     for (action, play) in [
         (view.key(Key::Enter, false, false, &s), true),
-        (click(&mut view, 400, 425, &s), false),
+        (send_menu(&mut view, 1, &s), false),
     ] {
         assert!(
             matches!(action, Some(Action::Command(LibraryCommand::Queue {

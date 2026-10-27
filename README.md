@@ -207,9 +207,16 @@ affiche ses titres sans modifier la file ni la lecture en cours. Un
 chargement réussi et lance le premier titre. **Actualiser** ou **F5** recharge
 le catalogue Spotify.
 
-Dans la colonne des playlists, **Lire** remplace la file par la playlist choisie
-et démarre son premier titre. **À la file** ajoute cette playlist à la fin de la
-file existante. Le remplacement n'a lieu qu'après le chargement réussi des titres :
+Le bouton **Envoyer vers…** regroupe les actions de la bibliothèque dans un menu.
+Hors des champs de saisie, **Maj+F10** ou la touche **Menu** l'ouvre au clavier.
+Choisissez une action à la souris ou avec **Haut/Bas**, puis **Entrée**.
+**Échap**, un clic à l'extérieur ou le changement de fenêtre ferme le menu.
+Les actions indisponibles restent désactivées.
+
+Dans la colonne des playlists, **Envoyer vers… → Lire la sélection** remplace
+la file par la playlist choisie et démarre son premier titre.
+**Ajouter à la file** ajoute cette playlist à la fin de la file existante.
+Le remplacement n'a lieu qu'après le chargement réussi des titres :
 une erreur d'accès ou une playlist vide conserve la file précédente.
 
 Dans les titres d'une playlist comme dans les résultats de recherche, **Ctrl+clic**
@@ -219,8 +226,9 @@ suivante** l'étendent au clavier. **Ctrl+A** (**Cmd+A**) sélectionne tous les 
 lorsque la liste des titres est active. La sélection reste dans l'ordre de la liste,
 même si vous avez choisi les lignes dans un autre ordre.
 
-Avec des titres sélectionnés, **Lire** ou **Entrée** remplace la file par cette
-sélection et démarre son premier titre. **À la file**, **Maj+Entrée** ou
+Avec des titres sélectionnés, **Envoyer vers… → Lire la sélection** ou **Entrée**
+remplace la file par cette sélection et démarre son premier titre.
+**Envoyer vers… → Ajouter à la file**, **Maj+Entrée** ou
 **Ctrl+Entrée** (**Cmd+Entrée**) l'ajoute à la fin, sans interrompre la musique.
 Un double-clic sur un titre sélectionne ce titre seul et le lance.
 Vous pouvez aussi **glisser la sélection vers la file du lecteur** : un repère
@@ -229,7 +237,8 @@ Le dépôt insère les titres dans leur ordre de liste, sans interrompre le morc
 courant. La sélection n'est pas retirée de la playlist Spotify d'origine.
 
 Pour retirer des morceaux d'une playlist Spotify dont vous êtes propriétaire,
-activez son panneau de titres, sélectionnez les lignes puis appuyez sur **Suppr**.
+activez son panneau de titres, sélectionnez les lignes puis choisissez
+**Envoyer vers… → Retirer de cette playlist** ou appuyez sur **Suppr**.
 Le retrait est envoyé à Spotify sans dialogue de confirmation et concerne
 uniquement les occurrences sélectionnées, même si un titre apparaît plusieurs
 fois. La file du lecteur et la lecture en cours sont conservées. Ce raccourci
@@ -251,16 +260,18 @@ et de glisser-déposer que les titres d'une playlist. **Effacer** annule la rech
 et vide ses résultats, en conservant la file et la playlist consultée. Revenir
 à une playlist retrouve sa vue.
 
-Pour enregistrer les morceaux choisis sur Spotify, **Vers playlist…** ouvre
-la liste des playlists de votre bibliothèque. Choisissez une destination,
+Pour enregistrer les morceaux choisis sur Spotify,
+**Envoyer vers… → Vers une playlist…** ouvre la liste des playlists de votre
+bibliothèque. Choisissez une destination,
 puis cliquez sur **Ajouter** ou appuyez sur **Entrée** ; **Annuler** ou **Échap**
 ferme ce choix. La sélection est ajoutée à la fin de la playlist Spotify,
 dans l'ordre affiché, sans changer la lecture en cours. Les occurrences répétées
 d'un même titre sont conservées. Spotify doit autoriser la modification de
 la destination ; une playlist en lecture seule est refusée.
 
-Pour créer une playlist avec cette sélection, cliquez sur **Nouvelle…** dans
-ce même choix de destination, saisissez un nom de **1 à 100 caractères**,
+Pour créer une playlist avec cette sélection, choisissez
+**Envoyer vers… → Nouvelle playlist…**, ou cliquez sur **Nouvelle…** dans
+le choix de destination. Saisissez un nom de **1 à 100 caractères**,
 puis validez avec **Créer** ou **Entrée**. Le nom accepte les accents et les
 raccourcis de presse-papiers habituels. **Retour** ou **Échap** revient au choix
 de destination sans créer de playlist. La sélection retenue lors de l'ouverture
@@ -269,8 +280,8 @@ Spotiamp crée la playlist, l'ajoute à votre bibliothèque Spotify, puis y ajou
 les morceaux choisis dans leur ordre de liste. Le succès n'est annoncé qu'après
 confirmation de ces trois étapes par Spotify.
 
-Une seule création, demande d'ajout ou de retrait à Spotify est traitée à la fois, pour au
-plus 500 titres, sans découpage de la sélection. Attendez la confirmation avant
+Une seule création, demande d'ajout ou de retrait à Spotify est traitée à la fois,
+pour au plus 500 titres, sans découpage de la sélection. Attendez la confirmation avant
 de recommencer. Si la playlist est créée mais qu'une étape suivante échoue,
 Spotiamp conserve sa destination connue et précise l'étape en échec ; il ne
 recrée pas une autre playlist. Si Spotify ne confirme pas une opération après
@@ -306,9 +317,9 @@ ne suffisent pas ; la file et la lecture sont conservées. L'ajout d'une playlis
 entière depuis la colonne de gauche garde son fonctionnement précédent : seuls
 les titres qui tiennent dans la file sont ajoutés, avec un message de limitation.
 Les noms, artistes et durées arrivent progressivement, avec deux requêtes de
-métadonnées simultanées au maximum. Les actions **Vers playlist… → Ajouter**,
-**Nouvelle… → Créer** et **Suppr** dans les titres d'une playlist dont vous êtes
-propriétaire modifient vos playlists sur Spotify.
+métadonnées simultanées au maximum. Dans **Envoyer vers…**, l'ajout à une
+playlist, la création et le retrait de titres modifient vos playlists sur Spotify.
+**Suppr** effectue également le retrait dans une playlist dont vous êtes propriétaire.
 Le catalogue est plafonné à **1 000 playlists** et **2 000 entrées** en comptant
 les marqueurs de dossiers ; un dépassement est signalé au lieu de charger une
 liste partielle silencieusement.

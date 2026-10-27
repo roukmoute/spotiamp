@@ -21,6 +21,19 @@ fn state() -> LibrarySnapshot {
     }
 }
 
+fn mouse(down: bool, x: f32, y: f32) -> Input {
+    Input::Mouse(
+        MouseInput::Button {
+            button: MouseButton::Left,
+            down,
+            x,
+            y,
+        },
+        false,
+        false,
+    )
+}
+
 fn queries(actions: &[library_ui::Action]) -> Vec<&str> {
     actions
         .iter()
@@ -316,23 +329,12 @@ fn creation_recovery_matches_dispatch_after_paste_enter_and_later_keys_in_one_ba
         view.pointer_down_with_modifiers(320, y, control, false, &snapshot);
         assert!(view.pointer_up(Some((320, y)), &snapshot).is_none());
     }
-    let mouse = |down| {
-        Input::Mouse(
-            MouseInput::Button {
-                button: MouseButton::Left,
-                down,
-                x: 550.0,
-                y: 425.0,
-            },
-            false,
-            false,
-        )
-    };
     let events = [
         Input::Key(Key::F5, false, false),
-        mouse(true),
-        mouse(false),
-        Input::Key(Key::N, true, false),
+        mouse(true, 330.0, 425.0),
+        mouse(false, 330.0, 425.0),
+        mouse(true, 390.0, 366.0),
+        mouse(false, 390.0, 366.0),
         Input::Key(Key::V, true, false),
         Input::Key(Key::Enter, false, false),
         Input::Key(Key::LeftShift, false, true),
@@ -421,6 +423,198 @@ fn owned_playlist() -> (library_ui::View, LibrarySnapshot) {
     view.pointer_down(320, 132, &snapshot);
     assert!(view.pointer_up(Some((320, 132)), &snapshot).is_none());
     (view, snapshot)
+}
+
+#[test]
+fn outside_menu_click_is_consumed_without_selecting_or_dragging_the_covered_list() {
+    let (mut view, snapshot) = owned_playlist();
+    let mut actions = Vec::new();
+    let mut drag = PointerDrag::default();
+    process_with_drag(
+        &mut view,
+        &snapshot,
+        true,
+        &[
+            mouse(true, 330.0, 425.0),
+            mouse(false, 330.0, 425.0),
+            mouse(true, 320.0, 156.0),
+            mouse(false, -30.0, 269.0),
+        ],
+        &[],
+        &mut |_| panic!("menu accessed clipboard"),
+        &mut actions,
+        &mut drag,
+    );
+    assert!(actions.is_empty());
+    assert!(!view.has_overlay());
+    assert_eq!(
+        view.selected_tracks(&snapshot),
+        vec![snapshot.tracks[0].clone()]
+    );
+    assert!(drag.origin.is_none() && !drag.active && drag.completed.is_empty());
+}
+
+#[test]
+fn menu_consumes_background_shortcuts_text_clipboard_and_escape_without_actions() {
+    let (mut view, snapshot) = owned_playlist();
+    let mut actions = Vec::new();
+    process(
+        &mut view,
+        &snapshot,
+        true,
+        &[
+            Input::Key(Key::Menu, false, false),
+            Input::Key(Key::F, true, false),
+            Input::Key(Key::V, true, false),
+            Input::Char('x'),
+            Input::Key(Key::Delete, false, false),
+            Input::Key(Key::F5, false, false),
+        ],
+        &[],
+        &mut |_| panic!("menu accessed clipboard"),
+        &mut actions,
+    );
+    assert!(actions.is_empty());
+    assert!(view.has_overlay() && !view.wants_text_input());
+    assert_eq!(
+        view.selected_tracks(&snapshot),
+        vec![snapshot.tracks[0].clone()]
+    );
+    process(
+        &mut view,
+        &snapshot,
+        true,
+        &[Input::Key(Key::Escape, false, false)],
+        &[],
+        &mut |_| Err(()),
+        &mut actions,
+    );
+    assert!(!view.has_overlay() && actions.is_empty());
+    process(
+        &mut view,
+        &snapshot,
+        true,
+        &[
+            Input::Key(Key::Menu, false, false),
+            Input::Key(Key::F3, false, false),
+            Input::Key(Key::Enter, false, false),
+        ],
+        &[],
+        &mut |_| Err(()),
+        &mut actions,
+    );
+    assert!(matches!(actions.as_slice(), [library_ui::Action::Close]));
+}
+
+#[test]
+fn keyboard_opened_menu_cancels_a_row_drag_before_an_outside_release() {
+    let (mut view, snapshot) = owned_playlist();
+    let mut actions = Vec::new();
+    let mut drag = PointerDrag::default();
+    process_with_drag(
+        &mut view,
+        &snapshot,
+        true,
+        &[mouse(true, 320.0, 132.0), Input::Key(Key::F10, false, true)],
+        &[],
+        &mut |_| Err(()),
+        &mut actions,
+        &mut drag,
+    );
+    assert!(view.has_overlay());
+    assert!(drag.origin.is_none() && !drag.active);
+    drag.moved(Some((-30.0, 269.0)), &mut view);
+    process_with_drag(
+        &mut view,
+        &snapshot,
+        true,
+        &[mouse(false, -30.0, 269.0)],
+        &[],
+        &mut |_| Err(()),
+        &mut actions,
+        &mut drag,
+    );
+    assert!(actions.is_empty() && drag.completed.is_empty());
+}
+
+#[test]
+fn stale_menu_activation_is_consumed_when_the_source_playlist_changes() {
+    let (mut view, mut snapshot) = owned_playlist();
+    view.pointer_down_with_modifiers(320, 180, true, false, &snapshot);
+    view.pointer_up(Some((320, 180)), &snapshot);
+    let mut actions = Vec::new();
+    process(
+        &mut view,
+        &snapshot,
+        true,
+        &[Input::Key(Key::Menu, false, false)],
+        &[],
+        &mut |_| Err(()),
+        &mut actions,
+    );
+    assert!(view.has_overlay());
+    snapshot.revision += 1;
+    snapshot.selected_playlist_revision = std::sync::Arc::from([4, 5, 6]);
+    std::sync::Arc::make_mut(&mut snapshot.tracks).reverse();
+    process(
+        &mut view,
+        &snapshot,
+        true,
+        &[mouse(true, 390.0, 366.0), mouse(false, 390.0, 366.0)],
+        &[],
+        &mut |_| panic!("stale menu accessed clipboard"),
+        &mut actions,
+    );
+    assert!(actions.is_empty() && !view.has_overlay());
+    assert!(!view.wants_text_input());
+}
+
+#[test]
+fn menu_removal_is_consumed_once_and_focus_loss_cancels_a_pressed_item() {
+    let (mut view, snapshot) = owned_playlist();
+    let mut actions = Vec::new();
+    process(
+        &mut view,
+        &snapshot,
+        true,
+        &[
+            Input::Key(Key::Menu, false, false),
+            mouse(true, 390.0, 394.0),
+        ],
+        &[],
+        &mut |_| Err(()),
+        &mut actions,
+    );
+    view.set_focus(false);
+    process(
+        &mut view,
+        &snapshot,
+        false,
+        &[mouse(false, 390.0, 394.0)],
+        &[],
+        &mut |_| Err(()),
+        &mut actions,
+    );
+    assert!(actions.is_empty() && !view.has_overlay());
+    view.set_focus(true);
+    process(
+        &mut view,
+        &snapshot,
+        true,
+        &[
+            Input::Key(Key::Menu, false, false),
+            mouse(true, 390.0, 394.0),
+            mouse(false, 390.0, 394.0),
+            Input::Key(Key::Delete, false, false),
+        ],
+        &[(Key::Delete, true, false, false)],
+        &mut |_| Err(()),
+        &mut actions,
+    );
+    assert!(
+        matches!(actions.as_slice(), [library_ui::Action::Command(LibraryCommand::RemoveFromPlaylist { indices, expected_tracks, expected_revision, .. })]
+        if indices == &[0] && std::sync::Arc::ptr_eq(expected_tracks, &snapshot.tracks) && expected_revision == &snapshot.selected_playlist_revision)
+    );
 }
 
 #[test]

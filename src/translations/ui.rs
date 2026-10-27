@@ -58,6 +58,15 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
     ),
     (
+        "0.2.16 / SEND TO MENU",
+        [
+            "0.2.16 / SENDEN-AN-MENÜ",
+            "0.2.16 / MENÚ ENVIAR A",
+            "0.2.16 / MENU INVIA A",
+            "0.2.16 / MENU ENVIAR PARA",
+        ],
+    ),
+    (
         "0.2.6 / MAGNETIC WINDOWS",
         [
             "0.2.6 / MAGNETISCHE FENSTER",
@@ -222,6 +231,15 @@ pub(super) const ENTRIES: &[Entry] = &[
             "Añadir enlace / reproducir",
             "Aggiungi link / riproduci",
             "Adicionar link / reproduzir",
+        ],
+    ),
+    (
+        "Add to queue",
+        [
+            "Zur Warteschlange hinzufügen",
+            "Añadir a la cola",
+            "Aggiungi alla coda",
+            "Adicionar à fila",
         ],
     ),
     (
@@ -870,6 +888,15 @@ pub(super) const ENTRIES: &[Entry] = &[
             "Saída de áudio nativa",
         ],
     ),
+    (
+        "New playlist...",
+        [
+            "Neue Playlist...",
+            "Nueva playlist...",
+            "Nuova playlist...",
+            "Nova playlist...",
+        ],
+    ),
     ("No", ["Nr.", "N.º", "N.", "N.º"]),
     (
         "No playlists",
@@ -930,6 +957,15 @@ pub(super) const ENTRIES: &[Entry] = &[
         ["OFFLINE", "SIN CONEXIÓN", "NON CONNESSO", "SEM LIGAÇÃO"],
     ),
     (
+        "One menu for the selected tracks.",
+        [
+            "Ein Menü für die ausgewählten Titel.",
+            "Un menú para los temas seleccionados.",
+            "Un menu per i brani selezionati.",
+            "Um menu para as faixas selecionadas.",
+        ],
+    ),
+    (
         "Opening Updates checks for a new version immediately.",
         [
             "Beim Öffnen von Updates sofort nach Versionen suchen.",
@@ -986,6 +1022,24 @@ pub(super) const ENTRIES: &[Entry] = &[
             "Reproducir continúa donde lo dejaste.",
             "Riproduci riprende da dove eri rimasto.",
             "Reproduzir retoma onde paraste.",
+        ],
+    ),
+    (
+        "Play selection",
+        [
+            "Auswahl abspielen",
+            "Reproducir selección",
+            "Riproduci selezione",
+            "Reproduzir seleção",
+        ],
+    ),
+    (
+        "Play, queue or manage your playlists.",
+        [
+            "Abspielen, einreihen oder Playlists verwalten.",
+            "Reproduce, añade a la cola o gestiona tus playlists.",
+            "Riproduci, accoda o gestisci le tue playlist.",
+            "Reproduz, adiciona à fila ou gere as tuas playlists.",
         ],
     ),
     (
@@ -1099,6 +1153,15 @@ pub(super) const ENTRIES: &[Entry] = &[
     ),
     ("REMOVE", ["ENTFERNEN", "QUITAR", "RIMUOVI", "REMOVER"]),
     (
+        "Remove from this playlist",
+        [
+            "Aus dieser Playlist entfernen",
+            "Quitar de esta playlist",
+            "Rimuovi da questa playlist",
+            "Remover desta playlist",
+        ],
+    ),
+    (
         "Remove the selected track",
         [
             "Gewählten Titel entfernen",
@@ -1126,6 +1189,15 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
     ),
     ("SEARCH", ["SUCHEN", "BUSCAR", "CERCA", "PESQUISAR"]),
+    (
+        "SEND TO...",
+        [
+            "SENDEN AN...",
+            "ENVIAR A...",
+            "INVIA A...",
+            "ENVIAR PARA...",
+        ],
+    ),
     (
         "SPOTIAMP  /  LIBRARY",
         [
@@ -1409,6 +1481,15 @@ pub(super) const ENTRIES: &[Entry] = &[
             "La actualización no se completó.",
             "L'aggiornamento non è stato completato.",
             "A atualização não foi concluída.",
+        ],
+    ),
+    (
+        "To a playlist...",
+        [
+            "Zu einer Playlist...",
+            "A una playlist...",
+            "A una playlist...",
+            "Para uma playlist...",
         ],
     ),
     (

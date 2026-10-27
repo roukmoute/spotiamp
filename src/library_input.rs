@@ -187,6 +187,10 @@ pub(super) fn process_with_drag(
         return;
     }
     for &event in events {
+        let overlay_was_open = view.has_overlay();
+        if overlay_was_open {
+            drag.cancel();
+        }
         let action = match event {
             Input::Key(Key::Escape, _, _) if drag.origin.is_some() => {
                 drag.cancel();
@@ -251,6 +255,12 @@ pub(super) fn process_with_drag(
             }
             _ => None,
         };
+        // A keyboard-opened menu can arrive while a row is still pressed.
+        // Its captured drag belongs to the covered list, not to the overlay.
+        // The event dismissing an overlay must not start a background drag.
+        if overlay_was_open || view.has_overlay() {
+            drag.cancel();
+        }
         if let Some(action) = action {
             let close = matches!(action, library_ui::Action::Close);
             dispatch(view, action, clipboard, actions);

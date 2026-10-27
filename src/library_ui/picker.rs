@@ -253,8 +253,11 @@ impl PlaylistPicker {
     }
 }
 impl View {
+    #[cfg(test)]
     pub(super) fn open_picker(&mut self, s: &LibrarySnapshot) {
-        let tracks = self.selected_tracks(s);
+        self.open_picker_from_tracks(s, self.selected_tracks(s));
+    }
+    pub(super) fn open_picker_from_tracks(&mut self, s: &LibrarySnapshot, tracks: Vec<TrackRow>) {
         if tracks.is_empty()
             || !s.connected
             || s.playlist_write_busy
