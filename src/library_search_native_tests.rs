@@ -306,3 +306,74 @@ fn x11_create_playlist_uses_control_selection_unicode_clipboard_and_enter_in_bot
         assert!(app.commands.is_empty());
     }
 }
+
+#[test]
+#[ignore = "requires isolated Xvfb and xdotool"]
+fn x11_playlist_delete_held_across_completion_never_repeats_or_changes_playback() {
+    for skin in [Skin::Classic, Skin::Modern] {
+        let mut app = App::new(skin);
+        let id = model::PlaylistId::Spotify("owned-test-playlist".into());
+        let rows: Vec<_> = (0..4)
+            .map(|index| model::TrackRow {
+                uri: format!("spotify:track:{index:022}"),
+                title: format!("Track {index}"),
+                ..Default::default()
+            })
+            .collect();
+        {
+            let mut snapshot = app.engine.library.lock().unwrap();
+            snapshot.revision += 1;
+            snapshot.selected_id = Some(id.clone());
+            snapshot.selected_owned = true;
+            snapshot.selected_playlist_revision = Arc::from([1, 2, 3]);
+            snapshot.entries = Arc::new(vec![model::PlaylistEntry {
+                id: id.clone(),
+                name: "Owned fixture".into(),
+                track_count: Some(rows.len()),
+                duration_ms: None,
+                folder: String::new(),
+                available: true,
+            }]);
+            snapshot.tracks = Arc::new(rows.clone());
+        }
+        app.engine.state.lock().unwrap().queue = rows.clone();
+        app.frame();
+        let window = (app.library.window.get_window_handle() as usize).to_string();
+        app.xdotool(&["windowfocus", "--sync", &window]);
+        app.click(320, 132, false);
+        app.xdotool(&["keydown", "ctrl"]);
+        app.click(320, 180, false);
+        app.xdotool(&["keyup", "ctrl"]);
+        app.xdotool(&["keydown", "Delete"]);
+        assert!(
+            matches!(app.commands.as_slice(), [model::LibraryCommand::RemoveFromPlaylist {
+            id: requested_id, indices, expected_revision, expected_tracks,
+        }] if requested_id == &id && indices == &[0, 2] && expected_revision.as_ref() == [1, 2, 3]
+            && expected_tracks.as_ref() == &rows)
+        );
+        app.commands.clear();
+        {
+            let mut snapshot = app.engine.library.lock().unwrap();
+            snapshot.revision += 1;
+            snapshot.playlist_remove_revision += 1;
+            snapshot.selected_playlist_revision = Arc::from([4, 5, 6]);
+            snapshot.tracks = Arc::new(vec![rows[1].clone(), rows[3].clone()]);
+        }
+        app.frame();
+        // Select a remaining row without releasing Delete, then let native
+        // repeat events run well past the initial repeat delay.
+        app.click(320, 132, false);
+        app.xdotool(&["sleep", "1"]);
+        assert!(
+            app.commands.is_empty(),
+            "held Delete emitted a second mutation: {:?}",
+            app.commands
+        );
+        app.xdotool(&["keyup", "Delete"]);
+        app.xdotool(&["key", "Delete"]);
+        assert!(
+            matches!(app.commands.as_slice(), [model::LibraryCommand::RemoveFromPlaylist { indices, .. }] if indices == &[0])
+        );
+        assert_eq!(app.engine.state.lock().unwrap().queue, rows);
+    }
+}

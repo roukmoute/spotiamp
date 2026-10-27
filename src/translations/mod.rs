@@ -97,6 +97,9 @@ mod tests {
         for (key, max_chars) in [
             ("Credits", 11),
             ("Shortcuts", 11),
+            ("0.2.15 / REMOVE PLAYLIST TRACKS", 56),
+            ("Delete removes selected tracks from your playlist.", 56),
+            ("Playback and queue are preserved.", 56),
             ("0.2.14 / IMMEDIATE UPDATE CHECK", 56),
             ("Opening Updates checks for a new version immediately.", 56),
             ("Downloads and ready-to-install updates are preserved.", 56),

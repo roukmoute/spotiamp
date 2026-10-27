@@ -587,6 +587,15 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
         ],
     ),
     (
+        "Invalid selection; no tracks removed",
+        [
+            "Ungültige Auswahl; keine Titel entfernt",
+            "Selección no válida; no se quitó ningún tema",
+            "Selezione non valida; nessun brano rimosso",
+            "Seleção inválida; nenhuma faixa removida",
+        ],
+    ),
+    (
         "Language applied but not saved: cannot write settings.",
         [
             "Sprache angewendet, aber nicht gespeichert: Schreibfehler.",
@@ -722,6 +731,15 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
         ],
     ),
     (
+        "Only the owner can remove tracks from this playlist",
+        [
+            "Nur der Eigentümer kann Titel aus dieser Playlist entfernen",
+            "Solo el propietario puede quitar temas de esta playlist",
+            "Solo il proprietario può rimuovere brani da questa playlist",
+            "Só o proprietário pode remover faixas desta playlist",
+        ],
+    ),
+    (
         "Opening a browser is not supported on this system.",
         [
             "Dieses System unterstützt das Öffnen eines Browsers nicht.",
@@ -786,6 +804,15 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
         ],
     ),
     (
+        "Playlist change in progress; wait for confirmation",
+        [
+            "Playlist wird geändert; auf Bestätigung warten",
+            "Modificación de playlist en curso; espera la confirmación",
+            "Modifica della playlist in corso; attendi la conferma",
+            "Alteração da playlist em curso; aguarda a confirmação",
+        ],
+    ),
+    (
         "Preferences directory unavailable",
         [
             "Einstellungsordner nicht verfügbar",
@@ -846,6 +873,24 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
             "Reconectando con tu sesión de Spotify guardada...",
             "Riconnessione alla sessione Spotify salvata...",
             "A voltar a ligar à sessão guardada do Spotify...",
+        ],
+    ),
+    (
+        "Removal not confirmed; check the playlist before retrying",
+        [
+            "Entfernen unbestätigt; Playlist vor erneutem Versuch prüfen",
+            "Retirada sin confirmar; comprueba la playlist antes de reintentar",
+            "Rimozione non confermata; controlla la playlist prima di riprovare",
+            "Remoção não confirmada; verifica a playlist antes de tentar novamente",
+        ],
+    ),
+    (
+        "Removing tracks from the Spotify playlist...",
+        [
+            "Titel werden aus der Spotify-Playlist entfernt...",
+            "Quitando temas de la playlist de Spotify...",
+            "Rimozione dei brani dalla playlist Spotify...",
+            "A remover faixas da playlist Spotify...",
         ],
     ),
     (
@@ -948,6 +993,15 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
         ],
     ),
     (
+        "Spotify is limiting removals; wait before retrying",
+        [
+            "Spotify begrenzt das Entfernen; vor erneutem Versuch warten",
+            "Spotify limita las retiradas; espera antes de reintentar",
+            "Spotify limita le rimozioni; attendi prima di riprovare",
+            "O Spotify limita as remoções; aguarda antes de tentar novamente",
+        ],
+    ),
+    (
         "Spotify is not responding while loading playlists",
         [
             "Spotify reagiert beim Laden der Playlists nicht",
@@ -999,6 +1053,15 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
             "Spotify rechazó la adición; no se añadieron canciones",
             "Spotify ha rifiutato l'aggiunta; nessun brano aggiunto",
             "O Spotify recusou a adição; nenhuma faixa adicionada",
+        ],
+    ),
+    (
+        "Spotify refused the removal; no tracks removed",
+        [
+            "Spotify hat das Entfernen abgelehnt; keine Titel entfernt",
+            "Spotify rechazó la retirada; no se quitó ningún tema",
+            "Spotify ha rifiutato la rimozione; nessun brano rimosso",
+            "O Spotify recusou a remoção; nenhuma faixa removida",
         ],
     ),
     (
@@ -1306,6 +1369,15 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
             "Versión de medición de interfaz: motor de audio no compilado.",
             "Versione di misura interfaccia: motore audio non compilato.",
             "Versão de medição da interface: motor de áudio não compilado.",
+        ],
+    ),
+    (
+        "Unable to verify playlist; no tracks removed",
+        [
+            "Playlist nicht überprüfbar; keine Titel entfernt",
+            "No se pudo verificar la playlist; no se quitó ningún tema",
+            "Impossibile verificare la playlist; nessun brano rimosso",
+            "Não foi possível verificar a playlist; nenhuma faixa removida",
         ],
     ),
     (

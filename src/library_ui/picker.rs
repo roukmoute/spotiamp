@@ -259,6 +259,7 @@ impl View {
             || !s.connected
             || s.playlist_write_busy
             || self.submitted_picker.is_some()
+            || self.pending_removal.is_some()
         {
             return;
         }

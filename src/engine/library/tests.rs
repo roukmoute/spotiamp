@@ -249,6 +249,392 @@ fn worker() -> Worker {
     worker
 }
 
+fn preview_message(uris: &[&str]) -> librespot_protocol::playlist4_external::SelectedListContent {
+    use librespot_protocol::playlist4_external::{
+        Item, ListAttributes, ListItems, SelectedListContent,
+    };
+    use protobuf::MessageField;
+
+    let mut message = SelectedListContent::new();
+    message.set_owner_username("account-id".into());
+    message.set_revision(vec![0, 17, 255, 3]);
+    message.set_length(uris.len() as i32);
+    let mut attributes = ListAttributes::new();
+    attributes.set_name("A display name, not an account ID".into());
+    message.attributes = MessageField::some(attributes);
+    let mut contents = ListItems::new();
+    contents.set_pos(0);
+    contents.set_truncated(false);
+    contents.items = uris
+        .iter()
+        .map(|uri| {
+            let mut item = Item::new();
+            item.set_uri((*uri).into());
+            item
+        })
+        .collect();
+    message.contents = MessageField::some(contents);
+    message
+}
+
+fn parsed_preview(
+    message: &librespot_protocol::playlist4_external::SelectedListContent,
+) -> Playlist {
+    // The incoming URI has no owner; the production metadata parser decorates
+    // it from owner_username in the server response.
+    Playlist::parse(message, &SpotifyUri::from_uri(PLAYLIST).unwrap()).unwrap()
+}
+
+#[test]
+fn playlist_preview_uses_parsed_owner_id_and_keeps_revision_and_duplicate_occurrences() {
+    let message = preview_message(&[TRACK, TRACK]);
+    let playlist = parsed_preview(&message);
+    assert!(
+        matches!(&playlist.id, SpotifyUri::Playlist { user: Some(owner), .. } if owner == "account-id")
+    );
+    let (tracks, truncated, revision, owned) = playlist_preview(playlist.clone(), "account-id");
+    assert!(owned);
+    assert!(!truncated);
+    assert_eq!(revision, vec![0, 17, 255, 3]);
+    assert_eq!(tracks.len(), 2);
+    assert_eq!(tracks[0], tracks[1]);
+    for username in ["", "ACCOUNT-ID", "another-account", playlist.name()] {
+        assert!(
+            !playlist_preview(playlist.clone(), username).3,
+            "{username}"
+        );
+    }
+    let mut misleading = message.clone();
+    misleading
+        .attributes
+        .as_mut()
+        .unwrap()
+        .set_name("account-id".into());
+    misleading.set_owner_username("different-owner".into());
+    assert!(!playlist_preview(parsed_preview(&misleading), "account-id").3);
+    misleading.set_owner_username(String::new());
+    assert!(!playlist_preview(parsed_preview(&misleading), "account-id").3);
+}
+
+#[test]
+fn playlist_preview_preserves_readable_tracks_but_refuses_unsafe_occurrence_indices() {
+    let complete = preview_message(&[TRACK, TRACK]);
+    let mut cases = Vec::new();
+    let mut changed = complete.clone();
+    changed.contents.as_mut().unwrap().set_truncated(true);
+    cases.push(("truncated response", changed, true));
+    let mut changed = complete.clone();
+    changed.set_length(3);
+    cases.push(("missing items", changed, false));
+    let mut changed = complete.clone();
+    changed.set_length(1);
+    cases.push(("extra items", changed, false));
+    let mut changed = complete.clone();
+    changed.set_length(-1);
+    cases.push(("invalid length", changed, true));
+    let mut changed = complete.clone();
+    changed.contents.as_mut().unwrap().set_pos(1);
+    cases.push(("nonzero offset", changed, false));
+    let mut changed = complete.clone();
+    changed.set_multiple_heads(true);
+    cases.push(("conflicting heads", changed, false));
+    let mut changed = complete.clone();
+    changed
+        .attributes
+        .as_mut()
+        .unwrap()
+        .set_deleted_by_owner(true);
+    cases.push(("deleted playlist", changed, false));
+    let mut changed = complete.clone();
+    changed.clear_revision();
+    cases.push(("missing revision", changed, false));
+    for (name, message, expected_truncation) in cases {
+        let (tracks, truncated, revision, owned) =
+            playlist_preview(parsed_preview(&message), "account-id");
+        assert_eq!(tracks.len(), 2, "{name}");
+        assert_eq!(truncated, expected_truncation, "{name}");
+        assert_eq!(revision, message.revision(), "{name}");
+        assert!(!owned, "{name}");
+    }
+    for filtered in [
+        "spotify:episode:4uLU6hMCjMI75M1A2tKUQC",
+        "spotify:local:Artist:Album:Title:123",
+    ] {
+        let message = preview_message(&[TRACK, filtered, TRACK]);
+        let (tracks, truncated, _, owned) =
+            playlist_preview(parsed_preview(&message), "account-id");
+        assert_eq!(tracks.len(), 2);
+        assert_eq!(tracks[0], tracks[1]);
+        assert!(!truncated);
+        assert!(
+            !owned,
+            "Filtered URI must not shift removal indices: {filtered}"
+        );
+    }
+    for count in [MAX_QUEUE, MAX_QUEUE + 1] {
+        let message = preview_message(&vec![TRACK; count]);
+        let (tracks, truncated, _, owned) =
+            playlist_preview(parsed_preview(&message), "account-id");
+        assert_eq!(tracks.len(), MAX_QUEUE);
+        assert_eq!(truncated, count > MAX_QUEUE);
+        assert_eq!(owned, count == MAX_QUEUE);
+    }
+}
+
+#[test]
+fn playlist_access_cannot_cross_preview_generation_or_closed_library() {
+    for (open, generation, accepted) in [(true, 4, true), (true, 3, false), (false, 4, false)] {
+        let mut worker = worker();
+        worker.library.open = open;
+        worker.library.generation = 4;
+        worker.library.edit(|s| {
+            s.tracks = Arc::new(vec![row("Still browsed")]);
+            s.selected_playlist_revision = Arc::from([1, 2]);
+        });
+        let before = worker.snapshot();
+        let tracks = worker.library.shared.lock().unwrap().tracks.clone();
+        worker.library_update(Update::PlaylistAccess {
+            generation,
+            revision: vec![9, 0, 8],
+            owned: true,
+        });
+        let library = worker.library.shared.lock().unwrap();
+        assert_eq!(library.selected_owned, accepted);
+        assert_eq!(
+            &*library.selected_playlist_revision,
+            if accepted {
+                &[9, 0, 8][..]
+            } else {
+                &[1, 2][..]
+            }
+        );
+        assert_eq!(
+            library.selected_id,
+            Some(PlaylistId::Spotify(PLAYLIST.into()))
+        );
+        assert!(Arc::ptr_eq(&library.tracks, &tracks));
+        assert_eq!(worker.snapshot(), before);
+    }
+}
+
+#[test]
+fn playlist_read_failure_and_reset_clear_previous_removal_authority() {
+    let mut worker = worker();
+    let before = worker.snapshot();
+    for failure in [true, false] {
+        worker.library.edit(|s| {
+            s.selected_owned = true;
+            s.selected_playlist_revision = Arc::from([8, 1]);
+        });
+        if failure {
+            worker.library_update(Update::Loaded {
+                generation: worker.library.generation,
+                result: Err("Read refused".into()),
+            });
+        } else {
+            worker.reset_playlist("Reset");
+        }
+        let library = worker.library.shared.lock().unwrap();
+        assert!(!library.selected_owned);
+        assert!(library.selected_playlist_revision.is_empty());
+        assert_eq!(worker.snapshot(), before);
+    }
+}
+
+#[test]
+fn removal_result_preserves_audio_and_browsing_refreshes_only_confirmed_changes() {
+    for success in [true, false] {
+        for browsing_destination in [true, false] {
+            let mut worker = worker();
+            let destination = PlaylistId::Spotify(PLAYLIST.into());
+            let browsed = if browsing_destination {
+                destination.clone()
+            } else {
+                PlaylistId::Spotify("spotify:playlist:0000000000000000000001".into())
+            };
+            worker.library.write_removing = true;
+            worker.library.edit(|s| {
+                s.selected_id = Some(browsed.clone());
+                s.selected_owned = true;
+                s.selected_playlist_revision = Arc::from([3, 8]);
+                s.tracks = Arc::new(vec![row("Browsed"), row("Browsed duplicate")]);
+                s.entries = Arc::new(vec![PlaylistEntry {
+                    id: destination.clone(),
+                    name: "Destination".into(),
+                    track_count: Some(5),
+                    duration_ms: Some(600_000),
+                    folder: "Folder".into(),
+                    available: true,
+                }]);
+                s.playlist_write_busy = true;
+                s.playlist_remove_revision = u64::MAX;
+                s.status = "Browsing status".into();
+            });
+            let before = worker.snapshot();
+            let tracks = worker.library.shared.lock().unwrap().tracks.clone();
+            worker.library_update(Update::Removed {
+                generation: 0,
+                auth_generation: 0,
+                id: destination.clone(),
+                count: 2,
+                result: if success {
+                    Ok(crate::spotify_playlist_write::Receipt { total: Some(3) })
+                } else {
+                    Err("Retrait non confirme; verifiez la playlist avant de reessayer".into())
+                },
+            });
+            let library = worker.library.shared.lock().unwrap();
+            assert!(!worker.library.write_removing);
+            assert!(!library.playlist_write_busy);
+            assert_eq!(library.playlist_remove_revision, 0);
+            assert_eq!(library.selected_id, Some(browsed));
+            assert_eq!(library.selected_owned, !browsing_destination);
+            assert_eq!(&*library.selected_playlist_revision, &[3, 8]);
+            assert!(
+                Arc::ptr_eq(&library.tracks, &tracks),
+                "Never remove rows optimistically"
+            );
+            assert_eq!(library.status, "Browsing status");
+            assert_eq!(
+                library.entries[0].track_count,
+                Some(if success { 3 } else { 5 })
+            );
+            assert_eq!(
+                library.entries[0].duration_ms,
+                if success { None } else { Some(600_000) }
+            );
+            assert_eq!(worker.library.write_refresh, success.then_some(destination));
+            if success {
+                assert_eq!(
+                    library.playlist_write_status.text(Language::English),
+                    "2 track(s) removed from the Spotify playlist"
+                );
+            } else {
+                assert_eq!(
+                    library.playlist_write_status,
+                    "Retrait non confirme; verifiez la playlist avant de reessayer"
+                );
+            }
+            assert_eq!(worker.snapshot(), before);
+        }
+    }
+}
+
+#[tokio::test]
+async fn stale_removal_cannot_unlock_current_write_or_change_library() {
+    let mut worker = worker();
+    let destination = PlaylistId::Spotify(PLAYLIST.into());
+    worker.library.write_task = Some(tokio::spawn(std::future::pending()));
+    worker.library.write_removing = true;
+    worker.library.write_generation = 8;
+    worker.auth_generation = 6;
+    worker.library.edit(|s| {
+        s.selected_owned = true;
+        s.selected_playlist_revision = Arc::from([2]);
+        s.tracks = Arc::new(vec![row("Kept")]);
+        s.playlist_write_busy = true;
+        s.playlist_remove_revision = 11;
+        s.playlist_write_status = "Current operation".into();
+    });
+    let before = worker.snapshot();
+    let tracks = worker.library.shared.lock().unwrap().tracks.clone();
+    for (generation, auth_generation) in [(7, 6), (8, 5)] {
+        for success in [true, false] {
+            worker.library_update(Update::Removed {
+                generation,
+                auth_generation,
+                id: destination.clone(),
+                count: 1,
+                result: if success {
+                    Ok(crate::spotify_playlist_write::Receipt { total: Some(0) })
+                } else {
+                    Err("Stale failure".into())
+                },
+            });
+            let library = worker.library.shared.lock().unwrap();
+            assert!(worker.library.write_task.is_some());
+            assert!(worker.library.write_removing);
+            assert!(worker.library.write_refresh.is_none());
+            assert!(library.playlist_write_busy);
+            assert!(library.selected_owned);
+            assert_eq!(library.selected_id, Some(destination.clone()));
+            assert_eq!(&*library.selected_playlist_revision, &[2]);
+            assert_eq!(library.playlist_remove_revision, 11);
+            assert_eq!(library.playlist_write_status, "Current operation");
+            assert!(Arc::ptr_eq(&library.tracks, &tracks));
+            assert_eq!(worker.snapshot(), before);
+        }
+    }
+}
+
+#[tokio::test]
+async fn hiding_library_preserves_removal_but_logout_reports_uncertain_outcome() {
+    let mut worker = worker();
+    worker.library.write_task = Some(tokio::spawn(std::future::pending()));
+    worker.library.write_removing = true;
+    worker.library.edit(|s| {
+        s.playlist_write_busy = true;
+        s.playlist_write_status = "Retrait de la playlist Spotify en cours...".into();
+        s.selected_owned = true;
+        s.selected_playlist_revision = Arc::from([1]);
+        s.playlist_remove_revision = 9;
+    });
+    let before = worker.snapshot();
+    let generation = worker.library.write_generation;
+    let (updates, _) = mpsc::channel(1);
+    worker.library_command(LibraryCommand::Close, &updates);
+    assert!(!worker.library.open);
+    assert!(worker.library.write_task.is_some());
+    assert!(worker.library.write_removing);
+    assert_eq!(worker.library.write_generation, generation);
+    {
+        let library = worker.library.shared.lock().unwrap();
+        assert!(library.playlist_write_busy);
+        assert_eq!(library.playlist_remove_revision, 9);
+        assert_eq!(
+            library.playlist_write_status,
+            "Retrait de la playlist Spotify en cours..."
+        );
+        assert!(!library.selected_owned);
+        assert!(library.selected_playlist_revision.is_empty());
+    }
+    worker.reset_library("Connectez Spotify pour afficher vos playlists");
+    assert!(worker.library.write_task.is_none());
+    assert!(!worker.library.write_removing);
+    assert!(!worker.library.write_creating);
+    assert_eq!(worker.library.write_generation, generation.wrapping_add(1));
+    assert!(worker.library.write_refresh.is_none());
+    let library = worker.library.shared.lock().unwrap();
+    assert!(!library.playlist_write_busy);
+    assert_eq!(library.playlist_remove_revision, 10);
+    assert_eq!(
+        library.playlist_write_status,
+        "Retrait non confirme; verifiez la playlist avant de reessayer"
+    );
+    assert_eq!(worker.snapshot(), before);
+}
+
+#[test]
+fn removal_success_statuses_are_distinct_and_bitmap_renderable_in_six_languages() {
+    use font8x8::UnicodeFonts;
+    let status = playlist_remove_success(12);
+    let mut translations = std::collections::BTreeSet::new();
+    for language in Language::ALL {
+        let text = status.text(language);
+        assert!(text.starts_with("12 "));
+        assert!(translations.insert(text));
+        for character in text.chars() {
+            assert!(
+                font8x8::BASIC_FONTS
+                    .get(character)
+                    .or_else(|| font8x8::LATIN_FONTS.get(character))
+                    .is_some(),
+                "Unsupported {language:?} status glyph: {character}"
+            );
+        }
+    }
+}
+
 fn request(worker: &Worker, replace: bool) -> QueueRequest {
     QueueRequest {
         replace,

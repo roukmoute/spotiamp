@@ -389,3 +389,138 @@ fn creation_recovery_matches_dispatch_after_paste_enter_and_later_keys_in_one_ba
     super::super::dispatch_command(&mut view, &sender, LibraryCommand::Refresh);
     assert!(!view.wants_text_input());
 }
+
+fn owned_playlist() -> (library_ui::View, LibrarySnapshot) {
+    use crate::model::{PlaylistEntry, PlaylistId, TrackRow};
+    use std::sync::Arc;
+    let id = PlaylistId::Spotify("owned-playlist".into());
+    let snapshot = LibrarySnapshot {
+        selected_id: Some(id.clone()),
+        selected_owned: true,
+        selected_playlist_revision: Arc::from([1, 2, 3]),
+        entries: Arc::new(vec![PlaylistEntry {
+            id,
+            name: "My playlist".into(),
+            available: true,
+            track_count: Some(3),
+            duration_ms: None,
+            folder: String::new(),
+        }]),
+        tracks: Arc::new(
+            (0..3)
+                .map(|index| TrackRow {
+                    uri: format!("spotify:track:{index:022}"),
+                    ..Default::default()
+                })
+                .collect(),
+        ),
+        ..state()
+    };
+    let mut view = library_ui::View::default();
+    view.render(&snapshot);
+    view.pointer_down(320, 132, &snapshot);
+    assert!(view.pointer_up(Some((320, 132)), &snapshot).is_none());
+    (view, snapshot)
+}
+
+#[test]
+fn repeated_delete_in_one_batch_or_native_held_timer_never_removes_another_playlist_row() {
+    let (mut view, mut snapshot) = owned_playlist();
+    let mut actions = Vec::new();
+    process(
+        &mut view,
+        &snapshot,
+        true,
+        &[
+            Input::Key(Key::Delete, false, false),
+            Input::Key(Key::Delete, false, false),
+        ],
+        &[(Key::Delete, true, false, false)],
+        &mut |_| Err(()),
+        &mut actions,
+    );
+    assert!(
+        matches!(actions.as_slice(), [library_ui::Action::Command(LibraryCommand::RemoveFromPlaylist { indices, .. })] if indices == &[0])
+    );
+    actions.clear();
+    // Even unrelated metadata changes must not release the local pending lock.
+    snapshot.revision += 1;
+    process(
+        &mut view,
+        &snapshot,
+        true,
+        &[Input::Key(Key::Delete, false, false)],
+        &[],
+        &mut |_| Err(()),
+        &mut actions,
+    );
+    assert!(actions.is_empty());
+
+    // Model a completed operation and a fresh user selection while Delete is
+    // still physically held: only its next fresh key-down can remove anything.
+    snapshot.revision += 1;
+    snapshot.playlist_remove_revision += 1;
+    snapshot.selected_playlist_revision = std::sync::Arc::from([4, 5, 6]);
+    std::sync::Arc::make_mut(&mut snapshot.tracks).remove(0);
+    view.render(&snapshot);
+    view.pointer_down(320, 132, &snapshot);
+    view.pointer_up(Some((320, 132)), &snapshot);
+    process(
+        &mut view,
+        &snapshot,
+        true,
+        &[],
+        &[(Key::Delete, true, false, false)],
+        &mut |_| Err(()),
+        &mut actions,
+    );
+    assert!(actions.is_empty());
+    process(
+        &mut view,
+        &snapshot,
+        true,
+        &[Input::Key(Key::Delete, false, false)],
+        &[],
+        &mut |_| Err(()),
+        &mut actions,
+    );
+    assert!(
+        matches!(actions.as_slice(), [library_ui::Action::Command(LibraryCommand::RemoveFromPlaylist { indices, .. })] if indices == &[0])
+    );
+}
+
+#[test]
+fn repeated_delete_still_edits_text_without_issuing_a_playlist_command() {
+    let (mut view, snapshot) = owned_playlist();
+    view.key(Key::F, true, false, &snapshot);
+    view.paste("Jazz");
+    view.key(Key::Home, false, false, &snapshot);
+    let mut actions = Vec::new();
+    process(
+        &mut view,
+        &snapshot,
+        true,
+        &[],
+        &[(Key::Delete, true, false, false)],
+        &mut |_| Err(()),
+        &mut actions,
+    );
+    let mut copied = None;
+    process(
+        &mut view,
+        &snapshot,
+        true,
+        &[
+            Input::Key(Key::A, true, false),
+            Input::Key(Key::C, true, false),
+        ],
+        &[],
+        &mut |text| {
+            copied = text;
+            Ok(String::new())
+        },
+        &mut actions,
+    );
+    assert_eq!(copied.as_deref(), Some("azz"));
+    assert!(actions.is_empty());
+}

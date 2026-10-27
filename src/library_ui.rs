@@ -18,6 +18,7 @@ use picker::PlaylistPicker;
 use selection::TrackSelection;
 use std::{
     fmt::Write,
+    sync::Arc,
     time::{Duration, Instant},
 };
 use text_input::TextInput;
@@ -90,6 +91,13 @@ enum Target {
     PlaylistName,
 }
 
+struct PendingRemoval {
+    id: PlaylistId,
+    tracks: Arc<Vec<TrackRow>>,
+    playlist_revision: Arc<[u8]>,
+    revision: u64,
+}
+
 pub struct View {
     pub pixels: Vec<u32>,
     skin: Skin,
@@ -97,11 +105,13 @@ pub struct View {
     selected_id: Option<PlaylistId>,
     pending_selection: Option<PlaylistId>,
     observed_id: Option<PlaylistId>,
+    observed_playlist_revision: Arc<[u8]>,
     selected_track: Option<usize>,
     playlist_choices: TrackSelection,
     search_choices: TrackSelection,
     picker: Option<PlaylistPicker>,
     submitted_picker: Option<PlaylistPicker>,
+    pending_removal: Option<PendingRemoval>,
     press_collapse: bool,
     press_modified: bool,
     selected_uri: Option<String>,
@@ -142,11 +152,13 @@ impl Default for View {
             selected_id: None,
             pending_selection: None,
             observed_id: None,
+            observed_playlist_revision: Arc::from([]),
             selected_track: None,
             playlist_choices: TrackSelection::default(),
             search_choices: TrackSelection::default(),
             picker: None,
             submitted_picker: None,
+            pending_removal: None,
             press_collapse: false,
             press_modified: false,
             selected_uri: None,
@@ -334,6 +346,20 @@ impl View {
     /// rejected command, never an unrelated command from the same input batch.
     pub fn command_rejected(&mut self, command: &LibraryCommand) {
         match command {
+            LibraryCommand::RemoveFromPlaylist {
+                id,
+                expected_tracks,
+                expected_revision,
+                ..
+            } if self.pending_removal.as_ref().is_some_and(|pending| {
+                &pending.id == id
+                    && Arc::ptr_eq(&pending.tracks, expected_tracks)
+                    && &pending.playlist_revision == expected_revision
+            }) =>
+            {
+                self.pending_removal = None;
+                self.dirty();
+            }
             LibraryCommand::CreatePlaylist { name, tracks }
                 if self.submitted_picker.as_ref().is_some_and(|picker| {
                     normalized_playlist_name(&picker.name) == Some(name.as_str())
@@ -390,6 +416,28 @@ impl View {
         }
         let initial = self.snapshot_revision.is_none();
         self.snapshot_revision = Some(s.revision);
+        if self
+            .pending_removal
+            .as_ref()
+            .is_some_and(|pending| !s.connected || pending.revision != s.playlist_remove_revision)
+        {
+            let pending = self.pending_removal.take().unwrap();
+            // A removed occurrence must not jump to another equal URI after
+            // reconciliation. Metadata-only updates preserve the selection.
+            if self.selected_id.as_ref() == Some(&pending.id)
+                && s.selected_id.as_ref() == Some(&pending.id)
+                && (pending.tracks.len() != s.tracks.len()
+                    || pending
+                        .tracks
+                        .iter()
+                        .zip(s.tracks.iter())
+                        .any(|(a, b)| a.uri != b.uri))
+            {
+                self.playlist_choices.clear();
+                self.selected_track = None;
+                self.selected_uri = None;
+            }
+        }
         if self.search_revision != s.search.revision {
             self.search_revision = s.search.revision;
             self.search_track = None;
@@ -433,6 +481,16 @@ impl View {
                 .search_track
                 .and_then(|index| self.search_choices.remapped_focus(index, &s.search.tracks));
             self.search_choices.reconcile(&s.search.tracks);
+        }
+        if self.observed_playlist_revision != s.selected_playlist_revision {
+            // Spotify revisions distinguish identical track occurrences. A
+            // selection made against an older revision must be chosen again.
+            if self.observed_id == s.selected_id {
+                self.playlist_choices.clear();
+                self.selected_track = None;
+                self.selected_uri = None;
+            }
+            self.observed_playlist_revision = s.selected_playlist_revision.clone();
         }
         self.playlist_choices.reconcile(&s.tracks);
         if !s.connected {
@@ -537,6 +595,7 @@ impl View {
             }),
             Button::ToPlaylist => {
                 s.connected
+                    && self.pending_removal.is_none()
                     && !s.playlist_write_busy
                     && self.active_ready(s)
                     && self.active_choices().len() > 0
@@ -907,6 +966,46 @@ impl View {
             Button::PickerConfirm => self.confirm_picker(s),
         }
     }
+    fn remove_selected(&mut self, s: &LibrarySnapshot) -> Option<Action> {
+        if self.search_mode
+            || self.left_focus
+            || self.input_focus
+            || self.picker.is_some()
+            || self.submitted_picker.is_some()
+            || self.pending_removal.is_some()
+            || !s.connected
+            || !s.selected_owned
+            || s.selected_playlist_revision.is_empty()
+            || s.busy
+            || s.playlist_write_busy
+            || !self.tracks_ready(s)
+            || !self.selected(s).is_some_and(|entry| entry.available)
+        {
+            return None;
+        }
+        let id = self.selected_id.clone()?;
+        if !matches!(id, PlaylistId::Spotify(_)) {
+            return None;
+        }
+        let indices = self.playlist_choices.indices(&s.tracks);
+        if indices.is_empty() {
+            return None;
+        }
+        self.pending_removal = Some(PendingRemoval {
+            id: id.clone(),
+            tracks: s.tracks.clone(),
+            playlist_revision: s.selected_playlist_revision.clone(),
+            revision: s.playlist_remove_revision,
+        });
+        self.dirty();
+        Some(Action::Command(LibraryCommand::RemoveFromPlaylist {
+            id,
+            expected_tracks: s.tracks.clone(),
+            expected_revision: s.selected_playlist_revision.clone(),
+            indices,
+        }))
+    }
+
     pub fn key(
         &mut self,
         key: Key,
@@ -955,6 +1054,7 @@ impl View {
             }
         }
         match key {
+            Key::Delete if !control && !shift => return self.remove_selected(s),
             Key::Escape => return Some(Action::Close),
             Key::F5 if self.enabled(Button::Refresh, s) => return self.button(Button::Refresh, s),
             Key::Tab => {
@@ -1745,6 +1845,8 @@ impl std::fmt::Write for Label {
 }
 #[cfg(test)]
 mod create_playlist_tests;
+#[cfg(test)]
+mod remove_playlist_tests;
 #[cfg(test)]
 mod search_tests;
 #[cfg(test)]

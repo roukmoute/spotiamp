@@ -264,6 +264,9 @@ pub(super) fn process_with_drag(
     }
     for &(key, repeated, control, shift) in repeats {
         if repeated
+            // Repeating Delete edits text only; a Spotify removal always
+            // requires a fresh key-down, never the held-key timer.
+            && (key != Key::Delete || view.wants_text_input())
             && !events
                 .iter()
                 .any(|input| matches!(input, Input::Key(candidate, _, _) if *candidate == key))

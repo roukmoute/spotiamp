@@ -228,6 +228,15 @@ indique l'insertion entre les lignes, et la file défile près de ses bords.
 Le dépôt insère les titres dans leur ordre de liste, sans interrompre le morceau
 courant. La sélection n'est pas retirée de la playlist Spotify d'origine.
 
+Pour retirer des morceaux d'une playlist Spotify dont vous êtes propriétaire,
+activez son panneau de titres, sélectionnez les lignes puis appuyez sur **Suppr**.
+Le retrait est envoyé à Spotify sans dialogue de confirmation et concerne
+uniquement les occurrences sélectionnées, même si un titre apparaît plusieurs
+fois. La file du lecteur et la lecture en cours sont conservées. Ce raccourci
+n'agit ni sur les résultats de recherche ni sur les playlists d'autres personnes.
+La playlist est vérifiée avant l'envoi : si son contenu a changé, actualisez-la
+avant de recommencer. Après confirmation, ses titres sont rechargés depuis Spotify.
+
 Pour chercher une musique dans le catalogue Spotify, choisir **Recherche** dans
 la colonne de gauche, au-dessus des playlists. **Ctrl+F** (**Cmd+F** sous macOS)
 dans la bibliothèque ouvre aussi la recherche et place le curseur dans le champ.
@@ -260,14 +269,14 @@ Spotiamp crée la playlist, l'ajoute à votre bibliothèque Spotify, puis y ajou
 les morceaux choisis dans leur ordre de liste. Le succès n'est annoncé qu'après
 confirmation de ces trois étapes par Spotify.
 
-Une seule création ou demande d'ajout à Spotify est traitée à la fois, pour au
+Une seule création, demande d'ajout ou de retrait à Spotify est traitée à la fois, pour au
 plus 500 titres, sans découpage de la sélection. Attendez la confirmation avant
 de recommencer. Si la playlist est créée mais qu'une étape suivante échoue,
 Spotiamp conserve sa destination connue et précise l'étape en échec ; il ne
 recrée pas une autre playlist. Si Spotify ne confirme pas une opération après
 l'envoi, vérifiez vos playlists et leur contenu avant de réessayer. **Actualiser**
 recharge le catalogue renvoyé par Spotify. Aucune demande d'écriture n'est
-renvoyée automatiquement, pour éviter les doublons.
+renvoyée automatiquement, pour éviter de répéter une modification.
 
 Une recherche affiche jusqu'à **50 titres** : si la liste est limitée, préciser
 le titre ou l'artiste. Le champ accepte **256 caractères**. Les requêtes partent
@@ -297,8 +306,9 @@ ne suffisent pas ; la file et la lecture sont conservées. L'ajout d'une playlis
 entière depuis la colonne de gauche garde son fonctionnement précédent : seuls
 les titres qui tiennent dans la file sont ajoutés, avec un message de limitation.
 Les noms, artistes et durées arrivent progressivement, avec deux requêtes de
-métadonnées simultanées au maximum. Les actions **Vers playlist… → Ajouter** et
-**Nouvelle… → Créer** sont les seules à modifier vos playlists sur Spotify.
+métadonnées simultanées au maximum. Les actions **Vers playlist… → Ajouter**,
+**Nouvelle… → Créer** et **Suppr** dans les titres d'une playlist dont vous êtes
+propriétaire modifient vos playlists sur Spotify.
 Le catalogue est plafonné à **1 000 playlists** et **2 000 entrées** en comptant
 les marqueurs de dossiers ; un dépassement est signalé au lieu de charger une
 liste partielle silencieusement.
@@ -585,8 +595,10 @@ requêtes, les réponses anciennes, l'annulation, la sélection du bon résultat
 la conservation de la lecture pendant la saisie et les traductions. Les sélections
 multiples, l'ordre des titres, la capacité de la file et les messages sont également
 vérifiés hors connexion. Les réponses de création et de modification de playlist
-sont simulées, y compris les refus et l'absence de confirmation après envoi. La recherche réelle,
-la création et l'ajout réels doivent encore être essayés avec un compte Spotify
+sont simulées, y compris les refus et l'absence de confirmation après envoi.
+Les retraits vérifient aussi les droits du propriétaire, les révisions et les
+occurrences répétées. La recherche, la création, l'ajout et le retrait réels
+doivent encore être essayés avec un compte Spotify
 connecté ; les tests automatisés n'en constituent pas une validation.
 
 Windows : Rust avec la cible `x86_64-pc-windows-msvc` et les outils de compilation

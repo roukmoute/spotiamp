@@ -49,6 +49,15 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
     ),
     (
+        "0.2.15 / REMOVE PLAYLIST TRACKS",
+        [
+            "0.2.15 / PLAYLIST-TITEL ENTFERNEN",
+            "0.2.15 / QUITAR TEMAS DE PLAYLISTS",
+            "0.2.15 / RIMUOVERE BRANI DALLE PLAYLIST",
+            "0.2.15 / REMOVER FAIXAS DE PLAYLISTS",
+        ],
+    ),
+    (
         "0.2.6 / MAGNETIC WINDOWS",
         [
             "0.2.6 / MAGNETISCHE FENSTER",
@@ -461,6 +470,15 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
     ),
     ("Delete", ["Entf", "Supr", "Canc", "Delete"]),
+    (
+        "Delete removes selected tracks from your playlist.",
+        [
+            "Entf entfernt gewählte Titel aus deiner Playlist.",
+            "Supr quita los temas elegidos de tu playlist de Spotify.",
+            "Canc rimuove i brani scelti dalla tua playlist Spotify.",
+            "Delete remove as faixas escolhidas da tua playlist.",
+        ],
+    ),
     (
         "Delete: remove a track; Tab: link field",
         [
@@ -968,6 +986,15 @@ pub(super) const ENTRIES: &[Entry] = &[
             "Reproducir continúa donde lo dejaste.",
             "Riproduci riprende da dove eri rimasto.",
             "Reproduzir retoma onde paraste.",
+        ],
+    ),
+    (
+        "Playback and queue are preserved.",
+        [
+            "Wiedergabe und Warteschlange bleiben erhalten.",
+            "La reproducción y la cola se conservan.",
+            "La riproduzione e la coda restano invariate.",
+            "A reprodução e a fila são mantidas.",
         ],
     ),
     (

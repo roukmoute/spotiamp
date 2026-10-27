@@ -94,6 +94,12 @@ impl TrackSelection {
         );
         self.anchor = (!tracks.is_empty()).then_some(0);
     }
+    pub(super) fn indices(&self, tracks: &[TrackRow]) -> Vec<usize> {
+        if !self.valid(tracks) {
+            return Vec::new();
+        }
+        self.rows.iter().map(|(index, _)| *index).collect()
+    }
     pub(super) fn tracks(&self, tracks: &[TrackRow]) -> Vec<TrackRow> {
         if !self.valid(tracks) {
             return Vec::new();

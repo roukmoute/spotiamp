@@ -1,5 +1,20 @@
 # Changements
 
+## 0.2.15 — 27 octobre 2026
+
+- Suppr retire les morceaux sélectionnés d'une playlist Spotify dont vous êtes
+  propriétaire, depuis son panneau de titres. La sélection multiple est prise
+  en charge ; la file du lecteur et la lecture en cours sont conservées.
+- Vérification du propriétaire, de la révision et du contenu avant l'envoi.
+  Seules les occurrences choisies sont retirées, y compris en présence de
+  doublons ; les titres sont rechargés après confirmation de Spotify.
+- Une seule modification à la fois, sans nouvel envoi automatique. Une réponse
+  incertaine invite à vérifier la playlist avant de réessayer. Les résultats
+  de recherche et les playlists d'autres personnes ne sont pas modifiés.
+- Contrôles et connexion existants réutilisés, sans dépendance ni tâche
+  permanente. Messages dans les six langues et tests hors connexion ; le
+  retrait réel reste à vérifier avec un compte Spotify connecté.
+
 ## 0.2.14 — 27 octobre 2026
 
 - Entrer dans À propos → Mise à jour lance immédiatement la recherche d'une

@@ -1,4 +1,4 @@
-//! Playlist creation and append-only writes using the existing session and HTTP connection
+//! Playlist creation, append and occurrence-specific removal using the existing session/HTTP
 //! pool. No automatic mutation retries: a lost acknowledgement is ambiguous.
 //! Wire schema: librespot-protocol 0.8 playlist4_external.proto (Spotify's
 //! Windows client schema). Endpoint/ADD form also documented by the upstream
@@ -7,6 +7,8 @@
 //! https://open.spotifycdn.com/cdn/build/web-player/web-player.f954508a.js
 //! RootlistAPI.createPlaylist serializes its operations as OpList, then adds
 //! the new URI to /playlist/v2/user/{username}/rootlist/changes (ListChanges).
+//! Its removeByIndex emits REM(fromIndex, length) and requires baseRevision;
+//! URI-keyed removal is deliberately avoided because it cannot target duplicates.
 use std::{
     future::Future,
     sync::{
@@ -22,7 +24,7 @@ use http_body_util::{BodyExt, Limited};
 use librespot_core::{Session, SpotifyId};
 use librespot_protocol::playlist4_external::{
     Add, ChangeInfo, CreateListReply, Delta, Item, ListAttributes, ListAttributesPartialState,
-    ListChanges, Op, OpList, SelectedListContent, SourceInfo, UpdateListAttributes, op,
+    ListChanges, Op, OpList, Rem, SelectedListContent, SourceInfo, UpdateListAttributes, op,
     source_info,
 };
 use protobuf::{Message, MessageField};
@@ -42,6 +44,10 @@ const ROOTLIST_UNCERTAIN: &str =
     "Ajout a votre bibliotheque non confirme; verifiez vos playlists avant de reessayer";
 const ROOTLIST_VERIFY_FAILED: &str = "Impossible de verifier vos playlists; aucun titre ajoute";
 const ROOTLIST_REFUSED: &str = "Spotify a refuse l'ajout a votre bibliotheque; aucun titre ajoute";
+const REMOVE_UNCERTAIN: &str = "Retrait non confirme; verifiez la playlist avant de reessayer";
+const REMOVE_VERIFY_FAILED: &str = "Impossible de verifier la playlist; aucun titre retire";
+const REMOVE_OWNER_ONLY: &str = "Seul le proprietaire peut retirer des titres de cette playlist";
+const PLAYLIST_CHANGED: &str = "La playlist a change; actualisez avant de reessayer";
 
 #[derive(Debug)]
 pub struct Receipt {
@@ -171,6 +177,180 @@ pub async fn create(
         auth_epoch.load(Ordering::Acquire) == generation
     })
     .await
+}
+
+/// Remove the selected positions from a complete, unchanged displayed playlist.
+/// The transport rechecks ownership and the ordered URI snapshot before issuing
+/// one revision-guarded mutation. It never retries a possibly committed removal.
+pub async fn remove(
+    session: Session,
+    id: &PlaylistId,
+    expected_tracks: &[TrackRow],
+    expected_revision: &[u8],
+    indices: &[usize],
+    auth_epoch: Arc<AtomicU64>,
+    generation: u64,
+) -> Result<Receipt, LocalizedText> {
+    let username = session.username();
+    let transport = SessionTransport {
+        session,
+        auth_epoch: auth_epoch.clone(),
+        generation,
+    };
+    remove_with(
+        &transport,
+        id,
+        expected_tracks,
+        expected_revision,
+        indices,
+        &username,
+        || auth_epoch.load(Ordering::Acquire) == generation,
+    )
+    .await
+}
+
+async fn remove_with(
+    transport: &impl Transport,
+    id: &PlaylistId,
+    expected_tracks: &[TrackRow],
+    expected_revision: &[u8],
+    indices: &[usize],
+    username: &str,
+    still_connected: impl Fn() -> bool,
+) -> Result<Receipt, LocalizedText> {
+    if !still_connected() || username.is_empty() {
+        return Err("Connectez Spotify pour modifier une playlist".into());
+    }
+    if indices.len() > MAX_SELECTION {
+        return Err("Selection limitee a 500 titres".into());
+    }
+    if expected_revision.is_empty() {
+        return Err(PLAYLIST_CHANGED.into());
+    }
+    if !valid_tracks(expected_tracks)
+        || indices.is_empty()
+        || indices.iter().any(|&i| i >= expected_tracks.len())
+        || indices.windows(2).any(|pair| pair[0] >= pair[1])
+    {
+        return Err("Selection invalide; aucun titre retire".into());
+    }
+    let PlaylistId::Spotify(uri) = id;
+    let id = canonical_id(uri, "spotify:playlist:")
+        .ok_or_else(|| LocalizedText::from(REMOVE_VERIFY_FAILED))?;
+    let endpoint = format!("/playlist/v2/playlist/{id}");
+    let read = format!(
+        "{endpoint}?decorate=revision,attributes,length,owner,capabilities&from=0&length={}",
+        expected_tracks.len()
+    );
+    let response = tokio::time::timeout(TIMEOUT, transport.request(Method::GET, &read, Vec::new()))
+        .await
+        .map_err(|_| LocalizedText::from(REMOVE_VERIFY_FAILED))?
+        .map_err(|_| LocalizedText::from(REMOVE_VERIFY_FAILED))?;
+    if !(200..300).contains(&response.status) {
+        return Err(REMOVE_VERIFY_FAILED.into());
+    }
+    let base =
+        checked_content(&response.body).ok_or_else(|| LocalizedText::from(REMOVE_VERIFY_FAILED))?;
+    // Collaborative write permission is insufficient for this owner-only UI.
+    if base.owner_username() != username
+        || base.attributes.get_or_default().deleted_by_owner()
+        || base
+            .capabilities
+            .as_ref()
+            .is_some_and(|caps| caps.has_can_edit_items() && !caps.can_edit_items())
+    {
+        return Err(REMOVE_OWNER_ONLY.into());
+    }
+    let same_items = base.contents.as_ref().is_some_and(|contents| {
+        contents.pos() == 0
+            && !contents.truncated()
+            && contents.items.len() == expected_tracks.len()
+            && contents
+                .items
+                .iter()
+                .zip(expected_tracks)
+                .all(|(actual, expected)| actual.uri() == expected.uri)
+    });
+    if !same_items
+        || !base.has_length()
+        || usize::try_from(base.length()).ok() != Some(expected_tracks.len())
+        || base.revision() != expected_revision
+        || base.multiple_heads()
+        || base.changes_require_resync()
+    {
+        return Err(PLAYLIST_CHANGED.into());
+    }
+    let body = removal_changes(&base, indices)
+        .write_to_bytes()
+        .map_err(|_| LocalizedText::from(REMOVE_VERIFY_FAILED))?;
+    if !still_connected() {
+        return Err("Connectez Spotify pour modifier une playlist".into());
+    }
+    let result = tokio::time::timeout(
+        TIMEOUT,
+        transport.request(Method::POST, &format!("{endpoint}/changes"), body),
+    )
+    .await
+    .map_err(|_| LocalizedText::from(REMOVE_UNCERTAIN))?
+    .map_err(|_| LocalizedText::from(REMOVE_UNCERTAIN))?;
+    removal_receipt(result, &base, expected_tracks.len() - indices.len())
+}
+
+fn removal_changes(base: &SelectedListContent, indices: &[usize]) -> ListChanges {
+    let mut ops = Vec::new();
+    let mut remaining = indices.len();
+    while remaining > 0 {
+        let end = indices[remaining - 1];
+        let mut start = end;
+        remaining -= 1;
+        while remaining > 0 && indices[remaining - 1] + 1 == start {
+            start = indices[remaining - 1];
+            remaining -= 1;
+        }
+        let mut rem = Rem::new();
+        rem.set_from_index(start as i32);
+        rem.set_length((end - start + 1) as i32);
+        let mut op = Op::new();
+        op.set_kind(op::Kind::REM);
+        op.rem = MessageField::some(rem);
+        ops.push(op);
+    }
+    // Higher positions are removed first, so earlier positions stay valid.
+    operations_changes(base, ops)
+}
+
+fn removal_receipt(
+    response: Reply,
+    base: &SelectedListContent,
+    expected_total: usize,
+) -> Result<Receipt, LocalizedText> {
+    match response.status {
+        401 | 403 => return Err(REMOVE_OWNER_ONLY.into()),
+        409 | 412 => return Err(PLAYLIST_CHANGED.into()),
+        429 => return Err("Spotify limite les retraits; patientez avant de reessayer".into()),
+        400 | 404 | 405 | 413 | 422 => {
+            return Err("Spotify a refuse le retrait; aucun titre retire".into());
+        }
+        200..=299 => {}
+        _ => return Err(REMOVE_UNCERTAIN.into()),
+    }
+    let result =
+        checked_content(&response.body).ok_or_else(|| LocalizedText::from(REMOVE_UNCERTAIN))?;
+    let acknowledged = !result.revision().is_empty() && result.revision() != base.revision()
+        || result
+            .resulting_revisions
+            .iter()
+            .any(|r| !r.is_empty() && r != base.revision());
+    if !acknowledged
+        || result.multiple_heads()
+        || result.changes_require_resync()
+        || (result.has_length() && usize::try_from(result.length()).ok() != Some(expected_total))
+    {
+        return Err(REMOVE_UNCERTAIN.into());
+    }
+    Ok(Receipt {
+        total: Some(expected_total),
+    })
 }
 
 async fn create_with(
@@ -407,6 +587,13 @@ fn changes(base: &SelectedListContent, tracks: &[TrackRow]) -> ListChanges {
 }
 
 fn operation_changes(base: &SelectedListContent, op: Op) -> ListChanges {
+    operations_changes(base, [op])
+}
+
+fn operations_changes(
+    base: &SelectedListContent,
+    ops: impl IntoIterator<Item = Op>,
+) -> ListChanges {
     let mut source = SourceInfo::new();
     source.set_client(source_info::Client::CLIENT);
     source.set_app("Spotiamp".into());
@@ -414,7 +601,7 @@ fn operation_changes(base: &SelectedListContent, op: Op) -> ListChanges {
     let mut info = ChangeInfo::new();
     info.source = MessageField::some(source);
     let mut delta = Delta::new();
-    delta.ops.push(op);
+    delta.ops.extend(ops);
     delta.info = MessageField::some(info);
     let mut changes = ListChanges::new();
     changes.set_base_revision(base.revision().to_vec());
@@ -486,6 +673,24 @@ mod tests {
             status: 200,
             body: p.write_to_bytes().unwrap(),
         })
+    }
+    fn removable_base(rows: &[TrackRow]) -> SelectedListContent {
+        let mut p = base();
+        p.set_owner_username("me".into());
+        p.set_length(rows.len() as i32);
+        let mut contents = librespot_protocol::playlist4_external::ListItems::new();
+        contents.set_pos(0);
+        contents.set_truncated(false);
+        contents.items = rows
+            .iter()
+            .map(|r| {
+                let mut item = Item::new();
+                item.set_uri(r.uri.clone());
+                item
+            })
+            .collect();
+        p.contents = MessageField::some(contents);
+        p
     }
     struct Fake {
         replies: RefCell<VecDeque<Result<Reply, ()>>>,
@@ -960,6 +1165,377 @@ mod tests {
                     .is_err()
             );
             assert_eq!(fake.requests.borrow().len(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn removal_targets_only_selected_occurrences_in_descending_ranges() {
+        let other = TrackRow {
+            uri: "spotify:track:0000000000000000000001".into(),
+            ..Default::default()
+        };
+        let tracks = [row(), other.clone(), row(), row(), other, row()];
+        let mut after = base();
+        after.set_revision(vec![2]);
+        after.set_length(3);
+        let fake = Fake::new(vec![reply(removable_base(&tracks)), reply(after)]);
+        let result = remove_with(&fake, &id(), &tracks, &[1], &[1, 3, 4], "me", || true)
+            .await
+            .unwrap();
+        assert_eq!(result.total, Some(3));
+        let requests = fake.requests.borrow();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0].0, Method::GET);
+        assert!(requests[0].1.ends_with("&from=0&length=6"));
+        assert_eq!(requests[1].0, Method::POST);
+        assert_eq!(
+            requests[1].1,
+            "/playlist/v2/playlist/4uLU6hMCjMI75M1A2tKUQC/changes"
+        );
+        let changes = ListChanges::parse_from_bytes(&requests[1].2).unwrap();
+        assert_eq!(changes.base_revision(), &[1]);
+        assert!(changes.want_resulting_revisions());
+        assert_eq!(changes.deltas.len(), 1);
+        let ops = &changes.deltas[0].ops;
+        assert_eq!(ops.len(), 2);
+        let mut remaining = (0..tracks.len()).collect::<Vec<_>>();
+        let mut ranges = Vec::new();
+        for op in ops {
+            assert_eq!(op.kind(), op::Kind::REM);
+            assert!(op.add.is_none());
+            let rem = op.rem.get_or_default();
+            assert!(!rem.has_items_as_key());
+            assert!(rem.items.is_empty());
+            let start = rem.from_index() as usize;
+            let length = rem.length() as usize;
+            ranges.push((start, length));
+            remaining.drain(start..start + length);
+        }
+        assert_eq!(ranges, [(3, 2), (1, 1)]);
+        assert_eq!(remaining, [0, 2, 5]);
+    }
+
+    #[tokio::test]
+    async fn removal_accepts_owner_without_capabilities_and_all_tracks_in_one_range() {
+        let tracks = vec![row(); MAX_SELECTION];
+        let mut before = removable_base(&tracks);
+        before.capabilities = MessageField::none();
+        let mut after = SelectedListContent::new();
+        after.resulting_revisions.push(vec![2]);
+        let fake = Fake::new(vec![reply(before), reply(after)]);
+        let result = remove_with(
+            &fake,
+            &id(),
+            &tracks,
+            &[1],
+            &(0..MAX_SELECTION).collect::<Vec<_>>(),
+            "me",
+            || true,
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.total, Some(0));
+        let requests = fake.requests.borrow();
+        let changes = ListChanges::parse_from_bytes(&requests[1].2).unwrap();
+        assert_eq!(changes.deltas[0].ops.len(), 1);
+        let rem = changes.deltas[0].ops[0].rem.get_or_default();
+        assert_eq!(rem.from_index(), 0);
+        assert_eq!(rem.length(), MAX_SELECTION as i32);
+    }
+
+    #[tokio::test]
+    async fn removal_invalid_snapshot_indices_identity_and_auth_never_reach_network() {
+        let fake = Fake::new(vec![]);
+        for indices in [
+            vec![],
+            vec![1],
+            vec![0, 0],
+            vec![1, 0],
+            vec![usize::MAX],
+            vec![0; MAX_SELECTION + 1],
+        ] {
+            assert!(
+                remove_with(&fake, &id(), &[row()], &[1], &indices, "me", || true)
+                    .await
+                    .is_err()
+            );
+        }
+        for tracks in [
+            vec![],
+            vec![row(); MAX_SELECTION + 1],
+            vec![TrackRow {
+                uri: "spotify:episode:4uLU6hMCjMI75M1A2tKUQC".into(),
+                ..Default::default()
+            }],
+        ] {
+            assert!(
+                remove_with(&fake, &id(), &tracks, &[1], &[0], "me", || true)
+                    .await
+                    .is_err()
+            );
+        }
+        assert_eq!(
+            remove_with(&fake, &id(), &[row()], &[], &[0], "me", || true)
+                .await
+                .unwrap_err(),
+            PLAYLIST_CHANGED
+        );
+        assert!(
+            remove_with(
+                &fake,
+                &PlaylistId::Spotify("spotify:playlist:invalid/changes".into()),
+                &[row()],
+                &[1],
+                &[0],
+                "me",
+                || true
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            remove_with(&fake, &id(), &[row()], &[1], &[0], "", || true)
+                .await
+                .is_err()
+        );
+        assert!(
+            remove_with(&fake, &id(), &[row()], &[1], &[0], "me", || false)
+                .await
+                .is_err()
+        );
+        assert!(fake.requests.borrow().is_empty());
+    }
+
+    #[tokio::test]
+    async fn removal_requires_exact_owner_even_with_collaborative_edit_permission() {
+        let tracks = [row()];
+        let mut variants = Vec::new();
+        for owner in ["", "someone-else", "ME"] {
+            let mut p = removable_base(&tracks);
+            p.set_owner_username(owner.into());
+            variants.push(p);
+        }
+        let mut denied = removable_base(&tracks);
+        denied
+            .capabilities
+            .as_mut()
+            .unwrap()
+            .set_can_edit_items(false);
+        variants.push(denied);
+        let mut deleted = removable_base(&tracks);
+        let mut attributes = ListAttributes::new();
+        attributes.set_deleted_by_owner(true);
+        deleted.attributes = MessageField::some(attributes);
+        variants.push(deleted);
+        for p in variants {
+            let fake = Fake::new(vec![reply(p)]);
+            assert_eq!(
+                remove_with(&fake, &id(), &tracks, &[1], &[0], "me", || true)
+                    .await
+                    .unwrap_err(),
+                REMOVE_OWNER_ONLY
+            );
+            assert_eq!(fake.requests.borrow().len(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn removal_refuses_incomplete_changed_or_recreated_identical_uri_lists() {
+        let tracks = [row(), row()];
+        let mut variants = Vec::new();
+        let original = removable_base(&tracks);
+        let mut p = original.clone();
+        p.contents = MessageField::none();
+        variants.push(p);
+        let mut p = original.clone();
+        p.contents.as_mut().unwrap().set_pos(1);
+        variants.push(p);
+        let mut p = original.clone();
+        p.contents.as_mut().unwrap().set_truncated(true);
+        variants.push(p);
+        let mut p = original.clone();
+        p.contents.as_mut().unwrap().items.pop();
+        variants.push(p);
+        let mut p = original.clone();
+        p.contents.as_mut().unwrap().items[0]
+            .set_uri("spotify:track:0000000000000000000001".into());
+        variants.push(p);
+        let mut p = original.clone();
+        p.clear_length();
+        variants.push(p);
+        let mut p = original.clone();
+        p.set_length(-1);
+        variants.push(p);
+        let mut p = original.clone();
+        p.set_length(3);
+        variants.push(p);
+        let mut p = original.clone();
+        p.clear_revision();
+        variants.push(p);
+        let mut p = original.clone();
+        p.set_revision(vec![2]);
+        variants.push(p);
+        let mut p = original.clone();
+        p.set_multiple_heads(true);
+        variants.push(p);
+        let mut p = original;
+        p.set_changes_require_resync(true);
+        variants.push(p);
+        for p in variants {
+            let fake = Fake::new(vec![reply(p)]);
+            assert_eq!(
+                remove_with(&fake, &id(), &tracks, &[1], &[0], "me", || true)
+                    .await
+                    .unwrap_err(),
+                PLAYLIST_CHANGED
+            );
+            assert_eq!(fake.requests.borrow().len(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn removal_unreadable_get_or_logout_during_verification_never_posts() {
+        for response in [
+            Err(()),
+            Ok(Reply {
+                status: 403,
+                body: vec![],
+            }),
+            Ok(Reply {
+                status: 200,
+                body: vec![0xff],
+            }),
+            Ok(Reply {
+                status: 200,
+                body: vec![0; MAX_RESPONSE_BYTES + 1],
+            }),
+        ] {
+            let fake = Fake::new(vec![response]);
+            assert_eq!(
+                remove_with(&fake, &id(), &[row()], &[1], &[0], "me", || true)
+                    .await
+                    .unwrap_err(),
+                REMOVE_VERIFY_FAILED
+            );
+            assert_eq!(fake.requests.borrow().len(), 1);
+        }
+        let fake = Fake::new(vec![reply(removable_base(&[row()]))]);
+        let checks = std::cell::Cell::new(0);
+        assert!(
+            remove_with(&fake, &id(), &[row()], &[1], &[0], "me", || {
+                let n = checks.get();
+                checks.set(n + 1);
+                n == 0
+            })
+            .await
+            .is_err()
+        );
+        assert_eq!(fake.requests.borrow().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn removal_lost_or_inconsistent_acknowledgements_never_retry() {
+        let mut no_ack = SelectedListContent::new();
+        no_ack.set_revision(vec![1]);
+        let mut wrong_length = SelectedListContent::new();
+        wrong_length.set_revision(vec![2]);
+        wrong_length.set_length(1);
+        let mut negative_length = wrong_length.clone();
+        negative_length.set_length(-1);
+        let mut resync = SelectedListContent::new();
+        resync.set_revision(vec![2]);
+        resync.set_changes_require_resync(true);
+        let mut heads = SelectedListContent::new();
+        heads.set_revision(vec![2]);
+        heads.set_multiple_heads(true);
+        for response in [
+            Err(()),
+            Ok(Reply {
+                status: 500,
+                body: vec![],
+            }),
+            Ok(Reply {
+                status: 204,
+                body: vec![],
+            }),
+            Ok(Reply {
+                status: 200,
+                body: vec![0xff],
+            }),
+            Ok(Reply {
+                status: 200,
+                body: vec![0; MAX_RESPONSE_BYTES + 1],
+            }),
+            reply(no_ack),
+            reply(wrong_length),
+            reply(negative_length),
+            reply(resync),
+            reply(heads),
+        ] {
+            let fake = Fake::new(vec![reply(removable_base(&[row()])), response]);
+            assert_eq!(
+                remove_with(&fake, &id(), &[row()], &[1], &[0], "me", || true)
+                    .await
+                    .unwrap_err(),
+                REMOVE_UNCERTAIN
+            );
+            assert_eq!(fake.requests.borrow().len(), 2);
+        }
+    }
+
+    #[tokio::test]
+    async fn removal_explicit_refusal_or_conflict_never_retries() {
+        for status in [400, 401, 403, 404, 405, 409, 412, 413, 422, 429] {
+            let fake = Fake::new(vec![
+                reply(removable_base(&[row()])),
+                Ok(Reply {
+                    status,
+                    body: vec![],
+                }),
+            ]);
+            let error = remove_with(&fake, &id(), &[row()], &[1], &[0], "me", || true)
+                .await
+                .unwrap_err();
+            assert_ne!(error, REMOVE_UNCERTAIN);
+            if status == 409 || status == 412 {
+                assert_eq!(error, PLAYLIST_CHANGED);
+            }
+            assert_eq!(fake.requests.borrow().len(), 2);
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn removal_read_and_write_timeouts_are_distinguished_without_retries() {
+        struct Slow {
+            read: bool,
+            calls: std::cell::Cell<usize>,
+        }
+        impl Transport for Slow {
+            async fn request(&self, method: Method, _: &str, _: Vec<u8>) -> Result<Reply, ()> {
+                self.calls.set(self.calls.get() + 1);
+                if method == Method::GET && !self.read {
+                    reply(removable_base(&[row()]))
+                } else {
+                    std::future::pending().await
+                }
+            }
+        }
+        for read in [true, false] {
+            let fake = Slow {
+                read,
+                calls: std::cell::Cell::new(0),
+            };
+            assert_eq!(
+                remove_with(&fake, &id(), &[row()], &[1], &[0], "me", || true)
+                    .await
+                    .unwrap_err(),
+                if read {
+                    REMOVE_VERIFY_FAILED
+                } else {
+                    REMOVE_UNCERTAIN
+                }
+            );
+            assert_eq!(fake.calls.get(), if read { 1 } else { 2 });
         }
     }
 }

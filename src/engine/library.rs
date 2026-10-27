@@ -17,6 +17,7 @@ pub(super) struct State {
     write_task: Option<JoinHandle<()>>,
     write_refresh: Option<PlaylistId>,
     write_creating: bool,
+    write_removing: bool,
     // Only protects creations acknowledged while a catalogue read was in flight.
     // A later explicit refresh remains authoritative.
     catalogue_created: Vec<PlaylistEntry>,
@@ -31,6 +32,18 @@ struct QueueRequest {
 }
 
 pub(super) enum Update {
+    Removed {
+        generation: u64,
+        auth_generation: u64,
+        id: PlaylistId,
+        count: usize,
+        result: Result<crate::spotify_playlist_write::Receipt, LocalizedText>,
+    },
+    PlaylistAccess {
+        generation: u64,
+        revision: Vec<u8>,
+        owned: bool,
+    },
     Creation {
         generation: u64,
         auth_generation: u64,
@@ -186,6 +199,8 @@ impl Worker {
                     s.playlist_write_busy = false;
                     s.playlist_write_status = if self.library.write_creating {
                         "Creation ou ajout non confirme; verifiez vos playlists avant de reessayer"
+                    } else if self.library.write_removing {
+                        "Retrait non confirme; verifiez la playlist avant de reessayer"
                     } else {
                         "Ajout non confirme; verifiez la playlist avant de reessayer"
                     }
@@ -201,6 +216,10 @@ impl Worker {
             }
             self.library.write_refresh = None;
             self.library.write_creating = false;
+            self.library.write_removing = false;
+            self.library.edit(|s| {
+                s.playlist_remove_revision = s.playlist_remove_revision.wrapping_add(1);
+            });
         }
         // Hiding the library does not cancel an already submitted mutation.
         self.reset_playlist(message);
@@ -214,6 +233,8 @@ impl Worker {
             s.entries = Arc::default();
             s.tracks = Arc::default();
             s.selected_id = None;
+            s.selected_owned = false;
+            s.selected_playlist_revision = Arc::default();
             s.loading = false;
             s.busy = false;
             s.status = message.into();
@@ -287,6 +308,20 @@ impl Worker {
             }
             LibraryCommand::CreatePlaylist { name, tracks } if self.library.open => {
                 self.create_playlist_from_selection(name, tracks, updates);
+            }
+            LibraryCommand::RemoveFromPlaylist {
+                id,
+                expected_tracks,
+                expected_revision,
+                indices,
+            } if self.library.open => {
+                self.remove_playlist_selection(
+                    id,
+                    expected_tracks,
+                    expected_revision,
+                    indices,
+                    updates,
+                );
             }
             LibraryCommand::QueueSearch {
                 revision,
@@ -417,6 +452,8 @@ impl Worker {
         self.library.pending_queue = request;
         self.library.edit(|s| {
             s.selected_id = Some(id);
+            s.selected_owned = false;
+            s.selected_playlist_revision = Arc::default();
             s.tracks = Arc::default();
             s.loading = true;
             s.busy = request.is_some();
@@ -430,6 +467,47 @@ impl Worker {
     }
 
     pub(super) fn library_update(&mut self, update: Update) {
+        if let Update::Removed {
+            generation,
+            auth_generation,
+            id,
+            count,
+            result,
+        } = update
+        {
+            if generation == self.library.write_generation
+                && auth_generation == self.auth_generation
+            {
+                self.library.write_task = None;
+                self.library.write_removing = false;
+                if result.is_ok() {
+                    self.library.write_refresh = Some(id.clone());
+                }
+                self.library.edit(|s| {
+                    if s.selected_id.as_ref() == Some(&id) {
+                        // Do not let a second Delete reuse the old occurrence indices.
+                        // A fresh playlist read restores editability after success;
+                        // an uncertain failure requires an explicit refresh.
+                        s.selected_owned = false;
+                    }
+                    if let Ok(receipt) = &result
+                        && let Some(entry) = Arc::make_mut(&mut s.entries)
+                            .iter_mut()
+                            .find(|entry| entry.id == id)
+                    {
+                        entry.track_count = receipt.total;
+                        entry.duration_ms = None;
+                    }
+                    s.playlist_write_busy = false;
+                    s.playlist_remove_revision = s.playlist_remove_revision.wrapping_add(1);
+                    s.playlist_write_status = match result {
+                        Ok(_) => playlist_remove_success(count),
+                        Err(message) => message,
+                    };
+                });
+            }
+            return;
+        }
         if let Update::Creation {
             generation,
             auth_generation,
@@ -487,10 +565,14 @@ impl Worker {
         }
         let generation = match &update {
             Update::Catalogue { generation, .. }
+            | Update::PlaylistAccess { generation, .. }
             | Update::Loaded { generation, .. }
             | Update::Metadata { generation, .. }
             | Update::Finished { generation } => *generation,
-            Update::Search { .. } | Update::Written { .. } | Update::Creation { .. } => {
+            Update::Search { .. }
+            | Update::Written { .. }
+            | Update::Creation { .. }
+            | Update::Removed { .. } => {
                 unreachable!()
             }
         };
@@ -498,9 +580,18 @@ impl Worker {
             return;
         }
         match update {
-            Update::Search { .. } | Update::Written { .. } | Update::Creation { .. } => {
+            Update::Search { .. }
+            | Update::Written { .. }
+            | Update::Creation { .. }
+            | Update::Removed { .. } => {
                 unreachable!()
             }
+            Update::PlaylistAccess {
+                revision, owned, ..
+            } => self.library.edit(|s| {
+                s.selected_owned = owned;
+                s.selected_playlist_revision = revision.into();
+            }),
             Update::Catalogue { result, .. } => {
                 self.library.task = None;
                 self.library.catalogue_loaded = result.is_ok();
@@ -569,6 +660,8 @@ impl Worker {
                     self.library.edit(|s| {
                         s.loading = false;
                         s.busy = false;
+                        s.selected_owned = false;
+                        s.selected_playlist_revision = Arc::default();
                         s.status = message;
                     });
                 }
@@ -599,6 +692,89 @@ impl Worker {
             }
             Update::Finished { .. } => self.library.task = None,
         }
+    }
+
+    fn remove_playlist_selection(
+        &mut self,
+        id: PlaylistId,
+        expected_tracks: Arc<Vec<TrackRow>>,
+        expected_revision: Arc<[u8]>,
+        indices: Vec<usize>,
+        updates: &mpsc::Sender<super::Update>,
+    ) {
+        let reject = if self.library.write_task.is_some() {
+            Some("Modification de playlist en cours; attendez sa confirmation")
+        } else if self.session.is_none() {
+            Some("Connectez Spotify pour modifier une playlist")
+        } else if indices.is_empty()
+            || indices.len() > crate::spotify_playlist_write::MAX_SELECTION
+            || indices.windows(2).any(|pair| pair[0] >= pair[1])
+            || indices
+                .last()
+                .is_some_and(|index| *index >= expected_tracks.len())
+            || expected_revision.is_empty()
+        {
+            Some("Selection invalide; aucun titre retire")
+        } else if !self.library.shared.lock().is_ok_and(|s| {
+            s.selected_id.as_ref() == Some(&id)
+                && s.selected_owned
+                && !s.loading
+                && !s.busy
+                && s.selected_playlist_revision == expected_revision
+                && s.tracks.len() == expected_tracks.len()
+                && s.tracks
+                    .iter()
+                    .zip(expected_tracks.iter())
+                    .all(|(a, b)| a.uri == b.uri)
+                && s.entries
+                    .iter()
+                    .any(|entry| entry.id == id && entry.available)
+        }) {
+            Some("Impossible de verifier la playlist; aucun titre retire")
+        } else {
+            None
+        };
+        if let Some(message) = reject {
+            self.library.edit(|s| {
+                s.playlist_remove_revision = s.playlist_remove_revision.wrapping_add(1);
+                s.playlist_write_status = message.into();
+            });
+            return;
+        }
+        let session = self.session.clone().unwrap();
+        self.library.write_generation = self.library.write_generation.wrapping_add(1);
+        self.library.write_creating = false;
+        self.library.write_removing = true;
+        let generation = self.library.write_generation;
+        let auth_generation = self.auth_generation;
+        let epoch = self.auth_epoch.clone();
+        let updates = updates.clone();
+        let count = indices.len();
+        self.library.edit(|s| {
+            s.playlist_write_busy = true;
+            s.playlist_write_status = "Retrait de la playlist Spotify en cours...".into();
+        });
+        self.library.write_task = Some(tokio::spawn(async move {
+            let result = crate::spotify_playlist_write::remove(
+                session,
+                &id,
+                &expected_tracks,
+                &expected_revision,
+                &indices,
+                epoch,
+                auth_generation,
+            )
+            .await;
+            let _ = updates
+                .send(super::Update::Library(Update::Removed {
+                    generation,
+                    auth_generation,
+                    id,
+                    count,
+                    result,
+                }))
+                .await;
+        }));
     }
 
     fn add_selection_to_playlist(
@@ -637,6 +813,7 @@ impl Worker {
         let count = tracks.len();
         let updates = updates.clone();
         self.library.write_creating = false;
+        self.library.write_removing = false;
         self.library.edit(|s| {
             s.playlist_write_busy = true;
             s.playlist_write_status = "Ajout a la playlist Spotify en cours...".into();
@@ -691,6 +868,7 @@ impl Worker {
         let session = self.session.clone().unwrap();
         self.library.write_generation = self.library.write_generation.wrapping_add(1);
         self.library.write_creating = true;
+        self.library.write_removing = false;
         let generation = self.library.write_generation;
         let auth_generation = self.auth_generation;
         let epoch = self.auth_epoch.clone();
@@ -1335,9 +1513,18 @@ async fn load_playlist(
     generation: u64,
     updates: mpsc::Sender<super::Update>,
 ) {
-    let result = resolve_ids(&session, &uri, MAX_QUEUE).await;
-    let (ids, truncated) = match result {
-        Ok(resolved) => resolved,
+    // Reuse the playlist response already needed for the preview. Its owner
+    // and opaque revision are retained without another request or cache.
+    let result = tokio::time::timeout(NETWORK_TIMEOUT, Playlist::get(&session, &uri))
+        .await
+        .map_err(|_| LocalizedText::from("Spotify ne repond pas; reessayez"))
+        .and_then(|result| {
+            result.map_err(|_| {
+                LocalizedText::from("Impossible de lire ce lien Spotify; verifiez son acces")
+            })
+        });
+    let (ids, truncated, revision, owned) = match result {
+        Ok(playlist) => playlist_preview(playlist, &session.username()),
         Err(message) => {
             let _ = updates
                 .send(super::Update::Library(Update::Loaded {
@@ -1348,6 +1535,17 @@ async fn load_playlist(
             return;
         }
     };
+    if updates
+        .send(super::Update::Library(Update::PlaylistAccess {
+            generation,
+            revision,
+            owned,
+        }))
+        .await
+        .is_err()
+    {
+        return;
+    }
     let rows = ids
         .iter()
         .filter_map(|uri| uri.to_uri().ok())
@@ -1408,6 +1606,26 @@ async fn load_playlist(
         .await;
 }
 
+fn playlist_preview(playlist: Playlist, username: &str) -> (Vec<SpotifyUri>, bool, Vec<u8>, bool) {
+    let truncated = playlist.contents.is_truncated || playlist.length as usize > MAX_QUEUE;
+    let tracks: Vec<_> = playlist
+        .tracks()
+        .filter(|uri| matches!(uri, SpotifyUri::Track { .. }))
+        .take(MAX_QUEUE)
+        .cloned()
+        .collect();
+    let owned = !username.is_empty()
+        && matches!(&playlist.id, SpotifyUri::Playlist { user: Some(owner), .. } if owner == username)
+        && !truncated
+        && !playlist.has_multiple_heads
+        && !playlist.attributes.is_deleted_by_owner
+        && playlist.contents.position == 0
+        && usize::try_from(playlist.length).ok() == Some(tracks.len())
+        && playlist.contents.items.len() == tracks.len()
+        && !playlist.revision.is_empty();
+    (tracks, truncated, playlist.revision, owned)
+}
+
 #[cfg(test)]
 #[path = "library/tests.rs"]
 mod tests;
@@ -1420,6 +1638,17 @@ fn playlist_write_success(count: usize) -> LocalizedText {
         format!("{count} canciones añadidas a la playlist de Spotify"),
         format!("{count} brani aggiunti alla playlist Spotify"),
         format!("{count} faixas adicionadas à playlist do Spotify"),
+    )
+}
+
+fn playlist_remove_success(count: usize) -> LocalizedText {
+    LocalizedText::with_languages(
+        format!("{count} titre(s) retires de la playlist Spotify"),
+        format!("{count} track(s) removed from the Spotify playlist"),
+        format!("{count} Titel aus der Spotify-Playlist entfernt"),
+        format!("{count} canciones eliminadas de la playlist de Spotify"),
+        format!("{count} brani rimossi dalla playlist Spotify"),
+        format!("{count} faixas removidas da playlist do Spotify"),
     )
 }
 

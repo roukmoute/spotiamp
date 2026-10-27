@@ -81,6 +81,12 @@ pub enum LibraryCommand {
         id: PlaylistId,
         tracks: Vec<TrackRow>,
     },
+    RemoveFromPlaylist {
+        id: PlaylistId,
+        expected_tracks: std::sync::Arc<Vec<TrackRow>>,
+        expected_revision: std::sync::Arc<[u8]>,
+        indices: Vec<usize>,
+    },
     CreatePlaylist {
         name: String,
         tracks: Vec<TrackRow>,
@@ -106,6 +112,9 @@ pub struct LibrarySnapshot {
     pub entries: std::sync::Arc<Vec<PlaylistEntry>>,
     pub selected_id: Option<PlaylistId>,
     pub tracks: std::sync::Arc<Vec<TrackRow>>,
+    /// Only a complete, owned playlist with a known Spotify revision is editable.
+    pub selected_owned: bool,
+    pub selected_playlist_revision: std::sync::Arc<[u8]>,
     pub loading: bool,
     pub busy: bool,
     pub status: LocalizedText,
@@ -113,6 +122,7 @@ pub struct LibrarySnapshot {
     pub queue_len: usize,
     pub playlist_write_busy: bool,
     pub playlist_write_status: LocalizedText,
+    pub playlist_remove_revision: u64,
     pub search: SearchSnapshot,
 }
 

@@ -461,6 +461,21 @@ impl View {
             (
                 109,
                 self.language.text(
+                    "0.2.15 / RETRAIT DE TITRES",
+                    "0.2.15 / REMOVE PLAYLIST TRACKS",
+                ),
+                self.language.text(
+                    "Suppr retire la sélection de votre playlist Spotify.",
+                    "Delete removes selected tracks from your playlist.",
+                ),
+                self.language.text(
+                    "Lecture et file conservées.",
+                    "Playback and queue are preserved.",
+                ),
+            ),
+            (
+                154,
+                self.language.text(
                     "0.2.14 / MISE À JOUR IMMÉDIATE",
                     "0.2.14 / IMMEDIATE UPDATE CHECK",
                 ),
@@ -474,7 +489,7 @@ impl View {
                 ),
             ),
             (
-                154,
+                199,
                 self.language
                     .text("0.2.13 / NOUVELLES PLAYLISTS", "0.2.13 / NEW PLAYLISTS"),
                 self.language.text(
@@ -487,7 +502,7 @@ impl View {
                 ),
             ),
             (
-                199,
+                244,
                 self.language
                     .text("0.2.12 / RECHERCHE SPOTIFY", "0.2.12 / SPOTIFY SEARCH"),
                 self.language.text(
@@ -500,7 +515,7 @@ impl View {
                 ),
             ),
             (
-                244,
+                289,
                 self.language
                     .text("0.2.11 / SIX LANGUES", "0.2.11 / SIX LANGUAGES"),
                 self.language.text(
@@ -513,7 +528,7 @@ impl View {
                 ),
             ),
             (
-                289,
+                334,
                 self.language
                     .text("0.2.10 / REPRISE MÉMORISÉE", "0.2.10 / REMEMBERED PLAYBACK"),
                 self.language.text(
@@ -523,21 +538,6 @@ impl View {
                 self.language.text(
                     "Lecture reprend où vous vous êtes arrêté.",
                     "Play resumes where you left off.",
-                ),
-            ),
-            (
-                334,
-                self.language.text(
-                    "0.2.9 / LANGUES DE L'INTERFACE",
-                    "0.2.9 / INTERFACE LANGUAGES",
-                ),
-                self.language.text(
-                    "Français et anglais, avec détection du système.",
-                    "French and English, with system language detection.",
-                ),
-                self.language.text(
-                    "Choix dans À propos, mémorisé au redémarrage.",
-                    "Choose in About; remembered across restarts.",
                 ),
             ),
         ] {

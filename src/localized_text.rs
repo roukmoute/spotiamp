@@ -111,6 +111,28 @@ impl From<&'static str> for LocalizedText {
             "Titre indisponible, acces refuse ou erreur audio. Essayez Suivant." => {
                 "Track unavailable, access denied or audio error. Try Next."
             }
+            "Selection invalide; aucun titre retire" => "Invalid selection; no tracks removed",
+            "Impossible de verifier la playlist; aucun titre retire" => {
+                "Unable to verify playlist; no tracks removed"
+            }
+            "Seul le proprietaire peut retirer des titres de cette playlist" => {
+                "Only the owner can remove tracks from this playlist"
+            }
+            "Retrait non confirme; verifiez la playlist avant de reessayer" => {
+                "Removal not confirmed; check the playlist before retrying"
+            }
+            "Spotify limite les retraits; patientez avant de reessayer" => {
+                "Spotify is limiting removals; wait before retrying"
+            }
+            "Spotify a refuse le retrait; aucun titre retire" => {
+                "Spotify refused the removal; no tracks removed"
+            }
+            "Retrait de la playlist Spotify en cours..." => {
+                "Removing tracks from the Spotify playlist..."
+            }
+            "Modification de playlist en cours; attendez sa confirmation" => {
+                "Playlist change in progress; wait for confirmation"
+            }
             "Selection invalide; aucun titre ajoute" => "Invalid selection; no tracks added",
             "Selection limitee a 500 titres" => "Selection limited to 500 tracks",
             "Impossible de verifier vos playlists; aucun titre ajoute" => {
@@ -427,6 +449,14 @@ mod tests {
             "Spotify a refuse la creation de la playlist",
             "Spotify limite les creations; patientez avant de reessayer",
             "Creation ou ajout non confirme; verifiez vos playlists avant de reessayer",
+            "Selection invalide; aucun titre retire",
+            "Impossible de verifier la playlist; aucun titre retire",
+            "Seul le proprietaire peut retirer des titres de cette playlist",
+            "Retrait non confirme; verifiez la playlist avant de reessayer",
+            "Spotify limite les retraits; patientez avant de reessayer",
+            "Spotify a refuse le retrait; aucun titre retire",
+            "Retrait de la playlist Spotify en cours...",
+            "Modification de playlist en cours; attendez sa confirmation",
             "Selection invalide; aucun titre ajoute",
             "Selection limitee a 500 titres",
             "Ajout a la playlist Spotify en cours...",
@@ -459,6 +489,15 @@ mod tests {
             };
             assert!(matches!(text.french, Cow::Borrowed(_)));
             assert!(text.additional.is_none());
+            for language in Language::ALL {
+                assert!(
+                    text.text(language)
+                        .chars()
+                        .all(|c| (' '..='~').contains(&c) || ('\u{a0}'..='\u{ff}').contains(&c)),
+                    "Unsupported bitmap glyph in {language:?}: {}",
+                    text.text(language)
+                );
+            }
             for language in Language::ALL[2..].iter().copied() {
                 let expected = crate::translations::lookup(english, language)
                     .unwrap_or_else(|| panic!("Missing {language:?} search message: {english}"));
