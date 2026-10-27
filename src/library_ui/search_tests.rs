@@ -114,33 +114,21 @@ fn stale_request_ack_cannot_reenable_rows_before_latest_query_arrives() {
 }
 
 #[test]
-fn double_click_and_enter_target_exact_search_result_request() {
+fn double_click_and_enter_capture_exact_search_result() {
     let (mut view, s) = searched();
     assert!(click(&mut view, 310, 152, &s).is_none());
-    assert!(matches!(
-        click(&mut view, 310, 152, &s),
-        Some(Action::Command(LibraryCommand::QueueSearch {
-            revision: 7,
-            index: 1,
-            play: true
-        }))
-    ));
-    assert!(matches!(
-        view.key(Key::Enter, true, false, &s),
-        Some(Action::Command(LibraryCommand::QueueSearch {
-            revision: 7,
-            index: 1,
-            play: false
-        }))
-    ));
-    assert!(matches!(
-        click(&mut view, 390, 425, &s),
-        Some(Action::Command(LibraryCommand::QueueSearch {
-            revision: 7,
-            index: 1,
-            play: false
-        }))
-    ));
+    let actions = [
+        (click(&mut view, 310, 152, &s), true),
+        (view.key(Key::Enter, true, false, &s), false),
+        (click(&mut view, 390, 425, &s), false),
+    ];
+    for (action, expected) in actions {
+        assert!(
+            matches!(action, Some(Action::Command(LibraryCommand::QueueTracks {
+            tracks, play, replace, insert_at: None, origin: None, expected_queue: None,
+        })) if tracks == vec![s.search.tracks[1].clone()] && play == expected && replace == expected)
+        );
+    }
 }
 
 #[test]
@@ -163,7 +151,7 @@ fn result_metadata_updates_preserve_selection_but_new_request_cancels_stale_clic
 #[test]
 fn clear_removes_text_and_disables_results_even_before_backend_ack() {
     let (mut view, s) = searched();
-    view.select_track(3, &s);
+    view.choose_track(3, false, false, &s);
     assert!(
         matches!(click(&mut view, 700, 40, &s), Some(Action::Command(LibraryCommand::Search(query))) if query.is_empty())
     );

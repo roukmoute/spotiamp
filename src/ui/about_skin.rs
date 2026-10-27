@@ -467,8 +467,8 @@ impl View {
                     "Find a song or artist in the library.",
                 ),
                 self.language.text(
-                    "Double-clic : lire. À la file : ajouter le titre.",
-                    "Double-click: play. Add to queue: append the track.",
+                    "Sélection multiple, file et playlists Spotify.",
+                    "Multiple selection, queue and Spotify playlists.",
                 ),
             ),
             (

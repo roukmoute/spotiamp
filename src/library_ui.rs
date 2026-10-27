@@ -9,8 +9,12 @@ use crate::{
     },
 };
 mod modern;
+mod picker;
+mod selection;
 use font8x8::UnicodeFonts;
 use minifb::Key;
+use picker::PlaylistPicker;
+use selection::TrackSelection;
 use std::{
     fmt::Write,
     time::{Duration, Instant},
@@ -50,6 +54,9 @@ enum Button {
     Clear,
     Play,
     Append,
+    ToPlaylist,
+    PickerConfirm,
+    PickerCancel,
 }
 impl Button {
     fn rect(self) -> Rect {
@@ -61,6 +68,9 @@ impl Button {
             Self::Clear => (662, 29, 86, 23),
             Self::Play => (246, 413, 106, 24),
             Self::Append => (360, 413, 128, 24),
+            Self::ToPlaylist => (496, 413, 168, 24),
+            Self::PickerConfirm => (328, 348, 110, 24),
+            Self::PickerCancel => (450, 348, 110, 24),
         }
     }
 }
@@ -71,6 +81,7 @@ enum Target {
     SearchInput,
     Playlist(usize),
     Track(usize),
+    Destination(usize),
 }
 
 pub struct View {
@@ -81,6 +92,11 @@ pub struct View {
     pending_selection: Option<PlaylistId>,
     observed_id: Option<PlaylistId>,
     selected_track: Option<usize>,
+    playlist_choices: TrackSelection,
+    search_choices: TrackSelection,
+    picker: Option<PlaylistPicker>,
+    press_collapse: bool,
+    press_modified: bool,
     selected_uri: Option<String>,
     left_focus: bool,
     search_mode: bool,
@@ -120,6 +136,11 @@ impl Default for View {
             pending_selection: None,
             observed_id: None,
             selected_track: None,
+            playlist_choices: TrackSelection::default(),
+            search_choices: TrackSelection::default(),
+            picker: None,
+            press_collapse: false,
+            press_modified: false,
             selected_uri: None,
             left_focus: true,
             search_mode: false,
@@ -251,7 +272,7 @@ impl View {
         self.dirty();
     }
     pub fn wants_text_input(&self) -> bool {
-        self.focused && self.search_mode && self.input_focus
+        self.focused && self.search_mode && self.input_focus && self.picker.is_none()
     }
     fn selection(&self) -> std::ops::Range<usize> {
         self.cursor.min(self.anchor)..self.cursor.max(self.anchor)
@@ -311,6 +332,7 @@ impl View {
         self.search_click = None;
         self.search_pending = Some((s.search.revision, query.to_owned()));
         self.search_track = None;
+        self.search_choices.clear();
         self.search_offset = 0;
         self.search_remainder = 0.0;
         self.dirty();
@@ -393,6 +415,7 @@ impl View {
         if self.search_revision != s.search.revision {
             self.search_revision = s.search.revision;
             self.search_track = None;
+            self.search_choices.clear();
             self.search_offset = 0;
             self.search_remainder = 0.0;
             self.search_click = None;
@@ -427,6 +450,17 @@ impl View {
             self.search_track = None;
         }
 
+        if !self.search_choices.valid(&s.search.tracks) {
+            self.search_track = self
+                .search_track
+                .and_then(|index| self.search_choices.remapped_focus(index, &s.search.tracks));
+            self.search_choices.reconcile(&s.search.tracks);
+        }
+        self.playlist_choices.reconcile(&s.tracks);
+        if !s.connected {
+            self.picker = None;
+        }
+
         // Loading and metadata updates can arrive between the two clicks.
         // Keep a playlist click only while the same available ID occupies its row.
         if !self.last_click.as_ref().is_some_and(|(id, target, _)| {
@@ -442,6 +476,7 @@ impl View {
                 self.pending_selection = None;
                 if changed {
                     self.selected_track = None;
+                    self.playlist_choices.clear();
                     self.selected_uri = None;
                     self.right_offset = 0;
                     if let Some(index) = s
@@ -465,6 +500,7 @@ impl View {
             self.pending_selection = None;
             self.selected_id = s.selected_id.clone();
             self.selected_track = None;
+            self.playlist_choices.clear();
             self.selected_uri = None;
             self.right_offset = 0;
         }
@@ -472,6 +508,7 @@ impl View {
             self.selected_id = None;
             self.pending_selection = None;
             self.selected_track = None;
+            self.playlist_choices.clear();
             self.selected_uri = None;
             self.right_offset = 0;
         }
@@ -494,13 +531,29 @@ impl View {
                 .min(s.tracks.len().saturating_sub(RIGHT_ROWS));
         } else {
             self.selected_track = None;
+            self.playlist_choices.clear();
             self.selected_uri = None;
             self.right_offset = 0;
         }
     }
     fn enabled(&self, b: Button, s: &LibrarySnapshot) -> bool {
         match b {
-            Button::Minimize | Button::Close => true,
+            Button::Minimize | Button::Close | Button::PickerCancel => true,
+            Button::PickerConfirm => self.picker.as_ref().is_some_and(|picker| {
+                s.connected
+                    && !s.playlist_write_busy
+                    && picker.destination.as_ref().is_some_and(|id| {
+                        s.entries
+                            .iter()
+                            .any(|entry| &entry.id == id && entry.available)
+                    })
+            }),
+            Button::ToPlaylist => {
+                s.connected
+                    && !s.playlist_write_busy
+                    && self.active_ready(s)
+                    && self.active_choices().len() > 0
+            }
             Button::Refresh => s.connected && !s.busy && !s.loading,
             Button::Search => s.connected && !self.query.trim().is_empty(),
             Button::Clear => !self.query.is_empty() || !s.search.query.is_empty(),
@@ -510,14 +563,18 @@ impl View {
                     && self.active_ready(s)
                     && !self.active_tracks(s).is_empty()
                     && if self.search_mode {
-                        self.search_track.is_some()
+                        self.active_choices().len() > 0
                     } else {
                         self.selected(s).is_some_and(|e| e.available)
+                            && (self.left_focus || self.active_choices().len() > 0)
                     }
             }
         }
     }
     fn target(&self, x: usize, y: usize) -> Option<Target> {
+        if let Some(picker) = &self.picker {
+            return picker.target(x, y);
+        }
         if self.search_mode {
             for b in [Button::Search, Button::Clear] {
                 if inside(b.rect(), x, y) {
@@ -537,6 +594,7 @@ impl View {
             Button::Refresh,
             Button::Play,
             Button::Append,
+            Button::ToPlaylist,
         ] {
             if inside(b.rect(), x, y) {
                 return Some(Target::Button(b));
@@ -551,8 +609,20 @@ impl View {
         None
     }
     pub fn pointer_down(&mut self, x: usize, y: usize, s: &LibrarySnapshot) -> Option<Action> {
+        self.pointer_down_with_modifiers(x, y, false, false, s)
+    }
+    pub fn pointer_down_with_modifiers(
+        &mut self,
+        x: usize,
+        y: usize,
+        control: bool,
+        shift: bool,
+        s: &LibrarySnapshot,
+    ) -> Option<Action> {
         self.sync(s);
         self.clear_press();
+        self.press_collapse = false;
+        self.press_modified = control || shift;
         if !self.focused {
             return None;
         }
@@ -562,9 +632,22 @@ impl View {
             Some(Target::Playlist(i)) => s.entries.get(i).is_some_and(|e| e.available),
             Some(Target::Track(i)) => self.active_ready(s) && i < self.active_tracks(s).len(),
             Some(Target::Search | Target::SearchInput) => true,
+            Some(Target::Destination(i)) => self
+                .picker
+                .as_ref()
+                .is_some_and(|picker| i < picker.destinations.len()),
             None => false,
         };
         if allowed {
+            if let Some(Target::Track(index)) = target {
+                self.left_focus = false;
+                self.input_focus = false;
+                if !control && !shift && self.active_choices().contains(index) {
+                    self.press_collapse = true;
+                } else {
+                    self.choose_track(index, control, shift, s);
+                }
+            }
             if !matches!(target, Some(Target::Track(_))) {
                 self.search_click = None;
             }
@@ -619,6 +702,7 @@ impl View {
                 Target::Playlist(_)
                     | Target::Search
                     | Target::SearchInput
+                    | Target::Destination(_)
                     | Target::Button(Button::Close | Button::Minimize)
             )
         {
@@ -627,6 +711,13 @@ impl View {
             return None;
         }
         match target {
+            Target::Destination(index) => {
+                if let Some(picker) = &mut self.picker {
+                    picker.choose(index);
+                    self.dirty();
+                }
+                None
+            }
             Target::Button(b) if self.enabled(b, s) => self.button(b, s),
             Target::Search => {
                 self.open_search(true);
@@ -661,6 +752,7 @@ impl View {
                 if double && s.connected {
                     // The engine also handles playlists that are still loading.
                     self.selected_track = None;
+                    self.playlist_choices.clear();
                     self.selected_uri = None;
                     self.right_offset = 0;
                     Some(Action::Command(LibraryCommand::Queue {
@@ -676,7 +768,14 @@ impl View {
             Target::Track(index) if self.active_ready(s) && index < self.active_tracks(s).len() => {
                 self.left_focus = false;
                 self.input_focus = false;
-                self.select_track(index, s);
+                if self.press_collapse {
+                    self.choose_track(index, false, false, s);
+                }
+                if self.press_modified {
+                    self.search_click = None;
+                    self.last_click = None;
+                    return None;
+                }
                 if self.search_mode {
                     let double = self.search_click.is_some_and(|(revision, old, at)| {
                         revision == s.search.revision
@@ -722,13 +821,14 @@ impl View {
         self.selected_id = Some(entry.id.clone());
         self.pending_selection = Some(entry.id.clone());
         self.selected_track = None;
+        self.playlist_choices.clear();
         self.selected_uri = None;
         self.right_offset = 0;
         self.right_remainder = 0.0;
         reveal(index, &mut self.left_offset, LEFT_ROWS);
         Some(Action::Command(LibraryCommand::Select(entry.id.clone())))
     }
-    fn select_track(&mut self, index: usize, s: &LibrarySnapshot) {
+    fn focus_track(&mut self, index: usize, s: &LibrarySnapshot) {
         if self.search_mode {
             if index < s.search.tracks.len() {
                 self.search_track = Some(index);
@@ -748,24 +848,28 @@ impl View {
         if !self.enabled(if play { Button::Play } else { Button::Append }, s) {
             return None;
         }
-        if self.search_mode {
-            return Some(Action::Command(LibraryCommand::QueueSearch {
-                revision: s.search.revision,
-                index: self.search_track?,
+        if !self.search_mode && self.left_focus {
+            return Some(Action::Command(LibraryCommand::Queue {
+                id: self.selected_id.clone()?,
+                replace: play,
                 play,
+                start: 0,
             }));
         }
-        Some(Action::Command(LibraryCommand::Queue {
-            id: self.selected_id.clone()?,
+        let tracks = self.selected_tracks(s);
+        if tracks.is_empty() {
+            return None;
+        }
+        Some(Action::Command(LibraryCommand::QueueTracks {
+            tracks,
+            origin: self.selection_origin(),
+            expected_queue: None,
             replace: play,
             play,
-            start: if play {
-                self.selected_track.unwrap_or(0)
-            } else {
-                0
-            },
+            insert_at: None,
         }))
     }
+
     fn button(&mut self, button: Button, s: &LibrarySnapshot) -> Option<Action> {
         self.last_click = None;
         match button {
@@ -784,6 +888,7 @@ impl View {
                 self.input_offset = 0;
                 self.search_click = None;
                 self.search_track = None;
+                self.search_choices.clear();
                 self.search_offset = 0;
                 self.search_pending = Some((s.search.revision, String::new()));
                 self.open_search(true);
@@ -791,6 +896,16 @@ impl View {
             }
             Button::Play => self.queue(s, true),
             Button::Append => self.queue(s, false),
+            Button::ToPlaylist => {
+                self.open_picker(s);
+                None
+            }
+            Button::PickerCancel => {
+                self.picker = None;
+                self.dirty();
+                None
+            }
+            Button::PickerConfirm => self.confirm_picker(s),
         }
     }
     pub fn key(
@@ -806,6 +921,9 @@ impl View {
         self.search_click = None;
         if !self.focused {
             return None;
+        }
+        if self.picker.is_some() {
+            return self.picker_key(key, s);
         }
         if control && key == Key::F {
             self.open_search(true);
@@ -862,6 +980,18 @@ impl View {
                 return None;
             }
             _ => (),
+        }
+        if control && key == Key::A && !self.left_focus && self.active_ready(s) {
+            if self.search_mode {
+                self.search_choices.all(&s.search.tracks);
+            } else {
+                self.playlist_choices.all(&s.tracks);
+            }
+            if self.active_selection().is_none() && !self.active_tracks(s).is_empty() {
+                self.focus_track(0, s);
+            }
+            self.dirty();
+            return None;
         }
         if matches!(
             key,
@@ -924,7 +1054,11 @@ impl View {
                 }
                 return self.select_playlist(index, s);
             }
-            self.select_track(index, s);
+            if control && !shift {
+                self.focus_track(index, s);
+            } else {
+                self.choose_track(index, control, shift, s);
+            }
             return None;
         }
         if key == Key::Enter {
@@ -932,13 +1066,17 @@ impl View {
                 self.open_search(true);
                 return None;
             }
-            return self.queue(s, !control);
+            return self.queue(s, !(control || shift));
         }
         None
     }
     pub fn scroll(&mut self, y: f32, position: Option<(usize, usize)>, s: &LibrarySnapshot) {
         self.sync(s);
         if !y.is_finite() {
+            return;
+        }
+        if self.picker.is_some() {
+            self.picker_scroll(y, position);
             return;
         }
         let left = match position {
@@ -1005,9 +1143,15 @@ impl View {
         let ready = self.active_ready(s);
         let tracks = self.active_tracks(s);
         let offset = self.active_offset();
-        let selection = self.active_selection();
+        let choices = if self.search_mode {
+            &self.search_choices
+        } else {
+            &self.playlist_choices
+        };
         let search_enabled = self.enabled(Button::Search, s);
         let clear_enabled = self.enabled(Button::Clear, s);
+        let playlist_enabled = self.enabled(Button::ToPlaylist, s);
+        let picker_confirm_enabled = self.enabled(Button::PickerConfirm, s);
         let enabled = [
             self.enabled(Button::Refresh, s),
             self.enabled(Button::Play, s),
@@ -1124,7 +1268,7 @@ impl View {
                 574,
                 37,
                 if s.connected {
-                    language.text("LECTURE SEULE", "READ ONLY")
+                    "SPOTIFY"
                 } else {
                     language.text("HORS CONNEXION", "OFFLINE")
                 },
@@ -1357,7 +1501,7 @@ impl View {
         } else {
             for (index, track) in tracks.iter().enumerate().skip(offset).take(RIGHT_ROWS) {
                 let y = 120 + (index - offset) * 24;
-                let active = selection == Some(index);
+                let active = choices.contains(index);
                 if active {
                     c.rect((248, y, 486, 23), palette.selection);
                 }
@@ -1395,26 +1539,21 @@ impl View {
             enabled[2],
             pressed == Some(Target::Button(Button::Append)),
         );
-        c.text(
-            506,
-            416,
-            language.text("Double-clic : lire", "Double-click: play"),
-            palette.chrome_muted,
-            30,
+        c.button(
+            Button::ToPlaylist,
+            language.text("VERS PLAYLIST...", "TO PLAYLIST..."),
+            playlist_enabled,
+            pressed == Some(Target::Button(Button::ToPlaylist)),
         );
-        let mut queue = Label::new();
-        let _ = write!(
-            queue,
-            "{}: {} {}",
-            language.text("FILE", "QUEUE"),
-            s.queue_len,
-            language.text("TITRES", "TRACKS")
-        );
-        c.text(506, 428, queue.as_str(), palette.chrome_muted, 30);
+        let mut count = Label::new();
+        let _ = write!(count, "{}/{}", choices.len(), tracks.len());
+        c.text(674, 421, count.as_str(), palette.chrome_muted, 9);
         c.rect((13, 443, 734, 1), palette.separator_shadow);
         c.rect((13, 444, 734, 1), palette.separator_highlight);
         let status = self.notice.as_ref().map_or(
-            if self.search_mode {
+            if s.playlist_write_busy || !s.playlist_write_status.text(language).is_empty() {
+                s.playlist_write_status.text(language)
+            } else if self.search_mode {
                 s.search.status.text(language)
             } else {
                 s.status.text(language)
@@ -1423,6 +1562,9 @@ impl View {
         );
         c.text(15, 450, status, palette.chrome_text, 91);
         c.text_skip(15, 460, status, palette.chrome_text, 91, 91);
+        if let Some(picker) = &self.picker {
+            picker.render(&mut c, palette, language, pressed, picker_confirm_enabled);
+        }
         true
     }
 }
@@ -1592,5 +1734,7 @@ impl std::fmt::Write for Label {
 }
 #[cfg(test)]
 mod search_tests;
+#[cfg(test)]
+mod selection_tests;
 #[cfg(test)]
 mod tests;

@@ -346,7 +346,7 @@ fn double_click_plays_only_the_same_track_and_selected_playlist() {
     assert!(click(&mut view, 310, 128, &s).is_none());
     assert!(click(&mut view, 310, 152, &s).is_none());
     assert!(
-        matches!(click(&mut view,310,152,&s),Some(Action::Command(LibraryCommand::Queue {id:PlaylistId::Spotify(id),start:1,replace:true,play:true})) if id=="playlist-0")
+        matches!(click(&mut view,310,152,&s),Some(Action::Command(LibraryCommand::QueueTracks {tracks,insert_at:None,replace:true,play:true,..})) if tracks == vec![s.tracks[1].clone()])
     );
     assert!(click(&mut view, 310, 152, &s).is_none());
     view.set_focus(false);
@@ -568,21 +568,23 @@ fn keyboard_navigation_reveals_rows_and_append_never_replaces_or_plays() {
     assert_eq!(view.right_offset, 89);
     assert!(matches!(
         view.key(Key::Enter, false, false, &s),
-        Some(Action::Command(LibraryCommand::Queue {
-            start: 99,
+        Some(Action::Command(LibraryCommand::QueueTracks {
+            tracks,
             play: true,
             replace: true,
+            insert_at: None,
             ..
-        }))
+        })) if tracks == vec![s.tracks[99].clone()]
     ));
     assert!(matches!(
         view.key(Key::Enter, true, false, &s),
-        Some(Action::Command(LibraryCommand::Queue {
-            start: 0,
+        Some(Action::Command(LibraryCommand::QueueTracks {
+            tracks,
             play: false,
             replace: false,
+            insert_at: None,
             ..
-        }))
+        })) if tracks == vec![s.tracks[99].clone()]
     ));
     view.key(Key::Left, false, false, &s);
     assert!(
@@ -685,7 +687,7 @@ fn export_library_preview() {
         row.title = title.into();
         row.artist = artist.into();
     }
-    s.status = "16 playlists / lecture seule / F5 : actualiser / Tab : changer de panneau".into();
+    s.status = "16 playlists / F5 : actualiser / Tab : changer de panneau".into();
     if std::env::var_os("SPOTIAMP_LIBRARY_SEARCH").is_some() {
         s.search.query = "jazz".into();
         s.search.revision = 1;
@@ -694,6 +696,15 @@ fn export_library_preview() {
     }
     view.render(&s);
     click(&mut view, 300, 176, &s);
+    if std::env::var_os("SPOTIAMP_LIBRARY_MULTI").is_some() {
+        view.choose_track(4, true, false, &s);
+        view.choose_track(6, true, false, &s);
+    }
+    if std::env::var_os("SPOTIAMP_LIBRARY_PICKER").is_some() {
+        view.open_picker(&s);
+        view.picker_key(Key::Down, &s);
+        view.picker_key(Key::Down, &s);
+    }
     if std::env::var_os("SPOTIAMP_LIBRARY_INACTIVE").is_some() {
         view.set_focus(false);
     }

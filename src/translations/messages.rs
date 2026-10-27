@@ -2,6 +2,33 @@
 
 pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
     (
+        "Adding to the Spotify playlist...",
+        [
+            "Titel werden zur Spotify-Playlist hinzugefügt...",
+            "Añadiendo a la playlist de Spotify...",
+            "Aggiunta alla playlist Spotify...",
+            "A adicionar à playlist Spotify...",
+        ],
+    ),
+    (
+        "Addition in progress; wait for confirmation",
+        [
+            "Hinzufügen läuft; Bestätigung abwarten",
+            "Adición en curso; espera la confirmación",
+            "Aggiunta in corso; attendi la conferma",
+            "Adição em curso; aguarda a confirmação",
+        ],
+    ),
+    (
+        "Addition unconfirmed; check the playlist before retrying",
+        [
+            "Hinzufügen unbestätigt; Playlist vor erneutem Versuch prüfen",
+            "Adición sin confirmar; comprueba la playlist antes de reintentar",
+            "Aggiunta non confermata; controlla la playlist prima di riprovare",
+            "Adição não confirmada; verifica a playlist antes de tentar novamente",
+        ],
+    ),
+    (
         "Application closed",
         [
             "Anwendung geschlossen",
@@ -98,6 +125,15 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
             "Conecta Spotify antes de añadir un enlace",
             "Collega Spotify prima di aggiungere un link",
             "Liga o Spotify antes de adicionar uma ligação",
+        ],
+    ),
+    (
+        "Connect Spotify to edit a playlist",
+        [
+            "Spotify verbinden, um eine Playlist zu bearbeiten",
+            "Conecta Spotify para editar una playlist",
+            "Connetti Spotify per modificare una playlist",
+            "Liga o Spotify para editar uma playlist",
         ],
     ),
     (
@@ -344,6 +380,15 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
         ],
     ),
     (
+        "Could not verify the playlist; no tracks added",
+        [
+            "Playlist konnte nicht geprüft werden; keine Titel hinzugefügt",
+            "No se pudo verificar la playlist; no se añadieron canciones",
+            "Impossibile verificare la playlist; nessun brano aggiunto",
+            "Não foi possível verificar a playlist; nenhuma faixa adicionada",
+        ],
+    ),
+    (
         "Credential store locked or unavailable",
         [
             "Anmeldespeicher gesperrt oder nicht verfügbar",
@@ -476,6 +521,24 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
             "Identificador de playlist de Spotify no válido",
             "Identificatore playlist Spotify non valido",
             "Identificador de playlist do Spotify inválido",
+        ],
+    ),
+    (
+        "Invalid insertion position; the queue was retained",
+        [
+            "Ungültige Einfügeposition; Warteschlange unverändert",
+            "Posición de inserción no válida; se conservó la cola",
+            "Posizione d'inserimento non valida; la coda è stata conservata",
+            "Posição de inserção inválida; a fila foi mantida",
+        ],
+    ),
+    (
+        "Invalid selection; no tracks added",
+        [
+            "Ungültige Auswahl; keine Titel hinzugefügt",
+            "Selección no válida; no se añadieron canciones",
+            "Selezione non valida; nessun brano aggiunto",
+            "Seleção inválida; nenhuma faixa adicionada",
         ],
     ),
     (
@@ -759,6 +822,15 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
         ],
     ),
     (
+        "Selection limited to 500 tracks",
+        [
+            "Auswahl auf 500 Titel begrenzt",
+            "Selección limitada a 500 canciones",
+            "Selezione limitata a 500 brani",
+            "Seleção limitada a 500 faixas",
+        ],
+    ),
+    (
         "Skin applied but not saved: could not write preferences",
         [
             "Skin angewendet, aber nicht gespeichert: Schreibfehler",
@@ -804,6 +876,15 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
         ],
     ),
     (
+        "Spotify is limiting additions; wait before retrying",
+        [
+            "Spotify begrenzt das Hinzufügen; vor erneutem Versuch warten",
+            "Spotify limita las adiciones; espera antes de reintentar",
+            "Spotify limita le aggiunte; attendi prima di riprovare",
+            "O Spotify limita as adições; aguarda antes de tentar novamente",
+        ],
+    ),
+    (
         "Spotify is not responding while loading playlists",
         [
             "Spotify reagiert beim Laden der Playlists nicht",
@@ -846,6 +927,15 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
             "Los nombres de las playlists de Spotify no coinciden con sus entradas",
             "I nomi delle playlist Spotify non corrispondono agli elementi",
             "Os nomes das playlists do Spotify não correspondem às entradas",
+        ],
+    ),
+    (
+        "Spotify refused the addition; no tracks added",
+        [
+            "Spotify hat das Hinzufügen abgelehnt; keine Titel hinzugefügt",
+            "Spotify rechazó la adición; no se añadieron canciones",
+            "Spotify ha rifiutato l'aggiunta; nessun brano aggiunto",
+            "O Spotify recusou a adição; nenhuma faixa adicionada",
         ],
     ),
     (
@@ -976,6 +1066,15 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
         ],
     ),
     (
+        "The destination is no longer available; refresh your playlists",
+        [
+            "Ziel nicht mehr verfügbar; Playlists aktualisieren",
+            "El destino ya no está disponible; actualiza tus playlists",
+            "La destinazione non è più disponibile; aggiorna le playlist",
+            "O destino já não está disponível; atualiza as playlists",
+        ],
+    ),
+    (
         "The library window closed after a display error.",
         [
             "Bibliotheksfenster nach einem Anzeigefehler geschlossen.",
@@ -991,6 +1090,15 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
             "El reproductor está ocupado; reintenta en un momento.",
             "Il lettore è occupato; riprova tra poco.",
             "O leitor está ocupado; tenta de novo dentro de momentos.",
+        ],
+    ),
+    (
+        "The playlist changed; refresh before retrying",
+        [
+            "Playlist wurde geändert; vor erneutem Versuch aktualisieren",
+            "La playlist ha cambiado; actualiza antes de reintentar",
+            "La playlist è cambiata; aggiorna prima di riprovare",
+            "A playlist mudou; atualiza antes de tentar novamente",
         ],
     ),
     (
@@ -1036,6 +1144,15 @@ pub(super) const ENTRIES: &[(&str, [&str; 4])] = &[
             "Este enlace de Spotify no es una canción, álbum o playlist",
             "Questo link Spotify non è un brano, album o playlist",
             "Esta ligação do Spotify não é uma faixa, álbum ou playlist",
+        ],
+    ),
+    (
+        "This playlist is read-only; no tracks added",
+        [
+            "Diese Playlist ist schreibgeschützt; keine Titel hinzugefügt",
+            "Esta playlist es de solo lectura; no se añadieron canciones",
+            "Questa playlist è di sola lettura; nessun brano aggiunto",
+            "Esta playlist é só de leitura; nenhuma faixa adicionada",
         ],
     ),
     (

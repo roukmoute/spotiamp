@@ -111,6 +111,37 @@ impl From<&'static str> for LocalizedText {
             "Titre indisponible, acces refuse ou erreur audio. Essayez Suivant." => {
                 "Track unavailable, access denied or audio error. Try Next."
             }
+            "Selection invalide; aucun titre ajoute" => "Invalid selection; no tracks added",
+            "Selection limitee a 500 titres" => "Selection limited to 500 tracks",
+            "Ajout a la playlist Spotify en cours..." => "Adding to the Spotify playlist...",
+            "Ajout en cours; attendez sa confirmation" => {
+                "Addition in progress; wait for confirmation"
+            }
+            "Connectez Spotify pour modifier une playlist" => "Connect Spotify to edit a playlist",
+            "Cette playlist est en lecture seule; aucun titre ajoute" => {
+                "This playlist is read-only; no tracks added"
+            }
+            "Impossible de verifier la playlist; aucun titre ajoute" => {
+                "Could not verify the playlist; no tracks added"
+            }
+            "La playlist a change; actualisez avant de reessayer" => {
+                "The playlist changed; refresh before retrying"
+            }
+            "Spotify limite les ajouts; patientez avant de reessayer" => {
+                "Spotify is limiting additions; wait before retrying"
+            }
+            "Ajout non confirme; verifiez la playlist avant de reessayer" => {
+                "Addition unconfirmed; check the playlist before retrying"
+            }
+            "Spotify a refuse l'ajout; aucun titre ajoute" => {
+                "Spotify refused the addition; no tracks added"
+            }
+            "La destination n'est plus disponible; actualisez les playlists" => {
+                "The destination is no longer available; refresh your playlists"
+            }
+            "Position d'insertion invalide; la file a ete conservee" => {
+                "Invalid insertion position; the queue was retained"
+            }
             "Titre ajoute depuis la recherche" => "Track added from search",
             "Connectez Spotify pour rechercher des titres" => {
                 "Connect Spotify to search for tracks"
@@ -360,8 +391,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn search_messages_are_borrowed_and_available_in_every_language() {
+    fn library_messages_are_borrowed_and_available_in_every_language() {
         for french in [
+            "Selection invalide; aucun titre ajoute",
+            "Selection limitee a 500 titres",
+            "Ajout a la playlist Spotify en cours...",
+            "Ajout en cours; attendez sa confirmation",
+            "Connectez Spotify pour modifier une playlist",
+            "Cette playlist est en lecture seule; aucun titre ajoute",
+            "Impossible de verifier la playlist; aucun titre ajoute",
+            "La playlist a change; actualisez avant de reessayer",
+            "Spotify limite les ajouts; patientez avant de reessayer",
+            "Ajout non confirme; verifiez la playlist avant de reessayer",
+            "Spotify a refuse l'ajout; aucun titre ajoute",
+            "La destination n'est plus disponible; actualisez les playlists",
+            "Position d'insertion invalide; la file a ete conservee",
             "Recherche limitee a 256 caracteres",
             "Spotify ne repond pas a la recherche; reessayez",
             "Recherche Spotify indisponible; reessayez dans un instant",

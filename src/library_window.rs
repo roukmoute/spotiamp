@@ -11,6 +11,7 @@ pub struct LibraryWindow {
     snapshot: LibrarySnapshot,
     input: Rc<RefCell<Vec<input::Input>>>,
     actions: Vec<library_ui::Action>,
+    drag: input::PointerDrag,
 }
 
 #[cfg(all(test, target_os = "linux", feature = "spotify"))]
@@ -103,6 +104,7 @@ impl LibraryWindow {
             snapshot: LibrarySnapshot::default(),
             input,
             actions: Vec::with_capacity(8),
+            drag: input::PointerDrag::default(),
         })
     }
 
@@ -112,6 +114,70 @@ impl LibraryWindow {
 
     pub fn set_skin(&mut self, skin: crate::appearance::Skin) {
         self.view.set_skin(skin);
+    }
+
+    pub fn drag_pointer_on(&self, player: &Window) -> Option<(f32, f32)> {
+        self.drag
+            .active
+            .then(|| self.window.get_mouse_pos(MouseMode::Pass))
+            .flatten()
+            .filter(|&(x, y)| inside(x, y).is_none())
+            .map(|point| self.point_on_player(player, point))
+    }
+
+    fn point_on_player(&self, player: &Window, point: (f32, f32)) -> (f32, f32) {
+        translate_point(
+            point,
+            self.window.get_position(),
+            self.window.get_size(),
+            player.get_position(),
+            player.get_size(),
+        )
+    }
+
+    pub fn take_drop(
+        &mut self,
+        player: &Window,
+    ) -> Option<(
+        Vec<crate::model::TrackRow>,
+        Option<crate::model::PlaylistId>,
+        (f32, f32),
+    )> {
+        while !self.drag.completed.is_empty() {
+            let (tracks, origin, point) = self.drag.completed.remove(0);
+            if inside(point.0, point.1).is_none() {
+                return Some((tracks, origin, self.point_on_player(player, point)));
+            }
+        }
+        None
+    }
+
+    /// Consume captured library releases once, through the same path as buttons.
+    pub fn drop_into_player(
+        &mut self,
+        player: &Window,
+        view: &mut crate::ui::View,
+        snapshot: &crate::model::Snapshot,
+        engine: &engine::Engine,
+    ) {
+        view.show_queue_drop(self.drag_pointer_on(player), snapshot.queue.len());
+        while let Some((tracks, origin, position)) = self.take_drop(player) {
+            if let Some(index) = view.queue_drop_index(position, snapshot.queue.len()) {
+                let command = crate::model::LibraryCommand::QueueTracks {
+                    tracks,
+                    origin,
+                    expected_queue: Some(
+                        snapshot.queue.iter().map(|row| row.uri.clone()).collect(),
+                    ),
+                    replace: false,
+                    play: false,
+                    insert_at: Some(index),
+                };
+                if let Err(error) = engine.tx.try_send(crate::model::Command::Library(command)) {
+                    view.notice(engine::command_error(&error));
+                }
+            }
+        }
     }
 
     /// Returns false after either native or in-skin Close. Playback is untouched.
@@ -164,7 +230,7 @@ impl LibraryWindow {
                 Key::Right,
             ]
             .map(|key| (key, repeat(key), control, shift));
-            input::process(
+            input::process_with_drag(
                 &mut self.view,
                 &self.snapshot,
                 active,
@@ -184,8 +250,11 @@ impl LibraryWindow {
                     }
                 },
                 &mut self.actions,
+                &mut self.drag,
             );
             if active {
+                self.drag
+                    .moved(self.window.get_mouse_pos(MouseMode::Pass), &mut self.view);
                 self.view.pointer_move(pointer);
             }
         }
@@ -223,5 +292,52 @@ impl LibraryWindow {
             self.window.update();
         }
         Ok(self.window.is_open())
+    }
+}
+
+// Both minifb positions and sizes use the same desktop units on each platform.
+// Input callbacks use framebuffer pixels, including outside-window releases.
+fn translate_point(
+    point: (f32, f32),
+    source: (isize, isize),
+    source_size: (usize, usize),
+    destination: (isize, isize),
+    destination_size: (usize, usize),
+) -> (f32, f32) {
+    (
+        (source.0 - destination.0) as f32 * crate::ui::WIDTH as f32
+            / destination_size.0.max(1) as f32
+            + point.0 * source_size.0 as f32 / library_ui::WIDTH as f32 * crate::ui::WIDTH as f32
+                / destination_size.0.max(1) as f32,
+        (source.1 - destination.1) as f32 * crate::ui::HEIGHT as f32
+            / destination_size.1.max(1) as f32
+            + point.1 * source_size.1 as f32 / library_ui::HEIGHT as f32 * crate::ui::HEIGHT as f32
+                / destination_size.1.max(1) as f32,
+    )
+}
+
+#[cfg(test)]
+mod drop_coordinate_tests {
+    use super::translate_point;
+    #[test]
+    fn scaled_and_negative_desktop_positions_translate_without_clamping() {
+        assert_eq!(
+            translate_point((-360.0, 269.0), (560, 0), (760, 470), (0, 0), (560, 470)),
+            (200.0, 269.0)
+        );
+        assert_eq!(
+            translate_point(
+                (-360.0, 269.0),
+                (-880, -200),
+                (1520, 940),
+                (-2000, -200),
+                (1120, 940)
+            ),
+            (200.0, 269.0)
+        );
+        assert_eq!(
+            translate_point((200.0, -201.0), (0, 470), (760, 470), (0, 0), (560, 470)),
+            (200.0, 269.0)
+        );
     }
 }

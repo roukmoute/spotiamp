@@ -228,3 +228,21 @@ fn automatic_shuffle_and_wrap_reveal_offscreen_rows_but_explicit_starts_always_c
         assert_eq!(view.offset, 2);
     }
 }
+
+#[test]
+fn queue_drop_target_uses_rows_and_refuses_controls_or_overlays() {
+    let mut view = View::default();
+    assert_eq!(view.queue_drop_index((100.0, 221.0), 20), Some(0));
+    assert_eq!(view.queue_drop_index((100.0, 269.0), 20), Some(2));
+    assert_eq!(view.queue_drop_index((100.0, 405.0), 3), Some(3));
+    assert_eq!(view.queue_drop_index((100.0, 269.0), 0), Some(0));
+    assert_eq!(view.queue_drop_index((f32::NAN, 269.0), 20), None);
+    assert_eq!(view.queue_drop_index((100.0, 425.0), 20), None);
+    view.offset = 10;
+    assert_eq!(view.queue_drop_index((100.0, 269.0), 20), Some(12));
+    view.help = true;
+    assert_eq!(view.queue_drop_index((100.0, 269.0), 20), None);
+    view.help = false;
+    view.open_about();
+    assert_eq!(view.queue_drop_index((100.0, 269.0), 20), None);
+}

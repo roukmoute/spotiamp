@@ -6,13 +6,23 @@
   les playlists. Champ, boutons et résultats dans les skins Classique et Modern,
   avec les six langues et le raccourci Ctrl+F.
 - Recherche par titre ou artiste après validation avec Entrée ou Chercher.
-  Double-clic ou Lire démarre le seul résultat sélectionné dans une nouvelle
-  file ; À la file l'ajoute sans interrompre la lecture.
+- Sélection multiple dans les résultats et les titres des playlists : Ctrl/Cmd+clic,
+  Maj+clic, plages au clavier et Ctrl/Cmd+A. Lire joue la sélection dans son ordre
+  de liste ; À la file ou Maj+Entrée l'ajoute sans interrompre la lecture.
+- Glisser-déposer de la sélection dans la file du lecteur, avec repère d'insertion
+  et défilement aux bords. L'ordre des titres et le morceau en cours sont conservés ;
+  une sélection qui dépasse les places libres est refusée en entier.
+- Bouton Vers playlist… pour ajouter la sélection à une playlist Spotify existante,
+  après choix de la destination. Une seule écriture à la fois, avec vérification
+  des droits et de la révision ; une réponse incertaine demande de vérifier la
+  playlist et ne déclenche aucun nouvel envoi automatique.
 - Jusqu'à 50 résultats, deux chargements de métadonnées simultanés et annulation
   de la recherche précédente. Les réponses anciennes ne remplacent pas les
   nouveaux résultats ; Effacer, la fermeture et la déconnexion libèrent ceux-ci.
-- Connexion Spotify et moteur réseau existants réutilisés, sans nouvelle
-  dépendance, thread permanent, pochette ni cache de recherche sur disque.
+- Connexion Spotify et moteur réseau existants réutilisés, sans nouvelle pile
+  réseau, paquet résolu, thread permanent, pochette ni cache de recherche sur disque.
+- Tests hors connexion des sélections et du protocole d'ajout. La recherche et
+  l'écriture sur Spotify restent à vérifier avec un compte connecté.
 
 ## 0.2.11 — 22 octobre 2026
 

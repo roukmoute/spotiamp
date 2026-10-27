@@ -196,3 +196,101 @@ fn close_consumes_remaining_keys_before_any_search_is_sent() {
     );
     assert!(matches!(actions.as_slice(), [library_ui::Action::Close]));
 }
+
+#[test]
+fn drag_capture_preserves_selected_rows_and_cancel_never_emits_a_drop() {
+    use std::sync::Arc;
+    let mut snapshot = state();
+    snapshot.search.revision = 1;
+    snapshot.search.tracks = Arc::new(
+        (0..5)
+            .map(|i| crate::model::TrackRow {
+                uri: format!("spotify:track:{i:022}"),
+                title: format!("Track {i}"),
+                ..Default::default()
+            })
+            .collect(),
+    );
+    let mut view = library_ui::View::default();
+    view.render(&snapshot);
+    view.key(Key::F, true, false, &snapshot);
+    let mut drag = PointerDrag::default();
+    let mut actions = Vec::new();
+    let event = |down, y, ctrl| {
+        Input::Mouse(
+            MouseInput::Button {
+                button: MouseButton::Left,
+                down,
+                x: 320.0,
+                y,
+            },
+            ctrl,
+            false,
+        )
+    };
+    process_with_drag(
+        &mut view,
+        &snapshot,
+        true,
+        &[
+            event(true, 132.0, false),
+            event(false, 132.0, false),
+            event(true, 180.0, true),
+            event(false, 180.0, true),
+            event(true, 132.0, false),
+        ],
+        &[],
+        &mut |_| Err(()),
+        &mut actions,
+        &mut drag,
+    );
+    assert_eq!(
+        drag.tracks.iter().map(|r| &r.uri).collect::<Vec<_>>(),
+        vec![
+            &snapshot.search.tracks[0].uri,
+            &snapshot.search.tracks[2].uri
+        ]
+    );
+    assert!(!drag.active);
+    drag.moved(Some((-20.0, 269.0)), &mut view);
+    assert!(drag.active);
+    // Capture is immutable if the live results change during the gesture.
+    snapshot.search.tracks = Arc::new(Vec::new());
+    process_with_drag(
+        &mut view,
+        &snapshot,
+        true,
+        &[Input::Mouse(
+            MouseInput::Button {
+                button: MouseButton::Left,
+                down: false,
+                x: -20.0,
+                y: 269.0,
+            },
+            false,
+            false,
+        )],
+        &[],
+        &mut |_| Err(()),
+        &mut actions,
+        &mut drag,
+    );
+    assert_eq!(drag.completed.len(), 1);
+    assert_eq!(drag.completed[0].0.len(), 2);
+    assert!(!drag.active);
+    drag.completed.clear();
+    drag.origin = Some((1.0, 1.0));
+    drag.active = true;
+    process_with_drag(
+        &mut view,
+        &snapshot,
+        true,
+        &[Input::Mouse(MouseInput::Cancel, false, false)],
+        &[],
+        &mut |_| Err(()),
+        &mut actions,
+        &mut drag,
+    );
+    assert!(drag.completed.is_empty());
+    assert!(!drag.active && drag.origin.is_none());
+}

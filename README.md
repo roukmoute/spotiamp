@@ -207,12 +207,26 @@ affiche ses titres sans modifier la file ni la lecture en cours. Un
 chargement réussi et lance le premier titre. **Actualiser** ou **F5** recharge
 le catalogue Spotify.
 
-**Lire** remplace la file par la playlist chargée et démarre le titre sélectionné,
-ou le premier titre si aucune ligne n'est sélectionnée. Le remplacement n'a lieu
-qu'après le chargement réussi de la liste de titres : une erreur d'accès ou une
-playlist vide conserve la file précédente. Le double-clic sur un titre utilise
-la même action en démarrant à cette ligne. **À la file** ajoute la playlist à la
-file existante sans remplacer son contenu ni lancer une nouvelle lecture.
+Dans la colonne des playlists, **Lire** remplace la file par la playlist choisie
+et démarre son premier titre. **À la file** ajoute cette playlist à la fin de la
+file existante. Le remplacement n'a lieu qu'après le chargement réussi des titres :
+une erreur d'accès ou une playlist vide conserve la file précédente.
+
+Dans les titres d'une playlist comme dans les résultats de recherche, **Ctrl+clic**
+(**Cmd+clic** sous macOS) ajoute ou retire une ligne à la sélection. **Maj+clic**
+sélectionne une plage ; **Maj+Haut/Bas**, **Maj+Début/Fin** et **Maj+Page précédente/
+suivante** l'étendent au clavier. **Ctrl+A** (**Cmd+A**) sélectionne tous les titres
+lorsque la liste des titres est active. La sélection reste dans l'ordre de la liste,
+même si vous avez choisi les lignes dans un autre ordre.
+
+Avec des titres sélectionnés, **Lire** ou **Entrée** remplace la file par cette
+sélection et démarre son premier titre. **À la file**, **Maj+Entrée** ou
+**Ctrl+Entrée** (**Cmd+Entrée**) l'ajoute à la fin, sans interrompre la musique.
+Un double-clic sur un titre sélectionne ce titre seul et le lance.
+Vous pouvez aussi **glisser la sélection vers la file du lecteur** : un repère
+indique l'insertion entre les lignes, et la file défile près de ses bords.
+Le dépôt insère les titres dans leur ordre de liste, sans interrompre le morceau
+courant. La sélection n'est pas retirée de la playlist Spotify d'origine.
 
 Pour chercher une musique dans le catalogue Spotify, choisir **Recherche** dans
 la colonne de gauche, au-dessus des playlists. **Ctrl+F** (**Cmd+F** sous macOS)
@@ -222,11 +236,26 @@ un artiste ou les deux, puis appuyer sur **Entrée** ou cliquer sur **Chercher**
 La recherche utilise la session Spotify déjà connectée ; aucune clé d'API
 supplémentaire n'est nécessaire.
 
-Les résultats s'affichent à droite avec le titre, l'artiste et la durée.
-**Double-clic** ou **Lire** remplace la file par le seul résultat sélectionné
-et démarre sa lecture ; **À la file** ajoute ce titre à la suite sans interrompre
-la musique. **Effacer** annule la recherche et vide ses résultats, en conservant
-la file et la playlist consultée. Revenir à une playlist retrouve sa vue.
+Les résultats s'affichent à droite avec le titre, l'artiste et la durée, avec
+la même sélection multiple et les mêmes actions de lecture, d'ajout à la file
+et de glisser-déposer que les titres d'une playlist. **Effacer** annule la recherche
+et vide ses résultats, en conservant la file et la playlist consultée. Revenir
+à une playlist retrouve sa vue.
+
+Pour enregistrer les morceaux choisis sur Spotify, **Vers playlist…** ouvre
+la liste des playlists existantes de votre bibliothèque. Choisissez une destination,
+puis cliquez sur **Ajouter** ou appuyez sur **Entrée** ; **Annuler** ou **Échap**
+ferme ce choix. La sélection est ajoutée à la fin de la playlist Spotify,
+dans l'ordre affiché, sans changer la lecture en cours. Les occurrences répétées
+d'un même titre sont conservées. Spotify doit autoriser la modification de
+la destination ; une playlist en lecture seule est refusée.
+
+Une seule demande d'ajout à Spotify est traitée à la fois, pour au plus 500 titres,
+sans découpage de la sélection. Attendez la confirmation avant de recommencer.
+Si Spotify ne confirme pas l'ajout après l'envoi, Spotiamp vous invite à vérifier
+la playlist avant de réessayer ; il ne renvoie pas automatiquement la demande,
+pour éviter les doublons. Ce bouton ajoute à une playlist existante ; il ne crée
+pas de nouvelle playlist.
 
 Une recherche affiche jusqu'à **50 titres** : si la liste est limitée, préciser
 le titre ou l'artiste. Le champ accepte **256 caractères**. Les requêtes partent
@@ -251,18 +280,23 @@ enfoncée conserve la répétition ; **Retour arrière** suit la même règle da
 les champs de saisie.
 
 La playlist affichée et la file sont limitées à **500 titres accessibles**.
-Si la file contient déjà des titres, **À la file** ajoute seulement ce que les
-places restantes permettent ; un message indique la limitation. Les noms,
-artistes et durées arrivent progressivement, avec deux requêtes de métadonnées
-simultanées au maximum. La bibliothèque ne modifie aucune playlist sur Spotify.
+L'ajout d'une sélection à la file est refusé en entier si les places restantes
+ne suffisent pas ; la file et la lecture sont conservées. L'ajout d'une playlist
+entière depuis la colonne de gauche garde son fonctionnement précédent : seuls
+les titres qui tiennent dans la file sont ajoutés, avec un message de limitation.
+Les noms, artistes et durées arrivent progressivement, avec deux requêtes de
+métadonnées simultanées au maximum. Seule l'action **Vers playlist… → Ajouter**
+modifie une playlist sur Spotify.
 Le catalogue est plafonné à **1 000 playlists** et **2 000 entrées** en comptant
 les marqueurs de dossiers ; un dépassement est signalé au lieu de charger une
 liste partielle silencieusement.
 
 Dans la bibliothèque, hors du champ de saisie, **Tab** ou **Gauche/Droite** change de panneau ;
 **Haut/Bas**, **Début/Fin** et **Page précédente/suivante** parcourent les lignes.
-Dans les listes, **Entrée** lance la lecture, **Ctrl+Entrée** ajoute à la file,
-et la molette déplace d'une ligne par cran le panneau survolé. **F3**, **Échap**
+Dans les listes, **Entrée** lance la lecture, **Maj+Entrée** ou **Ctrl+Entrée**
+ajoute à la file, et la molette déplace d'une ligne par cran le panneau survolé.
+Les raccourcis de presse-papiers **Ctrl/Cmd+C**, **X** et **V** concernent le champ
+de recherche ; ils ne copient pas les lignes de titres. **F3**, **Échap**
 ou la croix ferme cette fenêtre ; lorsque le champ de recherche est actif,
 le premier **Échap** quitte seulement la saisie. La lecture du lecteur continue ; les données de bibliothèque
 et son buffer graphique sont relâchés à la fermeture.
@@ -459,6 +493,9 @@ une petite police bitmap : les glyphes absents sont affichés avec `?`.
 - Recherche limitée à 50 résultats, sans pochettes ni cache persistant,
   réutilisant la connexion et le moteur asynchrone existants. Aucun thread
   supplémentaire ni requête à chaque caractère saisi.
+- Sélections bornées à 500 titres, un seul ajout à une playlist Spotify à la fois.
+  Le glisser-déposer réutilise les événements souris et la boucle d'interface ;
+  aucune nouvelle pile réseau, dépendance résolue ni tâche permanente.
 - Buffer graphique réutilisé ; rendu seulement lorsque l'état visible change.
 - Pas de préchargement du morceau suivant ; cela peut introduire un silence
   entre les titres. Les buffers internes de librespot ne sont pas tous bornés
@@ -521,8 +558,12 @@ double-clic sur le bon titre, commandes désactivées et conservation du framebu
 Ils ne remplacent pas un essai authentifié de découverte des playlists et de
 lecture Spotify. Ceux de la recherche couvrent les limites et l'encodage des
 requêtes, les réponses anciennes, l'annulation, la sélection du bon résultat,
-la conservation de la lecture pendant la saisie et les traductions. La réponse
-réelle du catalogue nécessite également un essai connecté à Spotify.
+la conservation de la lecture pendant la saisie et les traductions. Les sélections
+multiples, l'ordre des titres, la capacité de la file et les messages sont également
+vérifiés hors connexion. Les réponses de modification de playlist sont simulées,
+y compris les refus et l'absence de confirmation après envoi. La recherche réelle
+et l'ajout réel à une playlist doivent encore être essayés avec un compte Spotify
+connecté ; les tests automatisés n'en constituent pas une validation.
 
 Windows : Rust avec la cible `x86_64-pc-windows-msvc` et les outils de compilation
 Visual Studio C++. macOS : outils Xcode. Linux Debian/Ubuntu :

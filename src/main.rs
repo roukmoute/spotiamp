@@ -29,6 +29,8 @@ mod skin_settings;
 #[cfg(feature = "spotify")]
 mod spotify_library;
 #[cfg(feature = "spotify")]
+mod spotify_playlist_write;
+#[cfg(feature = "spotify")]
 mod spotify_search;
 mod translations;
 mod ui;
@@ -933,6 +935,11 @@ fn run(initial_notice: Option<LocalizedText>) -> Result<(), Box<dyn std::error::
             }
             None => false,
         };
+        if !close_library && let Some(library) = library.as_mut() {
+            library.drop_into_player(&window, &mut view, &snapshot, &engine);
+        } else {
+            view.show_queue_drop(None, snapshot.queue.len());
+        }
         if close_library {
             // Closing the player can also close its native companion. Preserve
             // visibility in that case, rather than saving an accidental F3 close.

@@ -9,7 +9,7 @@ const MAX_PENDING_INPUTS: usize = 512;
 pub(super) enum Input {
     Key(Key, bool, bool),
     Char(char),
-    Mouse(MouseInput),
+    Mouse(MouseInput, bool, bool),
     Overflow,
 }
 
@@ -79,11 +79,15 @@ impl InputCallback for Callback {
     }
 
     fn set_mouse_button_state(&mut self, button: MouseButton, down: bool, x: f32, y: f32) {
-        self.push(Input::Mouse(MouseInput::Button { button, down, x, y }));
+        self.push(Input::Mouse(
+            MouseInput::Button { button, down, x, y },
+            self.modifiers & 0x0f != 0,
+            self.modifiers & 0x30 != 0,
+        ));
     }
 
     fn mouse_input_cancelled(&mut self) {
-        self.push(Input::Mouse(MouseInput::Cancel));
+        self.push(Input::Mouse(MouseInput::Cancel, false, false));
     }
 }
 
@@ -114,6 +118,7 @@ fn dispatch(
     }
 }
 
+#[cfg(test)]
 pub(super) fn process(
     view: &mut library_ui::View,
     snapshot: &LibrarySnapshot,
@@ -123,31 +128,124 @@ pub(super) fn process(
     clipboard: &mut impl FnMut(Option<String>) -> Result<String, ()>,
     actions: &mut Vec<library_ui::Action>,
 ) {
+    process_with_drag(
+        view,
+        snapshot,
+        active,
+        events,
+        repeats,
+        clipboard,
+        actions,
+        &mut PointerDrag::default(),
+    );
+}
+
+#[derive(Default)]
+pub(super) struct PointerDrag {
+    origin: Option<(f32, f32)>,
+    tracks: Vec<crate::model::TrackRow>,
+    playlist: Option<crate::model::PlaylistId>,
+    pub(super) active: bool,
+    pub(super) completed: Vec<(
+        Vec<crate::model::TrackRow>,
+        Option<crate::model::PlaylistId>,
+        (f32, f32),
+    )>,
+}
+
+impl PointerDrag {
+    pub(super) fn cancel(&mut self) {
+        self.origin = None;
+        self.tracks.clear();
+        self.playlist = None;
+        self.active = false;
+    }
+
+    pub(super) fn moved(&mut self, position: Option<(f32, f32)>, view: &mut library_ui::View) {
+        if !self.active
+            && let (Some((x, y)), Some((start_x, start_y))) = (position, self.origin)
+            && (x - start_x).abs().max((y - start_y).abs()) >= 5.0
+        {
+            self.active = true;
+            view.cancel_pointer();
+        }
+    }
+}
+
+pub(super) fn process_with_drag(
+    view: &mut library_ui::View,
+    snapshot: &LibrarySnapshot,
+    active: bool,
+    events: &[Input],
+    repeats: &[(Key, bool, bool, bool)],
+    clipboard: &mut impl FnMut(Option<String>) -> Result<String, ()>,
+    actions: &mut Vec<library_ui::Action>,
+    drag: &mut PointerDrag,
+) {
     if !active {
+        drag.cancel();
         return;
     }
     for &event in events {
         let action = match event {
-            Input::Key(Key::F3, _, _) => Some(library_ui::Action::Close),
+            Input::Key(Key::Escape, _, _) if drag.origin.is_some() => {
+                drag.cancel();
+                view.cancel_pointer();
+                None
+            }
+            Input::Key(Key::F3, _, _) => {
+                drag.cancel();
+                Some(library_ui::Action::Close)
+            }
             Input::Key(key, control, shift) => view.key(key, control, shift, snapshot),
             Input::Char(character) => {
                 view.type_char(character);
                 None
             }
-            Input::Mouse(MouseInput::Button {
-                button: MouseButton::Left,
-                down,
-                x,
-                y,
-            }) => {
+            Input::Mouse(
+                MouseInput::Button {
+                    button: MouseButton::Left,
+                    down,
+                    x,
+                    y,
+                },
+                control,
+                shift,
+            ) => {
                 let position = inside(x, y);
                 if down {
-                    position.and_then(|(x, y)| view.pointer_down(x, y, snapshot))
+                    drag.cancel();
+                    let action = position.and_then(|(x, y)| {
+                        view.pointer_down_with_modifiers(x, y, control, shift, snapshot)
+                    });
+                    if let Some(tracks) =
+                        position.and_then(|(x, y)| view.selection_drag_at(x, y, snapshot))
+                    {
+                        drag.origin = Some((x, y));
+                        drag.tracks = tracks;
+                        drag.playlist = view.selection_origin();
+                    }
+                    action
                 } else {
-                    view.pointer_up(position, snapshot)
+                    // The release may be the only event after a very fast drag.
+                    drag.moved(Some((x, y)), view);
+                    if drag.active {
+                        drag.completed.push((
+                            std::mem::take(&mut drag.tracks),
+                            drag.playlist.take(),
+                            (x, y),
+                        ));
+                        drag.cancel();
+                        view.cancel_pointer();
+                        None
+                    } else {
+                        drag.cancel();
+                        view.pointer_up(position, snapshot)
+                    }
                 }
             }
-            Input::Mouse(MouseInput::Cancel) | Input::Overflow => {
+            Input::Mouse(MouseInput::Cancel, _, _) | Input::Overflow => {
+                drag.cancel();
                 view.cancel_pointer();
                 None
             }

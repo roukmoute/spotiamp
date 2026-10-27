@@ -186,6 +186,12 @@ réécrite. Les préférences sont isolées dans un dossier temporaire et aucune
 connexion Spotify n'est nécessaire. Le test refuse un écran où un gestionnaire
 de fenêtres est déjà actif ; utiliser un nouveau `xvfb-run`.
 
+Le test natif `x11_control_selection_drag_inserts_captured_tracks_in_player_without_playing`
+utilise aussi Ctrl+clic et un vrai glisser-déposer entre les fenêtres, dans les
+deux skins. Il vérifie l'ordre des titres et la position d'insertion, sans
+connexion ni écriture Spotify. Les échanges d'ajout à une playlist sont testés
+avec des réponses simulées ; ils ne valident pas un compte réel.
+
 ## Publication des versions
 
 Publier toutes les versions comme **releases définitives**, jamais avec le

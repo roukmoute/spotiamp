@@ -332,6 +332,20 @@ impl View {
             crate::appearance::Skin::Classic => self.render_classic(s),
             crate::appearance::Skin::Modern => self.render_modern(s),
         }
+        if let Some(index) = self
+            .drop_marker
+            .filter(|_| self.about.is_none() && !self.help)
+        {
+            let y = (221 + index.saturating_sub(self.offset).min(ROWS) * 24).min(411);
+            let color = if self.skin == crate::appearance::Skin::Modern {
+                0x55e4ff
+            } else {
+                GREEN
+            };
+            self.rect(17, y, 518, 2, color);
+            self.rect(17, y.saturating_sub(2), 3, 6, color);
+            self.rect(532, y.saturating_sub(2), 3, 6, color);
+        }
         self.render_skin_selector();
         if self.help {
             self.render_help();

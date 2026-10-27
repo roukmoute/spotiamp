@@ -47,6 +47,24 @@ impl Order {
         self.queue_len = len;
     }
 
+    /// Remap existing indices without losing shuffle history; new rows join
+    /// the not-yet-played portion of the current cycle.
+    pub(super) fn insert(&mut self, at: usize, count: usize, rng: &mut impl Rng) {
+        for entry in &mut self.entries {
+            if *entry >= at {
+                *entry += count;
+            }
+        }
+        let after_current = self.position + usize::from(self.has_current);
+        let first = self.cycle_start.max(after_current).min(self.entries.len());
+        self.entries.reserve_exact(count);
+        for index in at..at + count {
+            let position = rng.random_range(first..=self.entries.len());
+            self.entries.insert(position, index);
+        }
+        self.queue_len += count;
+    }
+
     pub(super) fn remove(&mut self, index: usize) {
         let before_position = self.entries[..self.position.min(self.entries.len())]
             .iter()
@@ -113,6 +131,46 @@ impl Order {
 mod tests {
     use super::*;
     use rand::{SeedableRng, rngs::StdRng};
+
+    #[test]
+    fn insertion_remaps_current_and_history_without_replaying_old_tracks() {
+        for seed in 0..40 {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let mut order = Order::default();
+            order.reset(6, Some(0), &mut rng);
+            order.next(false, &mut rng);
+            order.next(false, &mut rng);
+            let old = order.entries.clone();
+            let position = order.position;
+            let remap = |index: usize| index + if index >= 2 { 3 } else { 0 };
+            order.insert(2, 3, &mut rng);
+            assert_eq!(order.position, position);
+            assert_eq!(
+                &order.entries[..=position],
+                old[..=position]
+                    .iter()
+                    .copied()
+                    .map(remap)
+                    .collect::<Vec<_>>()
+            );
+            let mut all = order.entries.clone();
+            all.sort_unstable();
+            assert_eq!(all, (0..9).collect::<Vec<_>>());
+            let remaining_old = order.entries[position + 1..]
+                .iter()
+                .copied()
+                .filter(|index| !(2..5).contains(index))
+                .collect::<Vec<_>>();
+            assert_eq!(
+                remaining_old,
+                old[position + 1..]
+                    .iter()
+                    .copied()
+                    .map(remap)
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
 
     #[test]
     fn many_cycles_are_permutations_with_bounded_storage_and_no_boundary_repeat() {

@@ -21,7 +21,14 @@ fn state() -> LibrarySnapshot {
         revision: 1,
         selected_id: Some(entries[0].id.clone()),
         entries: Arc::new(entries),
-        tracks: Arc::new(vec![TrackRow::default(); 20]),
+        tracks: Arc::new(
+            (0..20)
+                .map(|i| TrackRow {
+                    uri: format!("spotify:track:{i:022}"),
+                    ..Default::default()
+                })
+                .collect(),
+        ),
         ..Default::default()
     }
 }
@@ -142,10 +149,9 @@ fn library_track_taps_and_focus_preserve_control_enter_append() {
     keys.tap(Key::Enter);
     assert!(matches!(
         frame(&mut view, &keys, &state, true, None).as_slice(),
-        [library_ui::Action::Command(LibraryCommand::Queue {
-            start: 2,
-            ..
-        })]
+        [library_ui::Action::Command(LibraryCommand::QueueTracks {
+            tracks, origin: _, expected_queue: _, replace: true, play: true, insert_at: None,
+        })] if tracks.len() == 1 && tracks[0] == state.tracks[2]
     ));
     keys.down(Key::Down);
     assert!(frame(&mut view, &keys, &state, false, None).is_empty());
@@ -165,10 +171,8 @@ fn library_track_taps_and_focus_preserve_control_enter_append() {
     keys.up(Key::LeftCtrl);
     assert!(matches!(
         frame(&mut view, &keys, &state, true, None).as_slice(),
-        [library_ui::Action::Command(LibraryCommand::Queue {
-            start: 0,
-            replace: false,
-            ..
-        })]
+        [library_ui::Action::Command(LibraryCommand::QueueTracks {
+            tracks, origin: _, expected_queue: _, replace: false, play: false, insert_at: None,
+        })] if tracks.len() == 1 && tracks[0] == state.tracks[2]
     ));
 }

@@ -129,6 +129,16 @@ pub(super) const ENTRIES: &[Entry] = &[
             "SOBRE O SPOTIAMP",
         ],
     ),
+    ("ADD", ["HINZUFÜGEN", "AÑADIR", "AGGIUNGI", "ADICIONAR"]),
+    (
+        "ADD TO A PLAYLIST",
+        [
+            "ZU EINER PLAYLIST HINZUFÜGEN",
+            "AÑADIR A UNA PLAYLIST",
+            "AGGIUNGI A UNA PLAYLIST",
+            "ADICIONAR A UMA PLAYLIST",
+        ],
+    ),
     (
         "ADD TO QUEUE",
         ["ANHÄNGEN", "AÑADIR A COLA", "AGGIUNGI", "JUNTAR À FILA"],
@@ -450,15 +460,6 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
     ),
     (
-        "Double-click: play. Add to queue: append the track.",
-        [
-            "Doppelklick: abspielen. Zur Liste: Titel hinzufügen.",
-            "Doble clic: reproducir. A la cola: añadir canción.",
-            "Doppio clic: riproduci. In coda: aggiungi il brano.",
-            "Duplo clique: tocar. Na fila: adicionar a faixa.",
-        ],
-    ),
-    (
         "Downloading update (F2)",
         [
             "Update wird geladen (F2)",
@@ -750,6 +751,15 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
     ),
     (
+        "Multiple selection, queue and Spotify playlists.",
+        [
+            "Mehrfachauswahl, Warteschlange und Spotify-Playlists.",
+            "Selección múltiple, cola y playlists de Spotify.",
+            "Selezione multipla, coda e playlist Spotify.",
+            "Seleção múltipla, fila e playlists do Spotify.",
+        ],
+    ),
+    (
         "Music plays directly in this player.",
         [
             "Musik wird direkt in diesem Player abgespielt.",
@@ -784,6 +794,15 @@ pub(super) const ENTRIES: &[Entry] = &[
             "No hay listas",
             "Nessuna playlist",
             "Sem playlists",
+        ],
+    ),
+    (
+        "No playlists available.",
+        [
+            "Keine Playlists verfügbar.",
+            "No hay playlists disponibles.",
+            "Nessuna playlist disponibile.",
+            "Nenhuma playlist disponível.",
         ],
     ),
     (
@@ -1226,6 +1245,15 @@ pub(super) const ENTRIES: &[Entry] = &[
             "TITULO / ARTISTA",
         ],
     ),
+    (
+        "TO PLAYLIST...",
+        [
+            "ZUR PLAYLIST...",
+            "A PLAYLIST...",
+            "IN PLAYLIST...",
+            "PARA PLAYLIST...",
+        ],
+    ),
     ("TRACKS", ["TITEL", "PISTAS", "BRANI", "FAIXAS"]),
     (
         "Tab / Shift+Tab",
@@ -1452,6 +1480,15 @@ pub(super) const ENTRIES: &[Entry] = &[
     (
         "results",
         ["Ergebnisse", "resultados", "risultati", "resultados"],
+    ),
+    (
+        "selected tracks",
+        [
+            "ausgewählte Titel",
+            "canciones elegidas",
+            "brani selezionati",
+            "faixas selecionadas",
+        ],
     ),
     ("tracks", ["Titel", "canciones", "brani", "faixas"]),
 ];

@@ -67,6 +67,20 @@ pub enum LibraryCommand {
     Refresh,
     Select(PlaylistId),
     Search(String),
+    /// Rows are captured from the visible selection; later browsing cannot retarget it.
+    QueueTracks {
+        tracks: Vec<TrackRow>,
+        origin: Option<PlaylistId>,
+        /// Optional destination identity captured at drop time.
+        expected_queue: Option<Vec<String>>,
+        replace: bool,
+        play: bool,
+        insert_at: Option<usize>,
+    },
+    AddToPlaylist {
+        id: PlaylistId,
+        tracks: Vec<TrackRow>,
+    },
     QueueSearch {
         revision: u64,
         index: usize,
@@ -93,6 +107,8 @@ pub struct LibrarySnapshot {
     pub status: LocalizedText,
     pub connected: bool,
     pub queue_len: usize,
+    pub playlist_write_busy: bool,
+    pub playlist_write_status: LocalizedText,
     pub search: SearchSnapshot,
 }
 

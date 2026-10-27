@@ -868,3 +868,379 @@ fn late_failed_playlist_metadata_preserves_named_search_results_in_the_queue() {
         assert_eq!(worker.snapshot().queue.last(), Some(&chosen));
     }
 }
+
+#[test]
+fn selected_insert_preserves_order_duplicates_and_current_playback() {
+    let mut worker = worker();
+    edit(&worker.state, |s| {
+        s.queue = vec![row("Before"), row("Playing"), row("After")];
+        s.current = Some(1);
+        s.shuffle = true;
+        s.repeat = true;
+    });
+    worker.current_uri = Some(SpotifyUri::from_uri(TRACK).unwrap());
+    worker.reset_order(Some(1));
+    let before = worker.snapshot();
+    let transport_uri = worker.current_uri.clone();
+    worker.queue_selected_tracks(
+        vec![row("First"), row("Second"), row("First")],
+        false,
+        false,
+        Some(1),
+        None,
+        None,
+    );
+    let after = worker.snapshot();
+    assert_eq!(
+        after
+            .queue
+            .iter()
+            .map(|row| row.title.as_str())
+            .collect::<Vec<_>>(),
+        ["Before", "First", "Second", "First", "Playing", "After"]
+    );
+    assert_eq!(after.current, Some(4));
+    assert_eq!(
+        after.queue[after.current.unwrap()],
+        before.queue[before.current.unwrap()]
+    );
+    assert_eq!(after.position_ms, before.position_ms);
+    assert_eq!(after.playing, before.playing);
+    assert_eq!(after.playback_revision, before.playback_revision);
+    assert_eq!(worker.current_uri, transport_uri);
+    assert!(after.shuffle && after.repeat);
+    assert_eq!(worker.library.shared.lock().unwrap().queue_len, 6);
+}
+
+#[test]
+fn selected_queue_rejects_whole_batch_before_touching_audio() {
+    let mut worker = worker();
+    let before = worker.snapshot();
+    let invalid = TrackRow {
+        uri: "spotify:episode:4uLU6hMCjMI75M1A2tKUQC".into(),
+        ..row("Podcast")
+    };
+    for (rows, replace, at) in [
+        (vec![], true, None),
+        (vec![row("Good"), invalid], true, None),
+        (vec![row("Large"); MAX_QUEUE], false, None),
+        (vec![row("Large"); MAX_QUEUE + 1], true, None),
+        (vec![row("Invalid position")], false, Some(2)),
+        (vec![row("Invalid replace")], true, Some(0)),
+    ] {
+        worker.queue_selected_tracks(rows, replace, false, at, None, None);
+        assert_eq!(worker.snapshot(), before);
+    }
+}
+
+#[test]
+fn selected_queue_snapshot_is_independent_of_later_browsing_and_pending_load() {
+    let mut worker = worker();
+    worker.library.pending_queue = Some(request(&worker, true));
+    let captured = vec![row("Selected 2"), row("Selected 4")];
+    worker.library.edit(|s| {
+        s.tracks = Arc::new(vec![row("Different playlist")]);
+        s.search.tracks = Arc::new(vec![row("Different search")]);
+    });
+    worker.queue_selected_tracks(captured.clone(), false, false, None, None, None);
+    assert_eq!(&worker.snapshot().queue[1..], captured.as_slice());
+    assert!(worker.library.pending_queue.is_none());
+    worker.library_update(Update::Loaded {
+        generation: 0,
+        result: Ok((vec![row("Late playlist")], false)),
+    });
+    assert_eq!(&worker.snapshot().queue[1..], captured.as_slice());
+}
+
+#[test]
+fn playlist_write_result_does_not_change_audio_or_browsing_and_rejects_old_accounts() {
+    let mut worker = worker();
+    let before = worker.snapshot();
+    let destination = PlaylistId::Spotify(PLAYLIST.into());
+    worker.library.edit(|s| {
+        s.playlist_write_busy = true;
+        s.entries = Arc::new(vec![PlaylistEntry {
+            id: destination.clone(),
+            name: "Destination".into(),
+            track_count: Some(1),
+            duration_ms: Some(1),
+            folder: String::new(),
+            available: true,
+        }]);
+    });
+    worker.library_update(Update::Written {
+        generation: 0,
+        auth_generation: 1,
+        id: destination.clone(),
+        count: 3,
+        result: Ok(crate::spotify_playlist_write::Receipt { total: Some(4) }),
+    });
+    assert!(worker.library.shared.lock().unwrap().playlist_write_busy);
+    worker.library_update(Update::Written {
+        generation: 0,
+        auth_generation: 0,
+        id: destination.clone(),
+        count: 3,
+        result: Ok(crate::spotify_playlist_write::Receipt { total: Some(4) }),
+    });
+    assert_eq!(worker.snapshot(), before);
+    let library = worker.library.shared.lock().unwrap();
+    assert!(!library.playlist_write_busy);
+    assert_eq!(library.entries[0].track_count, Some(4));
+    assert_eq!(library.entries[0].duration_ms, None);
+    assert_eq!(library.selected_id, Some(destination.clone()));
+    assert_eq!(worker.library.write_refresh, Some(destination));
+}
+
+#[tokio::test]
+async fn closing_library_keeps_submitted_write_but_logout_cancels_with_uncertain_notice() {
+    let mut worker = worker();
+    worker.library.write_task = Some(tokio::spawn(std::future::pending()));
+    worker.library.edit(|s| s.playlist_write_busy = true);
+    let (updates, _) = mpsc::channel(1);
+    worker.library_command(LibraryCommand::Close, &updates);
+    assert!(worker.library.write_task.is_some());
+    assert!(worker.library.shared.lock().unwrap().playlist_write_busy);
+    worker.reset_library("Connectez Spotify pour afficher vos playlists");
+    assert!(worker.library.write_task.is_none());
+    assert!(!worker.library.shared.lock().unwrap().playlist_write_busy);
+    assert_eq!(
+        worker.library.shared.lock().unwrap().playlist_write_status,
+        "Ajout non confirme; verifiez la playlist avant de reessayer"
+    );
+}
+
+#[test]
+fn completed_playlist_write_does_not_hide_next_search_or_full_queue_error() {
+    let mut worker = worker();
+    let (updates, _) = mpsc::channel(1);
+    worker
+        .library
+        .edit(|s| s.playlist_write_status = playlist_write_success(3));
+    worker.library_command(LibraryCommand::Search("new search".into()), &updates);
+    {
+        let library = worker.library.shared.lock().unwrap();
+        assert!(
+            library
+                .playlist_write_status
+                .text(Language::French)
+                .is_empty()
+        );
+        assert_eq!(
+            library.search.status,
+            "Connectez Spotify pour rechercher des titres"
+        );
+    }
+    worker
+        .library
+        .edit(|s| s.playlist_write_status = playlist_write_success(3));
+    edit(&worker.state, |s| {
+        s.queue = vec![row("Existing"); MAX_QUEUE]
+    });
+    worker.library_command(
+        LibraryCommand::QueueTracks {
+            tracks: vec![row("Does not fit")],
+            origin: None,
+            expected_queue: None,
+            replace: false,
+            play: false,
+            insert_at: None,
+        },
+        &updates,
+    );
+    let library = worker.library.shared.lock().unwrap();
+    assert!(
+        library
+            .playlist_write_status
+            .text(Language::French)
+            .is_empty()
+    );
+    assert_eq!(
+        library.status,
+        "File pleine : 500 titres maximum; la file a ete conservee"
+    );
+    assert_eq!(library.search.status, library.status);
+}
+
+#[test]
+fn browsing_clears_finished_write_result_but_keeps_in_flight_progress() {
+    let mut worker = worker();
+    let (updates, _) = mpsc::channel(1);
+    for command in [
+        LibraryCommand::Select(PlaylistId::Spotify(PLAYLIST.into())),
+        LibraryCommand::Refresh,
+        LibraryCommand::QueueSearch {
+            revision: 0,
+            index: 0,
+            play: false,
+        },
+        LibraryCommand::Queue {
+            id: PlaylistId::Spotify(PLAYLIST.into()),
+            replace: false,
+            play: false,
+            start: 0,
+        },
+    ] {
+        worker
+            .library
+            .edit(|s| s.playlist_write_status = playlist_write_success(3));
+        worker.library_command(command, &updates);
+        assert!(
+            worker
+                .library
+                .shared
+                .lock()
+                .unwrap()
+                .playlist_write_status
+                .text(Language::French)
+                .is_empty()
+        );
+    }
+    worker.library.edit(|s| {
+        s.playlist_write_busy = true;
+        s.playlist_write_status = "Ajout a la playlist Spotify en cours...".into();
+    });
+    worker.library_command(LibraryCommand::Search("new search".into()), &updates);
+    let library = worker.library.shared.lock().unwrap();
+    assert!(library.playlist_write_busy);
+    assert_eq!(
+        library.playlist_write_status,
+        "Ajout a la playlist Spotify en cours..."
+    );
+}
+
+#[test]
+fn logout_clears_completed_write_result_so_connection_notice_is_visible() {
+    let mut worker = worker();
+    worker
+        .library
+        .edit(|s| s.playlist_write_status = playlist_write_success(3));
+    worker.reset_library("Connectez Spotify pour afficher vos playlists");
+    let library = worker.library.shared.lock().unwrap();
+    assert!(
+        library
+            .playlist_write_status
+            .text(Language::French)
+            .is_empty()
+    );
+    assert!(!library.playlist_write_busy);
+    assert_eq!(
+        library.status,
+        "Connectez Spotify pour afficher vos playlists"
+    );
+}
+
+#[test]
+fn captured_playlist_origin_survives_browsing_persistence_and_restart() {
+    let mut worker = worker();
+    let source = PlaylistId::Spotify(PLAYLIST.into());
+    let other = PlaylistId::Spotify("spotify:playlist:0000000000000000000001".into());
+    worker.library.edit(|s| s.selected_id = Some(other));
+    worker.queue_selected_tracks(
+        vec![row("Chosen first"), row("Chosen second")],
+        true,
+        false,
+        None,
+        Some(source.clone()),
+        None,
+    );
+    assert_eq!(worker.queue_playlist, Some(source.clone()));
+    edit(&worker.state, |s| {
+        s.current = Some(1);
+        s.position_ms = 42_000;
+    });
+    let saved = playback_settings::from_snapshot(&worker.snapshot(), worker.queue_playlist.clone());
+    assert_eq!(saved.playlist, Some(source.clone()));
+    let mut restarted = super::super::Worker::new(Arc::new(Mutex::new(Snapshot::default())));
+    restarted.restore_session(saved);
+    assert_eq!(restarted.snapshot().queue, worker.snapshot().queue);
+    assert_eq!(restarted.snapshot().current, Some(1));
+    assert_eq!(restarted.snapshot().position_ms, 42_000);
+    assert_eq!(restarted.restore_library_selection, Some(source.clone()));
+    assert_eq!(restarted.queue_playlist, Some(source));
+    assert!(!restarted.snapshot().playing);
+}
+
+#[test]
+fn selection_origin_remains_for_same_playlist_but_clears_for_search_or_mixed_sources() {
+    let mut worker = worker();
+    let source = PlaylistId::Spotify(PLAYLIST.into());
+    worker.queue_selected_tracks(
+        vec![row("First")],
+        true,
+        false,
+        None,
+        Some(source.clone()),
+        None,
+    );
+    worker.queue_selected_tracks(
+        vec![row("More from same")],
+        false,
+        false,
+        None,
+        Some(source.clone()),
+        None,
+    );
+    assert_eq!(worker.queue_playlist, Some(source.clone()));
+    worker.queue_selected_tracks(vec![row("Search result")], false, false, None, None, None);
+    assert_eq!(worker.queue_playlist, None);
+    worker.queue_selected_tracks(
+        vec![row("Source again")],
+        true,
+        false,
+        None,
+        Some(source),
+        None,
+    );
+    worker.queue_selected_tracks(
+        vec![row("Different playlist")],
+        false,
+        false,
+        Some(0),
+        Some(PlaylistId::Spotify(
+            "spotify:playlist:0000000000000000000001".into(),
+        )),
+        None,
+    );
+    assert_eq!(worker.queue_playlist, None);
+}
+
+#[test]
+fn drop_on_replaced_same_length_queue_is_rejected_without_retargeting_insertion() {
+    let mut worker = worker();
+    let expected = worker
+        .snapshot()
+        .queue
+        .iter()
+        .map(|row| row.uri.clone())
+        .collect();
+    edit(&worker.state, |s| {
+        s.queue[0].uri = "spotify:track:0000000000000000000001".into()
+    });
+    let before = worker.snapshot();
+    worker.queue_selected_tracks(
+        vec![row("Captured selection")],
+        false,
+        false,
+        Some(0),
+        None,
+        Some(expected),
+    );
+    assert_eq!(worker.snapshot(), before);
+    assert_eq!(
+        worker.library.shared.lock().unwrap().status,
+        "Position d'insertion invalide; la file a ete conservee"
+    );
+    let matching = before.queue.iter().map(|row| row.uri.clone()).collect();
+    worker.queue_selected_tracks(
+        vec![row("Captured selection")],
+        false,
+        false,
+        Some(0),
+        None,
+        Some(matching),
+    );
+    assert_eq!(worker.snapshot().queue.len(), 2);
+    assert_eq!(worker.snapshot().queue[1], before.queue[0]);
+    assert_eq!(worker.snapshot().current, Some(1));
+}

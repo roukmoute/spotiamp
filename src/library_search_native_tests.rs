@@ -18,6 +18,7 @@ impl Drop for Process {
 struct App {
     library: LibraryWindow,
     player: Window,
+    view: crate::ui::View,
     engine: engine::Engine,
     receiver: tokio::sync::mpsc::Receiver<model::Command>,
     commands: Vec<model::LibraryCommand>,
@@ -55,6 +56,7 @@ impl App {
         Self {
             library,
             player,
+            view: crate::ui::View::default(),
             engine,
             receiver,
             commands: Vec::new(),
@@ -68,6 +70,12 @@ impl App {
             self.library
                 .frame(&self.engine, &mut self.clipboard)
                 .unwrap()
+        );
+        self.library.drop_into_player(
+            &self.player,
+            &mut self.view,
+            &self.engine.state.lock().unwrap(),
+            &self.engine,
         );
         while let Ok(command) = self.receiver.try_recv() {
             match command {
@@ -165,26 +173,77 @@ fn x11_search_typing_submit_result_double_click_and_append_use_real_library_fram
         app.click(320, 132, true);
         assert!(matches!(
             app.commands.as_slice(),
-            [model::LibraryCommand::QueueSearch {
-                revision: 1,
-                index: 0,
-                play: true,
-            }]
+            [model::LibraryCommand::QueueTracks {
+                tracks, origin: _, expected_queue: _, replace: true, play: true, insert_at: None,
+            }] if tracks.len() == 1 && tracks[0].uri.ends_with('1')
         ));
         app.commands.clear();
         app.click(420, 425, false);
         assert!(matches!(
             app.commands.as_slice(),
-            [model::LibraryCommand::QueueSearch {
-                revision: 1,
-                index: 0,
-                play: false,
-            }]
+            [model::LibraryCommand::QueueTracks {
+                tracks, origin: _, expected_queue: _, replace: false, play: false, insert_at: None,
+            }] if tracks.len() == 1 && tracks[0].uri.ends_with('1')
         ));
         app.commands.clear();
         app.click(705, 40, false);
         assert!(
             matches!(app.commands.as_slice(), [model::LibraryCommand::Search(query)] if query.is_empty())
         );
+    }
+}
+
+#[test]
+#[ignore = "requires isolated Xvfb and xdotool"]
+fn x11_control_selection_drag_inserts_captured_tracks_in_player_without_playing() {
+    for skin in [Skin::Classic, Skin::Modern] {
+        let mut app = App::new(skin);
+        let rows: Vec<_> = (0..8)
+            .map(|i| model::TrackRow {
+                uri: format!("spotify:track:{i:022}"),
+                title: format!("Track {i}"),
+                ..Default::default()
+            })
+            .collect();
+        {
+            let mut state = app.engine.library.lock().unwrap();
+            state.revision += 1;
+            state.search.revision = 1;
+            state.search.tracks = Arc::new(rows.clone());
+        }
+        app.engine.state.lock().unwrap().queue = rows.clone();
+        app.frame();
+        let source = (app.library.window.get_window_handle() as usize).to_string();
+        let target = (app.player.get_window_handle() as usize).to_string();
+        app.xdotool(&["windowfocus", "--sync", &source, "key", "ctrl+f"]);
+        app.click(320, 132, false);
+        app.xdotool(&["keydown", "ctrl"]);
+        app.click(320, 180, false);
+        app.xdotool(&["keyup", "ctrl"]);
+        app.commands.clear();
+        app.xdotool(&[
+            "mousemove",
+            "--window",
+            &source,
+            "320",
+            "132",
+            "mousedown",
+            "1",
+        ]);
+        app.xdotool(&["mousemove", "--window", &target, "200", "269"]);
+        app.xdotool(&["mouseup", "1"]);
+        assert!(
+            matches!(app.commands.as_slice(), [model::LibraryCommand::QueueTracks {
+            tracks, origin: _, expected_queue: _, replace: false, play: false, insert_at: Some(2)
+        }] if tracks.iter().map(|row| &row.uri).collect::<Vec<_>>() == vec![&rows[0].uri, &rows[2].uri]),
+            "actual native drag commands: {:?}",
+            app.commands
+        );
+        // No duplicate command on subsequent idle event pumps.
+        app.commands.clear();
+        for _ in 0..5 {
+            app.frame();
+        }
+        assert!(app.commands.is_empty());
     }
 }

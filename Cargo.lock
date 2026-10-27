@@ -3206,8 +3206,11 @@ name = "spotiamp"
 version = "0.2.12"
 dependencies = [
  "arboard",
+ "bytes",
  "flate2",
  "font8x8",
+ "http",
+ "http-body-util",
  "keyring",
  "libc",
  "librespot-core",

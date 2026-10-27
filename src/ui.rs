@@ -306,6 +306,8 @@ pub struct View {
     pressed_connection: Option<ConnectionAction>,
     hovered_button: Option<Button>,
     offset: usize,
+    drop_marker: Option<usize>,
+    drop_scroll_tick: Option<Instant>,
     scroll_remainder: f64,
     observed_playback_revision: u64,
     dragging: u8,
@@ -334,6 +336,8 @@ impl Default for View {
             pressed_connection: None,
             hovered_button: None,
             offset: 0,
+            drop_marker: None,
+            drop_scroll_tick: None,
             scroll_remainder: 0.0,
             observed_playback_revision: 0,
             dragging: 0,
@@ -692,6 +696,52 @@ impl View {
             self.input.push(c);
         }
     }
+    /// Position between queue rows, in framebuffer coordinates. A library drop
+    /// inserts there without changing the currently playing music.
+    pub fn queue_drop_index(&self, position: (f32, f32), len: usize) -> Option<usize> {
+        let (x, y) = position;
+        if self.about.is_some()
+            || self.help
+            || !x.is_finite()
+            || !y.is_finite()
+            || !(14.0..537.0).contains(&x)
+            || !(221.0..413.0).contains(&y)
+        {
+            return None;
+        }
+        Some((self.offset + ((y - 221.0 + 12.0) / 24.0) as usize).min(len))
+    }
+
+    pub fn show_queue_drop(&mut self, position: Option<(f32, f32)>, len: usize) {
+        self.drop_marker = position.and_then(|point| self.queue_drop_index(point, len));
+        let edge = position
+            .filter(|_| self.drop_marker.is_some())
+            .and_then(|(_, y)| {
+                if y < 231.0 {
+                    Some(-1)
+                } else if y >= 403.0 {
+                    Some(1)
+                } else {
+                    None
+                }
+            });
+        if let Some(direction) = edge {
+            let now = Instant::now();
+            let previous = self.drop_scroll_tick.get_or_insert(now);
+            if previous.elapsed() >= Duration::from_millis(250) {
+                self.offset = if direction < 0 {
+                    self.offset.saturating_sub(1)
+                } else {
+                    self.offset.saturating_add(1).min(len.saturating_sub(ROWS))
+                };
+                self.drop_scroll_tick = Some(now);
+                self.drop_marker = position.and_then(|point| self.queue_drop_index(point, len));
+            }
+        } else {
+            self.drop_scroll_tick = None;
+        }
+    }
+
     pub fn scroll_at(&mut self, y: f32, position: Option<(usize, usize)>, len: usize) {
         if !self.help
             && position.is_some_and(|(x, y)| (14..546).contains(&x) && (219..414).contains(&y))
@@ -892,6 +942,7 @@ impl View {
         self.input.hash(&mut hash);
         self.update.hash(&mut hash);
         self.skin.hash(&mut hash);
+        self.drop_marker.hash(&mut hash);
         self.language.hash(&mut hash);
         self.language_preference.hash(&mut hash);
         if self.update_indicator_visible() {

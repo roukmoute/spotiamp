@@ -13,6 +13,9 @@ pub(super) struct State {
     catalogue_loaded: bool,
     search_generation: u64,
     search_task: Option<JoinHandle<()>>,
+    write_generation: u64,
+    write_task: Option<JoinHandle<()>>,
+    write_refresh: Option<PlaylistId>,
 }
 
 #[derive(Clone, Copy)]
@@ -24,6 +27,13 @@ struct QueueRequest {
 }
 
 pub(super) enum Update {
+    Written {
+        generation: u64,
+        auth_generation: u64,
+        id: PlaylistId,
+        count: usize,
+        result: Result<crate::spotify_playlist_write::Receipt, LocalizedText>,
+    },
     Search {
         generation: u64,
         update: SearchUpdate,
@@ -105,6 +115,16 @@ impl Worker {
         if !self.library.open || !self.library.catalogue_loaded || self.session.is_none() {
             return;
         }
+        if let Some(id) = self.library.write_refresh.take()
+            && self
+                .library
+                .shared
+                .lock()
+                .is_ok_and(|s| s.selected_id.as_ref() == Some(&id))
+        {
+            self.load_library_playlist(id, None, updates);
+            return;
+        }
         if let Some(id) = self.take_restored_playlist() {
             self.load_library_playlist(id, None, updates);
         }
@@ -139,6 +159,26 @@ impl Worker {
     pub(super) fn reset_library(&mut self, message: &'static str) {
         self.finish_search_metadata();
         self.library.cancel_search();
+        if !message.is_empty() {
+            self.library.write_generation = self.library.write_generation.wrapping_add(1);
+            if let Some(task) = self.library.write_task.take() {
+                task.abort();
+                self.library.edit(|s| {
+                    s.playlist_write_busy = false;
+                    s.playlist_write_status =
+                        "Ajout non confirme; verifiez la playlist avant de reessayer".into();
+                });
+            } else {
+                // A finished result belongs to the previous authenticated
+                // session; do not let it hide the reconnect notice.
+                self.library.edit(|s| {
+                    s.playlist_write_busy = false;
+                    s.playlist_write_status = LocalizedText::default();
+                });
+            }
+            self.library.write_refresh = None;
+        }
+        // Hiding the library does not cancel an already submitted mutation.
         self.reset_playlist(message);
     }
 
@@ -167,6 +207,26 @@ impl Worker {
         command: LibraryCommand,
         updates: &mpsc::Sender<super::Update>,
     ) {
+        if matches!(
+            &command,
+            LibraryCommand::Search(_)
+                | LibraryCommand::Select(_)
+                | LibraryCommand::QueueSearch { .. }
+                | LibraryCommand::QueueTracks { .. }
+                | LibraryCommand::Queue { .. }
+                | LibraryCommand::Refresh
+        ) {
+            // Preserve progress while a write is in flight. Once finished,
+            // the next explicit action owns the status bar again, including
+            // errors from searching or attempting to fill a full queue.
+            if let Ok(mut snapshot) = self.library.shared.lock()
+                && !snapshot.playlist_write_busy
+                && !snapshot.playlist_write_status.is_empty()
+            {
+                snapshot.playlist_write_status = LocalizedText::default();
+                snapshot.revision = snapshot.revision.wrapping_add(1);
+            }
+        }
         match command {
             LibraryCommand::Open if !self.library.open => {
                 self.library.open = true;
@@ -179,6 +239,26 @@ impl Worker {
             LibraryCommand::Refresh if self.library.open => self.refresh_library(updates),
             LibraryCommand::Search(query) if self.library.open => {
                 self.search_library(query, updates)
+            }
+            LibraryCommand::QueueTracks {
+                tracks,
+                origin,
+                expected_queue,
+                replace,
+                play,
+                insert_at,
+            } => {
+                self.queue_selected_tracks(
+                    tracks,
+                    replace,
+                    play,
+                    insert_at,
+                    origin,
+                    expected_queue,
+                );
+            }
+            LibraryCommand::AddToPlaylist { id, tracks } if self.library.open => {
+                self.add_selection_to_playlist(id, tracks, updates);
             }
             LibraryCommand::QueueSearch {
                 revision,
@@ -322,6 +402,41 @@ impl Worker {
     }
 
     pub(super) fn library_update(&mut self, update: Update) {
+        if let Update::Written {
+            generation,
+            auth_generation,
+            id,
+            count,
+            result,
+        } = update
+        {
+            if generation == self.library.write_generation
+                && auth_generation == self.auth_generation
+            {
+                self.library.write_task = None;
+                if let Ok(receipt) = &result {
+                    self.library.edit(|s| {
+                        if let Some(entry) = Arc::make_mut(&mut s.entries)
+                            .iter_mut()
+                            .find(|entry| entry.id == id)
+                        {
+                            entry.track_count = receipt.total;
+                            entry.duration_ms = None;
+                        }
+                    });
+                    // Refresh only the destination still being browsed.
+                    self.library.write_refresh = Some(id);
+                }
+                self.library.edit(|s| {
+                    s.playlist_write_busy = false;
+                    s.playlist_write_status = match result {
+                        Ok(_) => playlist_write_success(count),
+                        Err(message) => message,
+                    };
+                });
+            }
+            return;
+        }
         if let Update::Search { generation, update } = update {
             if self.library.open && generation == self.library.search_generation {
                 self.search_update(update);
@@ -333,13 +448,13 @@ impl Worker {
             | Update::Loaded { generation, .. }
             | Update::Metadata { generation, .. }
             | Update::Finished { generation } => *generation,
-            Update::Search { .. } => unreachable!(),
+            Update::Search { .. } | Update::Written { .. } => unreachable!(),
         };
         if !self.library.open || generation != self.library.generation {
             return;
         }
         match update {
-            Update::Search { .. } => unreachable!(),
+            Update::Search { .. } | Update::Written { .. } => unreachable!(),
             Update::Catalogue { result, .. } => {
                 self.library.task = None;
                 self.library.catalogue_loaded = result.is_ok();
@@ -432,6 +547,158 @@ impl Worker {
             }
             Update::Finished { .. } => self.library.task = None,
         }
+    }
+
+    fn add_selection_to_playlist(
+        &mut self,
+        id: PlaylistId,
+        tracks: Vec<TrackRow>,
+        updates: &mpsc::Sender<super::Update>,
+    ) {
+        let reject = if self.library.write_task.is_some() {
+            Some("Ajout en cours; attendez sa confirmation")
+        } else if tracks.len() > crate::spotify_playlist_write::MAX_SELECTION {
+            Some("Selection limitee a 500 titres")
+        } else if !crate::spotify_playlist_write::valid_tracks(&tracks) {
+            Some("Selection invalide; aucun titre ajoute")
+        } else if self.session.is_none() {
+            Some("Connectez Spotify pour modifier une playlist")
+        } else if !self.library.shared.lock().is_ok_and(|s| {
+            s.entries
+                .iter()
+                .any(|entry| entry.id == id && entry.available)
+        }) {
+            Some("La destination n'est plus disponible; actualisez les playlists")
+        } else {
+            None
+        };
+        if let Some(message) = reject {
+            self.library
+                .edit(|s| s.playlist_write_status = message.into());
+            return;
+        }
+        let session = self.session.clone().unwrap();
+        self.library.write_generation = self.library.write_generation.wrapping_add(1);
+        let generation = self.library.write_generation;
+        let auth_generation = self.auth_generation;
+        let epoch = self.auth_epoch.clone();
+        let count = tracks.len();
+        let updates = updates.clone();
+        self.library.edit(|s| {
+            s.playlist_write_busy = true;
+            s.playlist_write_status = "Ajout a la playlist Spotify en cours...".into();
+        });
+        self.library.write_task = Some(tokio::spawn(async move {
+            let result = crate::spotify_playlist_write::append(
+                session,
+                &id,
+                &tracks,
+                epoch,
+                auth_generation,
+            )
+            .await;
+            let _ = updates
+                .send(super::Update::Library(Update::Written {
+                    generation,
+                    auth_generation,
+                    id,
+                    count,
+                    result,
+                }))
+                .await;
+        }));
+    }
+
+    fn queue_selected_tracks(
+        &mut self,
+        rows: Vec<TrackRow>,
+        replace: bool,
+        play: bool,
+        insert_at: Option<usize>,
+        origin: Option<PlaylistId>,
+        expected_queue: Option<Vec<String>>,
+    ) {
+        let before = self.snapshot();
+        let index = if replace {
+            0
+        } else {
+            insert_at.unwrap_or(before.queue.len())
+        };
+        let error = if rows.len() > crate::spotify_playlist_write::MAX_SELECTION {
+            Some("Selection limitee a 500 titres")
+        } else if !crate::spotify_playlist_write::valid_tracks(&rows) {
+            Some("Selection invalide; aucun titre ajoute")
+        } else if self.import_task.is_some() {
+            Some("Import de liens en cours; la file a ete conservee")
+        } else if play && self.player.is_none() {
+            Some("Connectez Spotify pour lire cette playlist; la file a ete conservee")
+        } else if (replace && insert_at.is_some())
+            || index > before.queue.len()
+            || expected_queue.as_ref().is_some_and(|expected| {
+                expected.len() != before.queue.len()
+                    || expected
+                        .iter()
+                        .zip(&before.queue)
+                        .any(|(uri, row)| uri != &row.uri)
+            })
+        {
+            Some("Position d'insertion invalide; la file a ete conservee")
+        } else if !replace && before.queue.len().saturating_add(rows.len()) > MAX_QUEUE {
+            Some("File pleine : 500 titres maximum; la file a ete conservee")
+        } else {
+            None
+        };
+        if let Some(message) = error {
+            self.library.edit(|s| {
+                s.status = message.into();
+                s.search.status = message.into();
+            });
+            return;
+        }
+        // One transaction independent of current catalogue/search revisions.
+        self.cancel_library_queue();
+        self.merge_queue_origin(origin, replace);
+        let count = rows.len();
+        if replace {
+            self.cancel_import();
+            self.stop();
+            self.current_uri = None;
+        }
+        edit(&self.state, |s| {
+            if replace {
+                s.queue = rows;
+                s.current = None;
+                s.duration_ms = 0;
+            } else {
+                s.queue.splice(index..index, rows);
+                if let Some(current) = &mut s.current
+                    && *current >= index
+                {
+                    *current += count;
+                }
+            }
+        });
+        if replace {
+            self.reset_order(None);
+        } else if before.shuffle {
+            self.order.insert(index, count, &mut rand::rng());
+        }
+        let notice = LocalizedText::with_languages(
+            format!("{count} titre(s) ajoutes a la file"),
+            format!("{count} track(s) added to the queue"),
+            format!("{count} Titel zur Warteschlange hinzugefügt"),
+            format!("{count} canciones añadidas a la cola"),
+            format!("{count} brani aggiunti alla coda"),
+            format!("{count} faixas adicionadas à fila"),
+        );
+        self.library.edit(|s| {
+            s.status = notice.clone();
+            s.search.status = notice;
+        });
+        if play {
+            self.play(index);
+        }
+        self.sync_library_summary();
     }
 
     fn apply_library_queue(&mut self, rows: &[TrackRow], request: QueueRequest) {
@@ -928,3 +1195,14 @@ async fn load_playlist(
 #[cfg(test)]
 #[path = "library/tests.rs"]
 mod tests;
+
+fn playlist_write_success(count: usize) -> LocalizedText {
+    LocalizedText::with_languages(
+        format!("{count} titre(s) ajoutes a la playlist Spotify"),
+        format!("{count} track(s) added to the Spotify playlist"),
+        format!("{count} Titel zur Spotify-Playlist hinzugefügt"),
+        format!("{count} canciones añadidas a la playlist de Spotify"),
+        format!("{count} brani aggiunti alla playlist Spotify"),
+        format!("{count} faixas adicionadas à playlist do Spotify"),
+    )
+}
