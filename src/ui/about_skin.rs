@@ -460,6 +460,21 @@ impl View {
         for (y, version, first, second) in [
             (
                 109,
+                self.language.text(
+                    "0.2.14 / MISE À JOUR IMMÉDIATE",
+                    "0.2.14 / IMMEDIATE UPDATE CHECK",
+                ),
+                self.language.text(
+                    "Ouvrir Mise à jour vérifie aussitôt les versions.",
+                    "Opening Updates checks for a new version immediately.",
+                ),
+                self.language.text(
+                    "Téléchargements et mises à jour prêtes conservés.",
+                    "Downloads and ready-to-install updates are preserved.",
+                ),
+            ),
+            (
+                154,
                 self.language
                     .text("0.2.13 / NOUVELLES PLAYLISTS", "0.2.13 / NEW PLAYLISTS"),
                 self.language.text(
@@ -472,7 +487,7 @@ impl View {
                 ),
             ),
             (
-                154,
+                199,
                 self.language
                     .text("0.2.12 / RECHERCHE SPOTIFY", "0.2.12 / SPOTIFY SEARCH"),
                 self.language.text(
@@ -485,7 +500,7 @@ impl View {
                 ),
             ),
             (
-                199,
+                244,
                 self.language
                     .text("0.2.11 / SIX LANGUES", "0.2.11 / SIX LANGUAGES"),
                 self.language.text(
@@ -498,7 +513,7 @@ impl View {
                 ),
             ),
             (
-                244,
+                289,
                 self.language
                     .text("0.2.10 / REPRISE MÉMORISÉE", "0.2.10 / REMEMBERED PLAYBACK"),
                 self.language.text(
@@ -511,7 +526,7 @@ impl View {
                 ),
             ),
             (
-                289,
+                334,
                 self.language.text(
                     "0.2.9 / LANGUES DE L'INTERFACE",
                     "0.2.9 / INTERFACE LANGUAGES",
@@ -523,21 +538,6 @@ impl View {
                 self.language.text(
                     "Choix dans À propos, mémorisé au redémarrage.",
                     "Choose in About; remembered across restarts.",
-                ),
-            ),
-            (
-                334,
-                self.language.text(
-                    "0.2.8 / LECTEUR SPOTIFY NATIF",
-                    "0.2.8 / NATIVE SPOTIFY PLAYER",
-                ),
-                self.language.text(
-                    "Présentation harmonisée dans le lecteur et l'aide.",
-                    "Consistent presentation in the player and help.",
-                ),
-                self.language.text(
-                    "À propos et documentation mis à jour.",
-                    "About and documentation updated.",
                 ),
             ),
         ] {

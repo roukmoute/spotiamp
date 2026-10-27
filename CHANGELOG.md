@@ -1,5 +1,16 @@
 # Changements
 
+## 0.2.14 — 27 octobre 2026
+
+- Entrer dans À propos → Mise à jour lance immédiatement la recherche d'une
+  nouvelle version, sans devoir cliquer sur Vérifier. Le même comportement
+  s'applique à l'ouverture directe de cet onglet.
+- La vérification s'applique après un état initial, un résultat à jour ou une
+  erreur. Une version déjà proposée garde son bouton Télécharger, un paquet
+  prêt garde Installer / Redémarrer ; aucune opération en cours n'est relancée.
+- Contrôleur et événements existants réutilisés, sans requête périodique,
+  nouveau thread permanent ou dépendance. Historique traduit dans les six langues.
+
 ## 0.2.13 — 27 octobre 2026
 
 - Nouvelle playlist… dans Vers playlist… : donner un nom à une playlist Spotify

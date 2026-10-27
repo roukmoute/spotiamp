@@ -301,6 +301,7 @@ pub struct View {
     pub update: UpdateStatus,
     update_indicator_phase: bool,
     about_focus: usize,
+    update_check_requested: bool,
     focused: bool,
     pressed_button: Option<Button>,
     pressed_connection: Option<ConnectionAction>,
@@ -331,6 +332,7 @@ impl Default for View {
             update: UpdateStatus::default(),
             update_indicator_phase: false,
             about_focus: 0,
+            update_check_requested: false,
             focused: true,
             pressed_button: None,
             pressed_connection: None,
@@ -513,8 +515,7 @@ impl View {
         } else {
             AboutTab::Player
         };
-        self.about = Some(tab);
-        self.about_focus = tab as usize;
+        self.select_about_tab(tab);
         self.help = false;
         self.input_active = false;
         self.select_all = false;
@@ -522,9 +523,33 @@ impl View {
         self.transient = None;
     }
 
+    fn select_about_tab(&mut self, tab: AboutTab) {
+        if self.about != Some(tab) {
+            self.update_check_requested = tab == AboutTab::Updates && self.can_check_on_entry();
+        }
+        self.about = Some(tab);
+        self.about_focus = tab as usize;
+    }
+
+    fn can_check_on_entry(&self) -> bool {
+        matches!(
+            self.update,
+            UpdateStatus::Idle | UpdateStatus::Current | UpdateStatus::Failed(_)
+        )
+    }
+
+    /// Consume the tab-entry request after native input has been processed.
+    /// Busy states discard it instead of deferring another check until idle.
+    pub fn take_update_check_request(&mut self) -> bool {
+        std::mem::take(&mut self.update_check_requested)
+            && self.about == Some(AboutTab::Updates)
+            && self.can_check_on_entry()
+    }
+
     pub fn close_about(&mut self) {
         self.cancel_pointer();
         self.about = None;
+        self.update_check_requested = false;
     }
 
     pub fn about_key(&mut self, key: minifb::Key, shift: bool) -> Option<Action> {
@@ -533,10 +558,7 @@ impl View {
         self.cancel_pointer();
         match key {
             Key::Escape => self.close_about(),
-            Key::F1 => {
-                self.about = Some(AboutTab::Shortcuts);
-                self.about_focus = 2;
-            }
+            Key::F1 => self.select_about_tab(AboutTab::Shortcuts),
             Key::Tab => {
                 let order: &[usize] = match tab {
                     AboutTab::Player => &[0, 1, 2, 3, 4, 10, 11, 12, 13, 14, 15, 16, 5, 6, 7],
@@ -556,8 +578,8 @@ impl View {
                 } else {
                     1
                 };
-                self.about_focus = (tab as usize + delta) % AboutTab::ALL.len();
-                self.about = Some(AboutTab::ALL[self.about_focus]);
+                let next = (tab as usize + delta) % AboutTab::ALL.len();
+                self.select_about_tab(AboutTab::ALL[next]);
             }
             Key::Enter | Key::Space => return self.activate_about_focus(),
             _ => {}
@@ -567,7 +589,7 @@ impl View {
 
     fn activate_about_focus(&mut self) -> Option<Action> {
         match self.about_focus {
-            0..=4 => self.about = Some(AboutTab::ALL[self.about_focus]),
+            0..=4 => self.select_about_tab(AboutTab::ALL[self.about_focus]),
             5 => return Some(Action::OpenProject),
             6 => return Some(Action::CopyAboutInfo),
             7 => self.close_about(),
@@ -817,8 +839,7 @@ impl View {
             Some(Button::Skin(skin)) => return Some(Action::SetSkin(skin)),
             Some(Button::Help) => {
                 if self.about.is_some() {
-                    self.about = Some(AboutTab::Shortcuts);
-                    self.about_focus = AboutTab::Shortcuts as usize;
+                    self.select_about_tab(AboutTab::Shortcuts);
                 } else {
                     self.help = !self.help;
                 }

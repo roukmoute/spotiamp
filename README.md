@@ -383,15 +383,26 @@ Le clignotement s'arrête pendant le téléchargement et lorsque le panneau
 encore une action. L'animation utilise la boucle et le buffer graphique
 existants, sans thread ni moteur graphique supplémentaire.
 
-Dans cet onglet, **Vérifier** relance la recherche. **Télécharger** récupère le
-paquet sur disque et vérifie son empreinte SHA-256 ; la lecture peut continuer.
+Entrer dans l'onglet **Mise à jour** lance immédiatement une recherche si aucune
+version n'est déjà proposée : après un lancement sans vérification, un résultat
+« à jour » ou une erreur. Cela fonctionne aussi lors de l'ouverture directe de
+cet onglet, à la souris ou au clavier. Une recherche, un téléchargement ou une
+installation en cours continue sans être relancé. Une version déjà disponible
+ou un paquet prêt à installer conserve directement son bouton **Télécharger**
+ou **Installer / Redémarrer**.
+
+**Vérifier** permet toujours de relancer la recherche manuellement. **Télécharger**
+récupère le paquet sur disque et vérifie son empreinte SHA-256 ; la lecture peut
+continuer. Aucune vérification périodique ni tâche permanente n'est ajoutée.
 Lorsque le paquet est prêt, **Installer / Redémarrer** ferme le lecteur,
-remplace l'exécutable puis le relance. **La lecture s'arrête et la file est
-perdue**, car elle n'est pas encore sauvegardée. Les identifiants Spotify déjà
-mémorisés dans le coffre du système, la qualité préférée et le skin choisi sont conservés.
+remplace l'exécutable puis le relance. La lecture s'arrête ; la file et sa position
+sont enregistrées avant la fermeture, puis retrouvées en pause au redémarrage.
+Les identifiants Spotify mémorisés dans le coffre du système, la qualité préférée
+et le skin choisi sont conservés.
 Un échec s'affiche dans le panneau. Le dossier du programme doit être accessible
 en écriture pour l'installation. `--no-update-check` désactive la recherche
-automatique au démarrage ; **Vérifier** reste disponible.
+automatique au démarrage ; ouvrir l'onglet **Mise à jour** ou utiliser **Vérifier**
+permet toujours de chercher une nouvelle version.
 
 Sous Windows, l'installateur utilise par défaut `%LOCALAPPDATA%\Programs\Spotiamp` : les mises
 à jour intégrées peuvent y remplacer les fichiers sans élévation. Il n'ajoute

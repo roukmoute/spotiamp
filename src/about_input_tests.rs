@@ -36,6 +36,92 @@ fn click(x: f32, y: f32) -> [MouseInput; 2] {
 }
 
 #[test]
+fn updates_tab_entry_checks_once_without_the_check_button() {
+    for keyboard in [false, true] {
+        let mut view = ui::View::default();
+        view.update = updater::UpdateStatus::Idle;
+        view.open_about();
+        let mut actions = Vec::new();
+        let mouse = click(470.0, 76.0);
+        process_frame_input(
+            &mut view,
+            &state(),
+            FrameInput {
+                keys: if keyboard {
+                    &[(Key::Left, false, false)]
+                } else {
+                    &[]
+                },
+                mouse: if keyboard { &[] } else { &mouse },
+                active: true,
+                ..FrameInput::default()
+            },
+            &mut actions,
+        );
+        queue_about_update_check(&mut view, &mut actions);
+        assert!(matches!(actions.as_slice(), [ui::Action::CheckUpdates]));
+        actions.clear();
+        queue_about_update_check(&mut view, &mut actions);
+        assert!(actions.is_empty());
+    }
+}
+
+#[test]
+fn f2_direct_to_failed_update_rechecks_and_closing_cancels_the_request() {
+    for close in [false, true] {
+        let mut view = ui::View::default();
+        view.update = updater::UpdateStatus::Failed("Offline".into());
+        let mut actions = Vec::new();
+        process_frame_input(
+            &mut view,
+            &state(),
+            FrameInput {
+                keys: if close {
+                    &[(Key::F2, false, false), (Key::Escape, false, false)]
+                } else {
+                    &[(Key::F2, false, false)]
+                },
+                active: true,
+                ..FrameInput::default()
+            },
+            &mut actions,
+        );
+        queue_about_update_check(&mut view, &mut actions);
+        assert_eq!(actions.len(), usize::from(!close));
+        if !close {
+            assert!(matches!(actions[0], ui::Action::CheckUpdates));
+        }
+    }
+}
+
+#[test]
+fn explicit_check_in_the_entry_batch_is_not_duplicated() {
+    let mut view = ui::View::default();
+    view.update = updater::UpdateStatus::Idle;
+    view.open_about();
+    let mouse: Vec<_> = click(470.0, 76.0)
+        .into_iter()
+        .chain(click(100.0, 325.0))
+        .collect();
+    let mut actions = Vec::new();
+    process_frame_input(
+        &mut view,
+        &state(),
+        FrameInput {
+            mouse: &mouse,
+            active: true,
+            ..FrameInput::default()
+        },
+        &mut actions,
+    );
+    queue_about_update_check(&mut view, &mut actions);
+    assert!(matches!(actions.as_slice(), [ui::Action::CheckUpdates]));
+    actions.clear();
+    queue_about_update_check(&mut view, &mut actions);
+    assert!(actions.is_empty());
+}
+
+#[test]
 fn window_controls_are_allowed_through_about_without_playback_shortcuts() {
     for (x, close) in [(522.0, false), (543.0, true)] {
         let mut view = ui::View::default();

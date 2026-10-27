@@ -542,3 +542,170 @@ fn export_update_previews() {
         }
     }
 }
+
+#[test]
+fn entering_updates_arms_one_check_for_mouse_arrows_and_tab_activation() {
+    let state = Snapshot::default();
+    for skin in [Skin::Classic, Skin::Modern] {
+        for route in 0..5 {
+            let mut view = View {
+                update: UpdateStatus::Idle,
+                skin,
+                ..View::default()
+            };
+            view.open_about();
+            assert!(!view.take_update_check_request());
+            match route {
+                0 => assert!(release(&mut view, 470, 76, &state).is_none()),
+                1 => {
+                    // The same route is used by --about updates at startup.
+                    for _ in 0..4 {
+                        assert!(view.about_key(Key::Right, false).is_none());
+                    }
+                }
+                2 => assert!(view.about_key(Key::Left, false).is_none()),
+                3 | 4 => {
+                    for _ in 0..4 {
+                        view.about_key(Key::Tab, false);
+                    }
+                    assert_eq!(view.about, Some(AboutTab::Player));
+                    assert!(!view.take_update_check_request());
+                    assert!(
+                        view.about_key(if route == 3 { Key::Enter } else { Key::Space }, false)
+                            .is_none()
+                    );
+                }
+                _ => unreachable!(),
+            }
+            assert_eq!(view.about, Some(AboutTab::Updates));
+            assert!(view.take_update_check_request(), "route {route}");
+            assert!(!view.take_update_check_request());
+            assert!(release(&mut view, 470, 76, &state).is_none());
+            assert!(view.about_key(Key::Enter, false).is_none());
+            assert!(
+                !view.take_update_check_request(),
+                "reselecting the same tab must not check again"
+            );
+        }
+    }
+}
+
+#[test]
+fn automatic_tab_check_preserves_known_updates_and_only_checks_idle_current_or_failed() {
+    let state = Snapshot::default();
+    for update in states() {
+        let expected = matches!(
+            update,
+            UpdateStatus::Idle | UpdateStatus::Current | UpdateStatus::Failed(_)
+        );
+        let mut view = View {
+            update: update.clone(),
+            ..View::default()
+        };
+        // open_about is also the F2/notification route; Failed opens Updates
+        // directly while Idle/Current need the explicit tab selection.
+        view.open_about();
+        if view.about != Some(AboutTab::Updates) {
+            release(&mut view, 470, 76, &state);
+        }
+        assert_eq!(view.take_update_check_request(), expected, "{update:?}");
+        assert!(!view.take_update_check_request());
+        assert_eq!(view.update, update);
+    }
+}
+
+#[test]
+fn leaving_or_closing_updates_discards_request_and_a_new_entry_rearms_it() {
+    let state = Snapshot::default();
+    for exit in 0..5 {
+        let mut view = View {
+            update: UpdateStatus::Current,
+            ..View::default()
+        };
+        view.open_about();
+        release(&mut view, 470, 76, &state);
+        match exit {
+            0 => {
+                view.about_key(Key::Left, false);
+            }
+            1 => {
+                view.about_key(Key::F1, false);
+            }
+            2 => {
+                release(&mut view, 80, 76, &state);
+            }
+            3 => {
+                view.about_key(Key::Escape, false);
+            }
+            4 => view.close_about(),
+            _ => unreachable!(),
+        }
+        assert!(!view.take_update_check_request(), "exit {exit}");
+        if view.about.is_none() {
+            view.open_about();
+        }
+        release(&mut view, 470, 76, &state);
+        // Repeated activation before consumption must retain the one request.
+        release(&mut view, 470, 76, &state);
+        assert!(view.take_update_check_request());
+        assert!(!view.take_update_check_request());
+    }
+}
+
+#[test]
+fn blocked_status_at_entry_or_consumption_never_defers_a_future_check() {
+    let state = Snapshot::default();
+    for blocked in states().into_iter().filter(|status| {
+        !matches!(
+            status,
+            UpdateStatus::Idle | UpdateStatus::Current | UpdateStatus::Failed(_)
+        )
+    }) {
+        for block_before_entry in [false, true] {
+            let mut view = View {
+                update: if block_before_entry {
+                    blocked.clone()
+                } else {
+                    UpdateStatus::Idle
+                },
+                ..View::default()
+            };
+            view.open_about();
+            release(&mut view, 470, 76, &state);
+            view.update = blocked.clone();
+            assert!(!view.take_update_check_request());
+            view.update = UpdateStatus::Current;
+            assert!(
+                !view.take_update_check_request(),
+                "must not defer {blocked:?}"
+            );
+            release(&mut view, 470, 76, &state);
+            assert!(!view.take_update_check_request());
+            view.about_key(Key::Left, false);
+            view.about_key(Key::Right, false);
+            assert!(view.take_update_check_request());
+        }
+    }
+}
+
+#[test]
+fn consuming_tab_request_neither_changes_render_state_nor_loses_manual_check() {
+    let state = Snapshot::default();
+    let mut view = View {
+        update: UpdateStatus::Idle,
+        ..View::default()
+    };
+    view.open_about();
+    release(&mut view, 470, 76, &state);
+    view.render(&state);
+    let fingerprint = view.fingerprint(&state);
+    let buffer = view.pixels.as_ptr();
+    assert!(view.take_update_check_request());
+    assert_eq!(view.fingerprint(&state), fingerprint);
+    assert_eq!(view.pixels.as_ptr(), buffer);
+    assert!(matches!(
+        release(&mut view, 100, 325, &state),
+        Some(Action::CheckUpdates)
+    ));
+    assert!(!view.take_update_check_request());
+}

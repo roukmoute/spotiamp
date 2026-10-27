@@ -40,6 +40,15 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
     ),
     (
+        "0.2.14 / IMMEDIATE UPDATE CHECK",
+        [
+            "0.2.14 / SOFORTIGE UPDATE-SUCHE",
+            "0.2.14 / COMPROBACIÓN INMEDIATA",
+            "0.2.14 / CONTROLLO IMMEDIATO",
+            "0.2.14 / VERIFICAÇÃO IMEDIATA",
+        ],
+    ),
+    (
         "0.2.6 / MAGNETIC WINDOWS",
         [
             "0.2.6 / MAGNETISCHE FENSTER",
@@ -498,6 +507,15 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
     ),
     (
+        "Downloads and ready-to-install updates are preserved.",
+        [
+            "Downloads und installationsbereite Updates bleiben.",
+            "Se conservan descargas y actualizaciones listas.",
+            "Download e aggiornamenti pronti restano disponibili.",
+            "Transferências e atualizações prontas são mantidas.",
+        ],
+    ),
+    (
         "Drag the library to detach it.",
         [
             "Bibliothek zum Abdocken ziehen.",
@@ -892,6 +910,15 @@ pub(super) const ENTRIES: &[Entry] = &[
     (
         "OFFLINE",
         ["OFFLINE", "SIN CONEXIÓN", "NON CONNESSO", "SEM LIGAÇÃO"],
+    ),
+    (
+        "Opening Updates checks for a new version immediately.",
+        [
+            "Beim Öffnen von Updates sofort nach Versionen suchen.",
+            "Al abrir Actualizaciones se buscan nuevas versiones.",
+            "Aggiornamenti cerca subito una nuova versione.",
+            "Ao abrir Atualizações, procura logo uma nova versão.",
+        ],
     ),
     ("PASTE", ["EINF.", "PEGAR", "INCL.", "COLAR"]),
     (

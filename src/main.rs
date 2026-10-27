@@ -157,6 +157,24 @@ fn repeat_only(is_down: bool, mut pressed: impl FnMut(KeyRepeat) -> bool) -> boo
     is_down && pressed(KeyRepeat::Yes) && !pressed(KeyRepeat::No)
 }
 
+fn queue_about_update_check(view: &mut ui::View, actions: &mut Vec<ui::Action>) {
+    // Consume the entry once, even when an explicit update action in this
+    // native input batch takes precedence. Never retry from rendering.
+    if view.take_update_check_request()
+        && !actions.iter().any(|action| {
+            matches!(
+                action,
+                ui::Action::CheckUpdates
+                    | ui::Action::DownloadUpdate
+                    | ui::Action::InstallUpdate
+                    | ui::Action::Close
+            )
+        })
+    {
+        actions.push(ui::Action::CheckUpdates);
+    }
+}
+
 fn process_frame_input(
     view: &mut ui::View,
     snapshot: &model::Snapshot,
@@ -773,6 +791,7 @@ fn run(initial_notice: Option<LocalizedText>) -> Result<(), Box<dyn std::error::
             chars.clear();
             mouse.clear();
         }
+        queue_about_update_check(&mut view, &mut actions);
         for action in actions.drain(..) {
             let command = match action {
                 ui::Action::Close => break 'player,
