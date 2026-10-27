@@ -78,6 +78,8 @@ impl Keyboard {
                 repeat_up: self.repeated(Key::Up, polled),
                 repeat_down: self.repeated(Key::Down, polled),
                 repeat_backspace: self.repeated(Key::Backspace, polled),
+                repeat_control: self.callback.modifiers & 0x0f != 0,
+                repeat_shift: self.callback.modifiers & 0x30 != 0,
                 ..FrameInput::default()
             },
             &mut actions,
@@ -252,4 +254,80 @@ fn modifiers_focus_modal_and_playback_revision_keep_their_input_guards() {
     keys.tap(Key::Down);
     keys.frame(&mut view, &new_track, true, None);
     assert_eq!(view.selected, Some(9));
+}
+
+#[test]
+fn queue_selection_shortcuts_keep_event_modifiers_and_repeats_keep_held_modifiers() {
+    let s = state();
+    let mut view = ui::View::default();
+    let mut keys = Keyboard::new();
+    view.selected = Some(2);
+    keys.down(Key::LeftShift);
+    keys.tap(Key::Down);
+    keys.up(Key::LeftShift);
+    assert!(keys.frame(&mut view, &s, true, None).is_empty());
+    assert_eq!(view.selected_queue_indices(&s), [2, 3]);
+    keys.down(Key::LeftShift);
+    keys.down(Key::Down);
+    keys.frame(&mut view, &s, true, Some(Polled::initial(Key::Down)));
+    assert_eq!(view.selected_queue_indices(&s), [2, 3, 4]);
+    keys.frame(&mut view, &s, true, Some(Polled::repeat(Key::Down)));
+    assert_eq!(view.selected_queue_indices(&s), [2, 3, 4, 5]);
+    keys.up(Key::LeftShift);
+    keys.frame(&mut view, &s, true, Some(Polled::repeat(Key::Down)));
+    assert_eq!(view.selected_queue_indices(&s), [6]);
+    keys.up(Key::Down);
+    keys.down(Key::LeftSuper);
+    keys.tap(Key::A);
+    keys.up(Key::LeftSuper);
+    keys.frame(&mut view, &s, true, None);
+    assert_eq!(view.selected_queue_indices(&s), (0..20).collect::<Vec<_>>());
+    keys.down(Key::RightCtrl);
+    keys.down(Key::Down);
+    keys.frame(&mut view, &s, true, Some(Polled::initial(Key::Down)));
+    keys.frame(&mut view, &s, true, Some(Polled::repeat(Key::Down)));
+    assert_eq!(view.selected, Some(8));
+    assert_eq!(view.selected_queue_indices(&s).len(), 20);
+    keys.up(Key::Down);
+    keys.up(Key::RightCtrl);
+    keys.tap(Key::Home);
+    keys.frame(&mut view, &s, true, None);
+    assert_eq!(view.selected_queue_indices(&s), [0]);
+    keys.down(Key::RightShift);
+    keys.tap(Key::End);
+    keys.up(Key::RightShift);
+    keys.frame(&mut view, &s, true, None);
+    assert_eq!(view.selected_queue_indices(&s).len(), 20);
+}
+
+#[test]
+fn queue_select_all_does_not_steal_text_modals_or_paste_shortcuts() {
+    let s = state();
+    let mut view = ui::View::default();
+    let mut keys = Keyboard::new();
+    view.selected = Some(2);
+    view.input_active = true;
+    view.input = "spotify:track:keep".into();
+    keys.down(Key::LeftSuper);
+    keys.tap(Key::A);
+    keys.up(Key::LeftSuper);
+    keys.frame(&mut view, &s, true, None);
+    assert!(view.select_all);
+    assert_eq!(view.selected_queue_indices(&s), [2]);
+    view.input_active = false;
+    view.open_about();
+    keys.down(Key::LeftCtrl);
+    keys.tap(Key::A);
+    keys.up(Key::LeftCtrl);
+    keys.frame(&mut view, &s, true, None);
+    assert_eq!(view.selected_queue_indices(&s), [2]);
+    view.close_about();
+    keys.down(Key::LeftCtrl);
+    keys.tap(Key::V);
+    keys.up(Key::LeftCtrl);
+    assert!(matches!(
+        keys.frame(&mut view, &s, true, None).as_slice(),
+        [ui::Action::Paste]
+    ));
+    assert_eq!(view.selected_queue_indices(&s), [2]);
 }

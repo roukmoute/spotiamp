@@ -85,6 +85,15 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
     ),
     (
+        "0.2.19 / QUEUE MULTI-SELECTION",
+        [
+            "0.2.19 / MEHRFACHAUSWAHL IN DER WARTESCHLANGE",
+            "0.2.19 / SELECCIÓN MÚLTIPLE EN LA COLA",
+            "0.2.19 / SELEZIONE MULTIPLA NELLA CODA",
+            "0.2.19 / SELEÇÃO MÚLTIPLA NA FILA",
+        ],
+    ),
+    (
         "0.2.6 / MAGNETIC WINDOWS",
         [
             "0.2.6 / MAGNETISCHE FENSTER",
@@ -468,6 +477,15 @@ pub(super) const ENTRIES: &[Entry] = &[
             "Ctrl+V / Cmd+V: pegar un enlace",
             "Ctrl+V / Cmd+V: incolla un link",
             "Ctrl+V / Cmd+V: colar um link",
+        ],
+    ),
+    (
+        "Ctrl/Cmd-click, Shift-click and Ctrl/Cmd+A.",
+        [
+            "Strg/Cmd-Klick, Umschalt-Klick und Strg/Cmd+A.",
+            "Clic con Ctrl/Cmd, clic con Mayús y Ctrl/Cmd+A.",
+            "Clic con Ctrl/Cmd, clic con Maiusc e Ctrl/Cmd+A.",
+            "Clique com Ctrl/Cmd, clique com Shift e Ctrl/Cmd+A.",
         ],
     ),
     (
@@ -1314,6 +1332,15 @@ pub(super) const ENTRIES: &[Entry] = &[
             "Elige una lista",
             "Scegli una playlist",
             "Escolhe uma playlist",
+        ],
+    ),
+    (
+        "Select several queue tracks and drag them together.",
+        [
+            "Mehrere Titel auswählen und gemeinsam verschieben.",
+            "Selecciona varios temas y arrástralos juntos.",
+            "Seleziona più brani e trascinali insieme.",
+            "Seleciona várias faixas e arrasta-as juntas.",
         ],
     ),
     (

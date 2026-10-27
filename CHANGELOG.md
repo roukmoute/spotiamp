@@ -1,5 +1,19 @@
 # Changements
 
+## 0.2.19 — 27 octobre 2026
+
+- Sélection multiple dans la file du lecteur : Ctrl/Cmd+clic ajoute ou retire
+  un morceau, Maj+clic sélectionne une plage et Ctrl/Cmd+A sélectionne tous
+  les titres lorsque la file est active.
+- Maintenir le clic gauche sur un morceau sélectionné puis glisser déplace
+  tout le groupe, dans son ordre de liste. Le repère d'insertion et le défilement
+  aux bords restent disponibles ; un simple clic sans déplacement choisit
+  uniquement le morceau visé.
+- La sélection suit les occurrences déplacées après confirmation du moteur,
+  y compris les doublons. La lecture conserve son titre et sa progression.
+- Rendu dans les deux skins, historique traduit dans les six langues,
+  sans nouvelle dépendance, requête Spotify ni tâche permanente.
+
 ## 0.2.18 — 27 octobre 2026
 
 - Maintenir le clic gauche puis glisser un morceau permet de changer sa place

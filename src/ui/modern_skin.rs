@@ -340,6 +340,7 @@ impl View {
         );
         self.tiny_text(502, 208, self.language.text("DUREE", "TIME"), ICE);
         self.modern_panel((14, 219, 532, 195));
+        self.sync_queue_selection(s);
         self.offset = self.offset.min(s.queue.len().saturating_sub(ROWS));
         if self.selected.is_some_and(|i| i >= s.queue.len()) {
             self.selected = s.queue.len().checked_sub(1);
@@ -398,7 +399,7 @@ impl View {
                 .enumerate()
             {
                 let y = 221 + display * 24;
-                let selected = self.selected == Some(index);
+                let selected = self.queue_row_selected(index);
                 let current = s.current == Some(index);
                 if selected {
                     gradient(
@@ -442,7 +443,7 @@ impl View {
         self.modern_button(
             Button::Remove,
             self.language.text("SUPPRIMER", "REMOVE"),
-            self.selected.is_some(),
+            self.queue_removal_index(s).is_some(),
         );
         self.modern_button(
             Button::Clear,

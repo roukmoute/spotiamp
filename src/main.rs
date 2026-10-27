@@ -69,7 +69,31 @@ enum MouseInput {
         x: f32,
         y: f32,
     },
+    ModifiedButton {
+        button: MouseButton,
+        down: bool,
+        x: f32,
+        y: f32,
+        control: bool,
+        shift: bool,
+    },
     Cancel,
+}
+
+impl MouseInput {
+    fn without_modifiers(self) -> (Self, bool, bool) {
+        match self {
+            Self::ModifiedButton {
+                button,
+                down,
+                x,
+                y,
+                control,
+                shift,
+            } => (Self::Button { button, down, x, y }, control, shift),
+            event => (event, false, false),
+        }
+    }
 }
 
 fn inside_window(x: f32, y: f32) -> Option<(usize, usize)> {
@@ -92,7 +116,22 @@ impl TextInput {
 
 impl InputCallback for TextInput {
     fn set_mouse_button_state(&mut self, button: MouseButton, down: bool, x: f32, y: f32) {
-        self.mouse_event(MouseInput::Button { button, down, x, y });
+        // Capture modifiers at the native press, before a fast Ctrl/Shift
+        // release can reach polling in the same frame.
+        let control = self.modifiers & 0x0f != 0;
+        let shift = self.modifiers & 0x30 != 0;
+        self.mouse_event(if control || shift {
+            MouseInput::ModifiedButton {
+                button,
+                down,
+                x,
+                y,
+                control,
+                shift,
+            }
+        } else {
+            MouseInput::Button { button, down, x, y }
+        });
     }
 
     fn mouse_input_cancelled(&mut self) {
@@ -148,6 +187,8 @@ struct FrameInput<'a> {
     repeat_backspace: bool,
     repeat_up: bool,
     repeat_down: bool,
+    repeat_control: bool,
+    repeat_shift: bool,
 }
 
 fn repeat_only(is_down: bool, mut pressed: impl FnMut(KeyRepeat) -> bool) -> bool {
@@ -155,6 +196,20 @@ fn repeat_only(is_down: bool, mut pressed: impl FnMut(KeyRepeat) -> bool) -> boo
     // Native polling may expose that same edge one frame later, or retain a
     // held duration until its next update after release. Accept only repeats.
     is_down && pressed(KeyRepeat::Yes) && !pressed(KeyRepeat::No)
+}
+
+fn selection_modifiers(window: &Window) -> (bool, bool) {
+    (
+        [
+            Key::LeftCtrl,
+            Key::RightCtrl,
+            Key::LeftSuper,
+            Key::RightSuper,
+        ]
+        .into_iter()
+        .any(|key| window.is_key_down(key)),
+        window.is_key_down(Key::LeftShift) || window.is_key_down(Key::RightShift),
+    )
 }
 
 fn queue_about_update_check(view: &mut ui::View, actions: &mut Vec<ui::Action>) {
@@ -200,7 +255,7 @@ fn process_frame_input(
         {
             let allow_space = !view.input_active;
             for &event in input.mouse {
-                match event {
+                match event.without_modifiers().0 {
                     MouseInput::Button {
                         button: MouseButton::Left,
                         down,
@@ -283,6 +338,7 @@ fn process_frame_input(
             continue;
         }
         let was_modal = view.about.is_some();
+        let (event, control, shift) = event.without_modifiers();
         let next = match event {
             MouseInput::Button {
                 button: MouseButton::Left,
@@ -299,7 +355,9 @@ fn process_frame_input(
                     view.cancel_pointer();
                     None
                 } else if down {
-                    position.and_then(|(x, y)| view.pointer_down(x, y, snapshot))
+                    position.and_then(|(x, y)| {
+                        view.pointer_down_with_modifiers(x, y, control, shift, snapshot)
+                    })
                 } else {
                     view.pointer_up(position, snapshot)
                 }
@@ -453,24 +511,35 @@ fn process_frame_input(
             action = Some(ui::Action::Send(Command::PlayIndex(i)));
         }
         if pressed(Key::Delete)
-            && let Some(i) = view.selected
+            && let Some(i) = view.queue_removal_index(snapshot)
         {
             action = Some(ui::Action::Send(Command::Remove(i)));
         }
         // Keep true taps in callback order (notably Up/Down at a list edge).
         // The poll below contributes only held repeats without another edge.
-        for &(key, _, _) in input.keys {
-            match key {
-                Key::Down => view.move_selection(1, snapshot.queue.len()),
-                Key::Up => view.move_selection(-1, snapshot.queue.len()),
-                _ => {}
+        for &(key, control, shift) in input.keys {
+            let movement = match key {
+                Key::Down => Some(1),
+                Key::Up => Some(-1),
+                Key::Home => Some(i32::MIN),
+                Key::End => Some(i32::MAX),
+                Key::PageDown => Some(8),
+                Key::PageUp => Some(-8),
+                Key::A if control => {
+                    view.select_all_queue(snapshot);
+                    None
+                }
+                _ => None,
+            };
+            if let Some(delta) = movement {
+                view.move_queue_selection(delta, control, shift, snapshot);
             }
         }
         if !pressed(Key::Down) && input.repeat_down {
-            view.move_selection(1, snapshot.queue.len());
+            view.move_queue_selection(1, input.repeat_control, input.repeat_shift, snapshot);
         }
         if !pressed(Key::Up) && input.repeat_up {
-            view.move_selection(-1, snapshot.queue.len());
+            view.move_queue_selection(-1, input.repeat_control, input.repeat_shift, snapshot);
         }
     }
     if let Some(action) = action {
@@ -796,6 +865,7 @@ fn run(initial_notice: Option<LocalizedText>) -> Result<(), Box<dyn std::error::
                     window.is_key_pressed(key, mode)
                 })
             };
+            let (repeat_control, repeat_shift) = selection_modifiers(&window);
             process_frame_input(
                 &mut view,
                 &snapshot,
@@ -810,6 +880,8 @@ fn run(initial_notice: Option<LocalizedText>) -> Result<(), Box<dyn std::error::
                     repeat_backspace: repeat(Key::Backspace),
                     repeat_up: repeat(Key::Up),
                     repeat_down: repeat(Key::Down),
+                    repeat_control,
+                    repeat_shift,
                 },
                 &mut actions,
             );

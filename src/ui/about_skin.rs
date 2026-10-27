@@ -460,6 +460,21 @@ impl View {
         for (y, version, first, second) in [
             (
                 109,
+                self.language.text(
+                    "0.2.19 / SÉLECTION MULTIPLE DANS LA FILE",
+                    "0.2.19 / QUEUE MULTI-SELECTION",
+                ),
+                self.language.text(
+                    "Sélectionner plusieurs titres et les glisser ensemble.",
+                    "Select several queue tracks and drag them together.",
+                ),
+                self.language.text(
+                    "Ctrl/Cmd+clic, Maj+clic et Ctrl/Cmd+A.",
+                    "Ctrl/Cmd-click, Shift-click and Ctrl/Cmd+A.",
+                ),
+            ),
+            (
+                154,
                 self.language
                     .text("0.2.18 / DÉPLACER LES TITRES", "0.2.18 / REORDER TRACKS"),
                 self.language.text(
@@ -472,7 +487,7 @@ impl View {
                 ),
             ),
             (
-                154,
+                199,
                 self.language
                     .text("0.2.17 / MENU AU CLIC DROIT", "0.2.17 / RIGHT-CLICK MENU"),
                 self.language.text(
@@ -485,7 +500,7 @@ impl View {
                 ),
             ),
             (
-                199,
+                244,
                 self.language
                     .text("0.2.16 / MENU ENVOYER VERS", "0.2.16 / SEND TO MENU"),
                 self.language.text(
@@ -498,7 +513,7 @@ impl View {
                 ),
             ),
             (
-                244,
+                289,
                 self.language.text(
                     "0.2.15 / RETRAIT DE TITRES",
                     "0.2.15 / REMOVE PLAYLIST TRACKS",
@@ -513,7 +528,7 @@ impl View {
                 ),
             ),
             (
-                289,
+                334,
                 self.language.text(
                     "0.2.14 / MISE À JOUR IMMÉDIATE",
                     "0.2.14 / IMMEDIATE UPDATE CHECK",
@@ -525,19 +540,6 @@ impl View {
                 self.language.text(
                     "Téléchargements et mises à jour prêtes conservés.",
                     "Downloads and ready-to-install updates are preserved.",
-                ),
-            ),
-            (
-                334,
-                self.language
-                    .text("0.2.13 / NOUVELLES PLAYLISTS", "0.2.13 / NEW PLAYLISTS"),
-                self.language.text(
-                    "Créer une playlist Spotify depuis Vers playlist.",
-                    "Create a Spotify playlist from To playlist.",
-                ),
-                self.language.text(
-                    "Nom et titres choisis, sans interrompre la lecture.",
-                    "Name and selected tracks, without interrupting playback.",
                 ),
             ),
         ] {

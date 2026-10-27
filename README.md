@@ -203,6 +203,14 @@ un morceau et faites-le glisser à la position souhaitée. Relâchez sur le rep�
 entre les lignes. La liste défile automatiquement près de ses bords. Déplacer
 le morceau en cours ne le relance pas : sa position de lecture est conservée.
 
+La file accepte aussi une **sélection multiple** : **Ctrl+clic** (**Cmd+clic**
+sous macOS) ajoute ou retire un titre ; **Maj+clic** sélectionne une plage.
+**Ctrl+A** (**Cmd+A**) sélectionne toute la file lorsqu'elle est active.
+Maintenez ensuite le clic gauche sur l'un des titres choisis et glissez pour
+**déplacer le groupe ensemble**, dans son ordre de liste. La sélection suit les
+morceaux après le déplacement, y compris les occurrences d'un même titre.
+Un clic simple sans déplacement sur un titre sélectionné revient à ce titre seul.
+
 Pour retrouver vos playlists sans copier de lien, connectez Spotify et ouvrez
 la bibliothèque avec **BIBLIO. F3** si elle est fermée. Elle affiche les playlists
 enregistrées ou suivies de votre compte, avec leur dossier en sous-titre.

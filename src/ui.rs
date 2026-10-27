@@ -277,7 +277,7 @@ impl Button {
         match self {
             Self::Previous | Self::Play | Self::Pause | Self::Stop | Self::Next => s.connected,
             Self::Add => s.connected && !s.busy,
-            Self::Remove => view.selected.is_some_and(|i| i < s.queue.len()),
+            Self::Remove => view.queue_removal_index(s).is_some(),
             Self::Clear => !s.queue.is_empty(),
             Self::UpdateCheck => view.can_check_update(),
             Self::UpdateDownload => matches!(view.update, UpdateStatus::Available { .. }),
@@ -296,6 +296,7 @@ pub struct View {
     pub input_active: bool,
     pub select_all: bool,
     pub selected: Option<usize>,
+    queue_choices: Option<queue_selection::QueueSelection>,
     pub help: bool,
     pub about: Option<AboutTab>,
     pub update: UpdateStatus,
@@ -330,6 +331,7 @@ impl Default for View {
             input_active: false,
             select_all: false,
             selected: None,
+            queue_choices: None,
             help: false,
             about: None,
             update: UpdateStatus::default(),
@@ -360,11 +362,19 @@ impl View {
     /// Position/metadata updates must leave the user's browsing position alone.
     pub fn sync_playback(&mut self, snapshot: &Snapshot) -> bool {
         self.sync_queue_reorder(snapshot);
+        self.sync_queue_selection(snapshot);
         if self.observed_playback_revision == snapshot.playback_revision {
             return false;
         }
         self.observed_playback_revision = snapshot.playback_revision;
-        self.pending_queue_reorder = None;
+        let preserve_choices = snapshot.playback_origin == crate::model::PlaybackOrigin::Automatic
+            && self
+                .queue_choices
+                .as_ref()
+                .is_some_and(|choices| choices.len() > 1);
+        if !preserve_choices {
+            self.pending_queue_reorder = None;
+        }
         let Some(index) = snapshot
             .current
             .filter(|&index| index < snapshot.queue.len())
@@ -384,7 +394,9 @@ impl View {
         }
         self.last_click = None;
         self.scroll_remainder = 0.0;
-        self.selected = Some(index);
+        if !preserve_choices {
+            self.choose_queue_row(index, false, false, snapshot);
+        }
         if snapshot.playback_origin != crate::model::PlaybackOrigin::Automatic
             || index < self.offset
             || index >= self.offset.saturating_add(ROWS)
@@ -643,6 +655,17 @@ impl View {
     }
 
     pub fn pointer_down(&mut self, x: usize, y: usize, s: &Snapshot) -> Option<Action> {
+        self.pointer_down_with_modifiers(x, y, false, false, s)
+    }
+
+    pub fn pointer_down_with_modifiers(
+        &mut self,
+        x: usize,
+        y: usize,
+        control: bool,
+        shift: bool,
+        s: &Snapshot,
+    ) -> Option<Action> {
         self.cancel_pointer();
         self.pending_queue_reorder = None;
         if !self.focused {
@@ -665,7 +688,7 @@ impl View {
             }
             return None;
         }
-        if self.begin_queue_drag(x, y, s) {
+        if self.begin_queue_drag(x, y, control, shift, s) {
             return None;
         }
         self.click(x, y, s)
@@ -835,6 +858,7 @@ impl View {
             self.scroll_remainder = 0.0;
         }
     }
+    #[cfg(test)]
     pub fn move_selection(&mut self, delta: i32, len: usize) {
         self.cancel_pointer();
         self.pending_queue_reorder = None;
@@ -843,12 +867,14 @@ impl View {
         }
         if len == 0 {
             self.selected = None;
+            self.queue_choices = None;
             return;
         }
-        let next = self
-            .selected
-            .map_or(0, |i| (i as i32 + delta).clamp(0, len as i32 - 1) as usize);
+        let next = self.selected.map_or(0, |i| {
+            (i as i32).saturating_add(delta).clamp(0, len as i32 - 1) as usize
+        });
         self.selected = Some(next);
+        self.queue_choices = None;
         if next < self.offset {
             self.offset = next;
         }
@@ -945,7 +971,7 @@ impl View {
         if (221..413).contains(&y) && (14..535).contains(&x) {
             let i = self.offset + (y - 221) / 24;
             if i < s.queue.len() {
-                self.selected = Some(i);
+                self.choose_queue_row(i, false, false, s);
                 let double = self
                     .last_click
                     .is_some_and(|(old, at)| old == i && at.elapsed() < Duration::from_millis(400));
@@ -957,7 +983,9 @@ impl View {
         }
         if (417..438).contains(&y) {
             if (14..=111).contains(&x) {
-                return self.selected.map(|i| Action::Send(Command::Remove(i)));
+                return self
+                    .queue_removal_index(s)
+                    .map(|i| Action::Send(Command::Remove(i)));
             }
             if (118..=191).contains(&x) {
                 return Some(Action::Send(Command::Clear));
@@ -990,6 +1018,7 @@ impl View {
         self.update.hash(&mut hash);
         self.skin.hash(&mut hash);
         self.drop_marker.hash(&mut hash);
+        self.queue_choices.hash(&mut hash);
         self.language.hash(&mut hash);
         self.language_preference.hash(&mut hash);
         if self.update_indicator_visible() {
@@ -1029,6 +1058,7 @@ impl View {
 mod about_skin;
 mod modern_skin;
 mod queue_drag;
+mod queue_selection;
 mod skin;
 
 #[cfg(test)]
@@ -1051,6 +1081,9 @@ mod transport_tests;
 
 #[cfg(test)]
 mod queue_drag_tests;
+
+#[cfg(test)]
+mod queue_selection_tests;
 
 #[cfg(test)]
 mod connection_tests;

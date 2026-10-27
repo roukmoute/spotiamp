@@ -565,6 +565,7 @@ impl View {
         );
         self.tiny_text(502, 208, self.language.text("DUREE", "TIME"), WHITE);
         self.bevel(14, 219, 532, 195, BLACK, true);
+        self.sync_queue_selection(s);
         self.offset = self.offset.min(s.queue.len().saturating_sub(ROWS));
         if self.selected.is_some_and(|i| i >= s.queue.len()) {
             self.selected = s.queue.len().checked_sub(1);
@@ -628,7 +629,7 @@ impl View {
                 .enumerate()
             {
                 let y = 221 + display * 24;
-                let selected = self.selected == Some(index);
+                let selected = self.queue_row_selected(index);
                 let current = s.current == Some(index);
                 if selected {
                     self.rect(16, y, 520, 24, 0x141c54);
@@ -662,7 +663,7 @@ impl View {
             417,
             98,
             self.language.text("SUPPRIMER", "REMOVE"),
-            self.selected.is_some(),
+            self.queue_removal_index(s).is_some(),
         );
         self.button(
             118,
