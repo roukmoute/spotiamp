@@ -1,5 +1,15 @@
 # Changements
 
+## 0.2.21 — 28 octobre 2026
+
+- Sous Windows, le menu de la file reste ouvert après le relâchement du clic
+  droit ; ses actions peuvent ensuite être choisies avec un clic gauche.
+- La libération normale de la capture de souris ne produit plus une annulation
+  d’interaction. Les vraies pertes de capture, de focus et annulations Windows
+  continuent à annuler les gestes en cours.
+- Tests natifs Windows du relâchement et des actions du menu, dans les deux skins
+  et aux deux échelles, ajoutés à la CI. Aucune dépendance supplémentaire.
+
 ## 0.2.20 — 27 octobre 2026
 
 - Menu au clic droit dans la file du lecteur : lire le titre, envoyer la sélection

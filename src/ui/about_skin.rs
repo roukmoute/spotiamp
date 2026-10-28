@@ -460,6 +460,21 @@ impl View {
         for (y, version, first, second) in [
             (
                 109,
+                self.language.text(
+                    "0.2.21 / CLIC DROIT WINDOWS",
+                    "0.2.21 / WINDOWS RIGHT CLICK",
+                ),
+                self.language.text(
+                    "Le menu reste ouvert après le clic droit.",
+                    "The menu stays open after releasing the right button.",
+                ),
+                self.language.text(
+                    "Choisissez ensuite une action avec un clic gauche.",
+                    "Then choose an action with a left click.",
+                ),
+            ),
+            (
+                154,
                 self.language
                     .text("0.2.20 / MENU DE LA FILE", "0.2.20 / QUEUE CONTEXT MENU"),
                 self.language.text(
@@ -472,7 +487,7 @@ impl View {
                 ),
             ),
             (
-                154,
+                199,
                 self.language.text(
                     "0.2.19 / SÉLECTION MULTIPLE DANS LA FILE",
                     "0.2.19 / QUEUE MULTI-SELECTION",
@@ -487,7 +502,7 @@ impl View {
                 ),
             ),
             (
-                199,
+                244,
                 self.language
                     .text("0.2.18 / DÉPLACER LES TITRES", "0.2.18 / REORDER TRACKS"),
                 self.language.text(
@@ -500,7 +515,7 @@ impl View {
                 ),
             ),
             (
-                244,
+                289,
                 self.language
                     .text("0.2.17 / MENU AU CLIC DROIT", "0.2.17 / RIGHT-CLICK MENU"),
                 self.language.text(
@@ -513,7 +528,7 @@ impl View {
                 ),
             ),
             (
-                289,
+                334,
                 self.language
                     .text("0.2.16 / MENU ENVOYER VERS", "0.2.16 / SEND TO MENU"),
                 self.language.text(
@@ -523,21 +538,6 @@ impl View {
                 self.language.text(
                     "Un menu pour agir sur les morceaux sélectionnés.",
                     "One menu for the selected tracks.",
-                ),
-            ),
-            (
-                334,
-                self.language.text(
-                    "0.2.15 / RETRAIT DE TITRES",
-                    "0.2.15 / REMOVE PLAYLIST TRACKS",
-                ),
-                self.language.text(
-                    "Suppr retire la sélection de votre playlist Spotify.",
-                    "Delete removes selected tracks from your playlist.",
-                ),
-                self.language.text(
-                    "Lecture et file conservées.",
-                    "Playback and queue are preserved.",
                 ),
             ),
         ] {

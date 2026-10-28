@@ -251,7 +251,6 @@ impl View {
     }
     pub fn cancel_pointer(&mut self) {
         self.clear_reorder_drop();
-        // Win32 also reports capture loss after a normal button release.
         // Only an interrupted press should break the double-click sequence.
         if self.pressed.is_some() {
             self.last_click = None;

@@ -1269,6 +1269,9 @@ mod wheel_native_windows_tests;
 #[cfg(all(test, target_os = "windows"))]
 mod window_native_windows_tests;
 
+#[cfg(all(test, target_os = "windows"))]
+mod queue_menu_native_windows_tests;
+
 #[cfg(all(test, target_os = "linux"))]
 mod window_native_x11_tests;
 

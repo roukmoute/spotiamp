@@ -103,6 +103,15 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
     ),
     (
+        "0.2.21 / WINDOWS RIGHT CLICK",
+        [
+            "0.2.21 / RECHTSKLICK UNTER WINDOWS",
+            "0.2.21 / CLIC DERECHO EN WINDOWS",
+            "0.2.21 / CLIC DESTRO SU WINDOWS",
+            "0.2.21 / BOTÃO DIREITO NO WINDOWS",
+        ],
+    ),
+    (
         "0.2.6 / MAGNETIC WINDOWS",
         [
             "0.2.6 / MAGNETISCHE FENSTER",
@@ -1592,6 +1601,15 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
     ),
     (
+        "The menu stays open after releasing the right button.",
+        [
+            "Menü bleibt nach Loslassen der rechten Taste offen.",
+            "El menú sigue abierto al soltar el botón derecho.",
+            "Il menu resta aperto rilasciando il tasto destro.",
+            "O menu fica aberto ao soltar o botão direito.",
+        ],
+    ),
+    (
         "The official Spotify app can stay closed.",
         [
             "Die offizielle Spotify-App kann geschlossen bleiben.",
@@ -1616,6 +1634,15 @@ pub(super) const ENTRIES: &[Entry] = &[
             "La actualización no se completó.",
             "L'aggiornamento non è stato completato.",
             "A atualização não foi concluída.",
+        ],
+    ),
+    (
+        "Then choose an action with a left click.",
+        [
+            "Danach eine Aktion mit Linksklick wählen.",
+            "Después elige una acción con un clic izquierdo.",
+            "Poi scegli un'azione con un clic sinistro.",
+            "Depois escolhe uma ação com um clique esquerdo.",
         ],
     ),
     (

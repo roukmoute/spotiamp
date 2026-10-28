@@ -217,6 +217,7 @@ et **Garder uniquement la sélection**. Ces deux dernières actions modifient
 uniquement la file locale, sans modifier la playlist Spotify d’origine. Le titre
 en cours continue à sa position s’il est conservé. Le menu est aussi accessible
 avec la touche **Menu** ou **Maj+F10** ; **Échap** le ferme.
+Relâchez le bouton droit, puis choisissez une action avec un **clic gauche**.
 
 Pour retrouver vos playlists sans copier de lien, connectez Spotify et ouvrez
 la bibliothèque avec **BIBLIO. F3** si elle est fermée. Elle affiche les playlists

@@ -443,7 +443,14 @@ unsafe extern "system" fn wnd_proc(
         }
 
         winuser::WM_CAPTURECHANGED => {
-            cancel_mouse_input(wnd);
+            // Releasing the last button deliberately calls ReleaseCapture,
+            // which sends this message synchronously. That completed click is
+            // not a cancellation. Only losing capture with a button still held
+            // interrupts a gesture; focus loss and WM_CANCELMODE are handled
+            // separately even when no button is down.
+            if wnd.mouse.state.iter().any(|state| *state) {
+                cancel_mouse_input(wnd);
+            }
             return 0;
         }
 
