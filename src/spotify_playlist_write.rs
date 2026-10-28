@@ -835,15 +835,25 @@ async fn verify_appended_tracks(
             && content.has_length()
             && usize::try_from(content.length()).ok() == Some(expected_total)
             && content.contents.as_ref().is_some_and(|items| {
-                items.has_pos()
-                    && usize::try_from(items.pos()).ok() == Some(from)
-                    && !items.truncated()
+                if !items.has_pos() || items.truncated() {
+                    return false;
+                }
+                let appended = if usize::try_from(items.pos()).ok() == Some(from)
                     && items.items.len() == tracks.len()
-                    && items
-                        .items
-                        .iter()
-                        .zip(tracks)
-                        .all(|(item, row)| item.uri() == row.uri)
+                {
+                    &items.items[..]
+                } else if items.pos() == 0 && items.items.len() == expected_total {
+                    // Some playlist responses may ignore the requested range.
+                    // A complete list is equally conclusive, but only its new
+                    // tail counts: matching tracks in the old prefix do not.
+                    &items.items[from..expected_total]
+                } else {
+                    return false;
+                };
+                appended
+                    .iter()
+                    .zip(tracks)
+                    .all(|(item, row)| item.uri() == row.uri)
             })
         {
             return Some(Receipt {
@@ -1589,6 +1599,79 @@ mod tests {
         p.set_length(7);
         variants.push(p);
         for content in variants {
+            let fake = Fake::new(vec![
+                reply(base()),
+                Err(()),
+                reply(content.clone()),
+                reply(content.clone()),
+                reply(content),
+            ]);
+            assert_eq!(
+                append_with(&fake, &id(), &tracks, "", || true)
+                    .await
+                    .unwrap_err(),
+                UNCERTAIN
+            );
+            let requests = fake.requests.borrow();
+            assert_eq!(requests.len(), 5);
+            assert_eq!(
+                requests
+                    .iter()
+                    .filter(|(m, _, _)| *m == Method::POST)
+                    .count(),
+                1
+            );
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn append_verification_accepts_the_exact_tail_of_a_complete_playlist() {
+        let other = TrackRow {
+            uri: "spotify:track:0000000000000000000001".into(),
+            ..Default::default()
+        };
+        let tracks = [row(), other, row()];
+        let mut complete = removable_base(&[tracks.as_slice(), tracks.as_slice()].concat());
+        complete.set_revision(vec![2]);
+        let fake = Fake::new(vec![reply(base()), Err(()), reply(complete)]);
+        assert_eq!(
+            append_with(&fake, &id(), &tracks, "", || true)
+                .await
+                .unwrap()
+                .total,
+            Some(6)
+        );
+        let requests = fake.requests.borrow();
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[2].0, Method::GET);
+        assert!(requests[2].1.ends_with("&from=3&length=3"));
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|(m, _, _)| *m == Method::POST)
+                .count(),
+            1
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn append_verification_rejects_old_prefix_matches_wrong_tail_order_and_incomplete_lists()
+    {
+        let other = TrackRow {
+            uri: "spotify:track:0000000000000000000001".into(),
+            ..Default::default()
+        };
+        let unrelated = TrackRow {
+            uri: "spotify:track:0000000000000000000002".into(),
+            ..Default::default()
+        };
+        let tracks = [row(), other.clone(), row()];
+        // All requested tracks already occur in the old prefix, which must
+        // never stand in for the new occurrences at positions 3, 4 and 5.
+        for tail in [vec![unrelated; 3], vec![other, row(), row()], vec![]] {
+            let mut content = removable_base(&[tracks.as_slice(), tail.as_slice()].concat());
+            content.set_revision(vec![2]);
+            content.set_length(6);
             let fake = Fake::new(vec![
                 reply(base()),
                 Err(()),
