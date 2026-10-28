@@ -1,5 +1,15 @@
 # Changements
 
+## 0.2.22 — 28 octobre 2026
+
+- Après un ajout, la playlist affichée est rechargée automatiquement depuis
+  Spotify, y compris lorsque la réponse initiale ne confirme pas l’opération.
+- Une réponse ambiguë déclenche une vérification bornée des nouveaux morceaux,
+  dans leur ordre et à leur position attendue. Un ajout retrouvé est confirmé
+  normalement ; la demande d’ajout n’est jamais renvoyée automatiquement.
+- La navigation et la lecture en cours sont conservées. Aucun rafraîchissement
+  périodique ni nouvelle dépendance.
+
 ## 0.2.21 — 28 octobre 2026
 
 - Sous Windows, le menu de la file reste ouvert après le relâchement du clic

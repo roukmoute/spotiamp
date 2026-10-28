@@ -37,6 +37,10 @@ use crate::{
 pub const MAX_SELECTION: usize = 500;
 const MAX_RESPONSE_BYTES: usize = 256 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(20);
+const APPEND_VERIFY_ATTEMPTS: usize = 3;
+const APPEND_VERIFY_BUDGET: Duration = Duration::from_secs(5);
+const APPEND_VERIFY_READ_TIMEOUT: Duration = Duration::from_millis(1500);
+const APPEND_VERIFY_BACKOFF: Duration = Duration::from_millis(250);
 const UNCERTAIN: &str = "Ajout non confirme; verifiez la playlist avant de reessayer";
 const VERIFY_FAILED: &str = "Impossible de verifier la playlist; aucun titre ajoute";
 const CREATE_UNCERTAIN: &str = "Creation non confirmee; verifiez vos playlists avant de reessayer";
@@ -702,17 +706,14 @@ async fn append_with(
         .await
         .map_err(|_| LocalizedText::from(VERIFY_FAILED))?
         .map_err(|_| LocalizedText::from(VERIFY_FAILED))?;
+    if !still_connected() {
+        return Err("Connectez Spotify pour modifier une playlist".into());
+    }
     if !(200..300).contains(&response.status) {
         return Err(VERIFY_FAILED.into());
     }
     let base = checked_content(&response.body).ok_or_else(|| LocalizedText::from(VERIFY_FAILED))?;
-    let allowed = base
-        .capabilities
-        .as_ref()
-        .filter(|caps| caps.has_can_edit_items())
-        .map(|caps| caps.can_edit_items())
-        .unwrap_or_else(|| !username.is_empty() && base.owner_username() == username);
-    if !allowed || base.attributes.get_or_default().deleted_by_owner() {
+    if !can_append(&base, username) {
         return Err("Cette playlist est en lecture seule; aucun titre ajoute".into());
     }
     if base.revision().is_empty() || base.multiple_heads() || base.changes_require_resync() {
@@ -726,14 +727,131 @@ async fn append_with(
     }
     // Once this request begins, a timeout or broken connection might mean the
     // server committed the append. Never retry or label it a definite failure.
-    let result = tokio::time::timeout(
+    let response = tokio::time::timeout(
         TIMEOUT,
         transport.request(Method::POST, &format!("{endpoint}/changes"), body),
     )
-    .await
-    .map_err(|_| LocalizedText::from(UNCERTAIN))?
-    .map_err(|_| LocalizedText::from(UNCERTAIN))?;
-    receipt(result, &base, tracks.len())
+    .await;
+    if !still_connected() {
+        return Err(UNCERTAIN.into());
+    }
+    let result = match response {
+        Ok(Ok(response)) => receipt(response, &base, tracks.len()),
+        _ => Err(UNCERTAIN.into()),
+    };
+    if result.as_ref().is_err_and(|message| *message == UNCERTAIN) {
+        // A successful write may return an empty/incomplete acknowledgement,
+        // or lose its response entirely. Only repeat reads, never the append.
+        verify_appended_tracks(
+            transport,
+            &endpoint,
+            &base,
+            tracks,
+            username,
+            &still_connected,
+        )
+        .await
+        .ok_or_else(|| LocalizedText::from(UNCERTAIN))
+    } else {
+        result
+    }
+}
+
+fn can_append(content: &SelectedListContent, username: &str) -> bool {
+    !content.attributes.get_or_default().deleted_by_owner()
+        && content
+            .capabilities
+            .as_ref()
+            .filter(|caps| caps.has_can_edit_items())
+            .map(|caps| caps.can_edit_items())
+            .unwrap_or_else(|| !username.is_empty() && content.owner_username() == username)
+}
+
+async fn verify_appended_tracks(
+    transport: &impl Transport,
+    endpoint: &str,
+    base: &SelectedListContent,
+    tracks: &[TrackRow],
+    username: &str,
+    still_connected: &impl Fn() -> bool,
+) -> Option<Receipt> {
+    let from = base
+        .has_length()
+        .then(|| usize::try_from(base.length()).ok())??;
+    let expected_total = from.checked_add(tracks.len())?;
+    i32::try_from(expected_total).ok()?;
+    let read = format!(
+        "{endpoint}?decorate=revision,attributes,length,owner,capabilities&from={from}&length={}",
+        tracks.len()
+    );
+    let deadline = tokio::time::Instant::now() + APPEND_VERIFY_BUDGET;
+    for attempt in 0..APPEND_VERIFY_ATTEMPTS {
+        if !still_connected() || !can_append(base, username) {
+            return None;
+        }
+        if attempt != 0 {
+            tokio::time::timeout_at(
+                deadline,
+                tokio::time::sleep(APPEND_VERIFY_BACKOFF * attempt as u32),
+            )
+            .await
+            .ok()?;
+        }
+        if !still_connected() || tokio::time::Instant::now() >= deadline {
+            return None;
+        }
+        let read_deadline = deadline.min(tokio::time::Instant::now() + APPEND_VERIFY_READ_TIMEOUT);
+        let response = tokio::time::timeout_at(
+            read_deadline,
+            transport.request(Method::GET, &read, Vec::new()),
+        )
+        .await;
+        // Logout/account switches can occur while any request is in flight.
+        if !still_connected() {
+            return None;
+        }
+        let Ok(Ok(response)) = response else {
+            continue;
+        };
+        if (400..500).contains(&response.status) {
+            return None;
+        }
+        if !(200..300).contains(&response.status) {
+            continue;
+        }
+        let Some(content) = checked_content(&response.body) else {
+            continue;
+        };
+        if !can_append(&content, username) {
+            return None;
+        }
+        // URI membership or a larger total is not proof: the selection can
+        // already exist, contain duplicates, or have been added elsewhere.
+        // Match every new occurrence at the old tail, in its original order.
+        if !content.revision().is_empty()
+            && content.revision() != base.revision()
+            && !content.multiple_heads()
+            && !content.changes_require_resync()
+            && content.has_length()
+            && usize::try_from(content.length()).ok() == Some(expected_total)
+            && content.contents.as_ref().is_some_and(|items| {
+                items.has_pos()
+                    && usize::try_from(items.pos()).ok() == Some(from)
+                    && !items.truncated()
+                    && items.items.len() == tracks.len()
+                    && items
+                        .items
+                        .iter()
+                        .zip(tracks)
+                        .all(|(item, row)| item.uri() == row.uri)
+            })
+        {
+            return Some(Receipt {
+                total: Some(expected_total),
+            });
+        }
+    }
+    None
 }
 
 fn checked_content(body: &[u8]) -> Option<SelectedListContent> {
@@ -1232,7 +1350,7 @@ mod tests {
         );
         assert_eq!(fake.requests.borrow().len(), 0);
     }
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn uncertain_or_refused_writes_never_retry() {
         for response in [
             Err(()),
@@ -1246,16 +1364,30 @@ mod tests {
             }),
             reply(base()),
         ] {
-            let fake = Fake::new(vec![reply(base()), response]);
+            let fake = Fake::new(vec![
+                reply(base()),
+                response,
+                reply(base()),
+                reply(base()),
+                reply(base()),
+            ]);
             assert_eq!(
                 append_with(&fake, &id(), &[row()], "", || true)
                     .await
                     .unwrap_err(),
                 UNCERTAIN
             );
-            assert_eq!(fake.requests.borrow().len(), 2);
+            let requests = fake.requests.borrow();
+            assert_eq!(requests.len(), 2 + APPEND_VERIFY_ATTEMPTS);
+            assert_eq!(
+                requests
+                    .iter()
+                    .filter(|(m, _, _)| *m == Method::POST)
+                    .count(),
+                1
+            );
         }
-        for status in [403, 409, 429] {
+        for status in [400, 401, 403, 404, 405, 409, 412, 413, 422, 429] {
             let fake = Fake::new(vec![
                 reply(base()),
                 Ok(Reply {
@@ -1314,7 +1446,337 @@ mod tests {
                 .unwrap_err(),
             UNCERTAIN
         );
-        assert_eq!(transport.calls.get(), 2);
+        assert_eq!(transport.calls.get(), 2 + APPEND_VERIFY_ATTEMPTS);
+    }
+
+    fn appended_segment(rows: &[TrackRow]) -> SelectedListContent {
+        let mut content = removable_base(rows);
+        content.set_revision(vec![2]);
+        content.set_length(base().length() + rows.len() as i32);
+        content.contents.as_mut().unwrap().set_pos(base().length());
+        content
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn append_lost_empty_or_unreadable_ack_is_confirmed_by_one_tail_read() {
+        let tracks = [
+            row(),
+            TrackRow {
+                uri: "spotify:track:0000000000000000000001".into(),
+                ..Default::default()
+            },
+            row(),
+        ];
+        for response in [
+            Err(()),
+            Ok(Reply {
+                status: 500,
+                body: vec![],
+            }),
+            Ok(Reply {
+                status: 200,
+                body: vec![],
+            }),
+            Ok(Reply {
+                status: 204,
+                body: vec![],
+            }),
+            Ok(Reply {
+                status: 200,
+                body: vec![0xff],
+            }),
+            reply(base()),
+        ] {
+            let fake = Fake::new(vec![
+                reply(base()),
+                response,
+                reply(appended_segment(&tracks)),
+            ]);
+            let result = append_with(&fake, &id(), &tracks, "", || true)
+                .await
+                .unwrap();
+            assert_eq!(result.total, Some(6));
+            let requests = fake.requests.borrow();
+            assert_eq!(requests.len(), 3);
+            assert_eq!(
+                requests
+                    .iter()
+                    .filter(|(m, _, _)| *m == Method::POST)
+                    .count(),
+                1
+            );
+            assert_eq!(requests[2].0, Method::GET);
+            assert!(requests[2].1.ends_with("&from=3&length=3"));
+            assert!(requests[2].2.is_empty());
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn append_verification_waits_for_propagation_without_repeating_the_write() {
+        let mut stale = appended_segment(&[row()]);
+        stale.set_revision(base().revision().to_vec());
+        let fake = Fake::new(vec![
+            reply(base()),
+            Err(()),
+            reply(stale),
+            Err(()),
+            reply(appended_segment(&[row()])),
+        ]);
+        let started = tokio::time::Instant::now();
+        assert_eq!(
+            append_with(&fake, &id(), &[row()], "", || true)
+                .await
+                .unwrap()
+                .total,
+            Some(4)
+        );
+        assert_eq!(
+            tokio::time::Instant::now() - started,
+            APPEND_VERIFY_BACKOFF * 3
+        );
+        let requests = fake.requests.borrow();
+        assert_eq!(requests.len(), 5);
+        assert_eq!(
+            requests
+                .iter()
+                .filter(|(m, _, _)| *m == Method::POST)
+                .count(),
+            1
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn append_verification_requires_new_revision_exact_positions_order_and_multiplicity() {
+        let other = TrackRow {
+            uri: "spotify:track:0000000000000000000001".into(),
+            ..Default::default()
+        };
+        let tracks = [row(), other.clone(), row()];
+        let good = appended_segment(&tracks);
+        let mut variants = vec![
+            appended_segment(&[other.clone(), row(), row()]),
+            appended_segment(&[row(), other.clone()]),
+            appended_segment(&[row(), other.clone(), other]),
+        ];
+        let mut p = good.clone();
+        p.contents.as_mut().unwrap().set_pos(0);
+        variants.push(p);
+        let mut p = good.clone();
+        p.contents.as_mut().unwrap().set_truncated(true);
+        variants.push(p);
+        let mut p = good.clone();
+        p.contents = MessageField::none();
+        variants.push(p);
+        let mut p = good.clone();
+        p.set_revision(base().revision().to_vec());
+        variants.push(p);
+        let mut p = good.clone();
+        p.clear_revision();
+        variants.push(p);
+        let mut p = good.clone();
+        p.set_multiple_heads(true);
+        variants.push(p);
+        let mut p = good.clone();
+        p.set_changes_require_resync(true);
+        variants.push(p);
+        let mut p = good.clone();
+        p.clear_length();
+        variants.push(p);
+        let mut p = good.clone();
+        p.set_length(-1);
+        variants.push(p);
+        let mut p = good;
+        p.set_length(7);
+        variants.push(p);
+        for content in variants {
+            let fake = Fake::new(vec![
+                reply(base()),
+                Err(()),
+                reply(content.clone()),
+                reply(content.clone()),
+                reply(content),
+            ]);
+            assert_eq!(
+                append_with(&fake, &id(), &tracks, "", || true)
+                    .await
+                    .unwrap_err(),
+                UNCERTAIN
+            );
+            let requests = fake.requests.borrow();
+            assert_eq!(requests.len(), 5);
+            assert_eq!(
+                requests
+                    .iter()
+                    .filter(|(m, _, _)| *m == Method::POST)
+                    .count(),
+                1
+            );
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn append_verification_does_not_guess_a_missing_or_invalid_original_length() {
+        for length in [None, Some(-1), Some(i32::MAX)] {
+            let mut before = base();
+            before.clear_length();
+            if let Some(length) = length {
+                before.set_length(length);
+            }
+            let fake = Fake::new(vec![reply(before), Err(())]);
+            assert_eq!(
+                append_with(&fake, &id(), &[row()], "", || true)
+                    .await
+                    .unwrap_err(),
+                UNCERTAIN
+            );
+            assert_eq!(fake.requests.borrow().len(), 2);
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn append_verification_rejects_unreadable_or_oversized_reads_with_bounded_attempts() {
+        for body in [vec![], vec![0xff], vec![0; MAX_RESPONSE_BYTES + 1]] {
+            let mut replies = vec![reply(base()), Err(())];
+            replies.extend((0..APPEND_VERIFY_ATTEMPTS).map(|_| {
+                Ok(Reply {
+                    status: 200,
+                    body: body.clone(),
+                })
+            }));
+            let fake = Fake::new(replies);
+            assert_eq!(
+                append_with(&fake, &id(), &[row()], "", || true)
+                    .await
+                    .unwrap_err(),
+                UNCERTAIN
+            );
+            let requests = fake.requests.borrow();
+            // An empty protobuf has no read access information, so it stops
+            // immediately; malformed/oversized replies can recover on a read.
+            assert_eq!(requests.len(), if body.is_empty() { 3 } else { 5 });
+            assert_eq!(
+                requests
+                    .iter()
+                    .filter(|(m, _, _)| *m == Method::POST)
+                    .count(),
+                1
+            );
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn append_verification_supports_an_empty_destination_and_the_selection_limit() {
+        let tracks = vec![row(); MAX_SELECTION];
+        let mut before = base();
+        before.set_length(0);
+        let mut after = appended_segment(&tracks);
+        after.set_length(MAX_SELECTION as i32);
+        after.contents.as_mut().unwrap().set_pos(0);
+        let fake = Fake::new(vec![reply(before), Err(()), reply(after)]);
+        assert_eq!(
+            append_with(&fake, &id(), &tracks, "", || true)
+                .await
+                .unwrap()
+                .total,
+            Some(MAX_SELECTION)
+        );
+        let requests = fake.requests.borrow();
+        assert_eq!(requests.len(), 3);
+        assert!(requests[2].1.ends_with("&from=0&length=500"));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn append_verification_stops_after_logout_or_revoked_access() {
+        for stop_after in [1, 2, 3] {
+            let fake = Fake::new(vec![
+                reply(base()),
+                Err(()),
+                reply(appended_segment(&[row()])),
+            ]);
+            let error = append_with(&fake, &id(), &[row()], "", || {
+                fake.requests.borrow().len() < stop_after
+            })
+            .await
+            .unwrap_err();
+            assert_eq!(fake.requests.borrow().len(), stop_after);
+            assert_eq!(
+                error,
+                if stop_after == 1 {
+                    "Connectez Spotify pour modifier une playlist"
+                } else {
+                    UNCERTAIN
+                }
+            );
+        }
+        let mut denied = appended_segment(&[row()]);
+        denied
+            .capabilities
+            .as_mut()
+            .unwrap()
+            .set_can_edit_items(false);
+        let mut deleted = appended_segment(&[row()]);
+        let mut attrs = ListAttributes::new();
+        attrs.set_deleted_by_owner(true);
+        deleted.attributes = MessageField::some(attrs);
+        for response in [
+            reply(denied),
+            reply(deleted),
+            Ok(Reply {
+                status: 403,
+                body: vec![],
+            }),
+            Ok(Reply {
+                status: 429,
+                body: vec![],
+            }),
+        ] {
+            let fake = Fake::new(vec![reply(base()), Err(()), response]);
+            assert_eq!(
+                append_with(&fake, &id(), &[row()], "", || true)
+                    .await
+                    .unwrap_err(),
+                UNCERTAIN
+            );
+            assert_eq!(fake.requests.borrow().len(), 3);
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn append_timeout_can_be_confirmed_and_verification_reads_have_one_shared_deadline() {
+        struct Slow {
+            calls: std::cell::Cell<usize>,
+            confirm: bool,
+        }
+        impl Transport for Slow {
+            async fn request(&self, _: Method, _: &str, _: Vec<u8>) -> Result<Reply, ()> {
+                let call = self.calls.get();
+                self.calls.set(call + 1);
+                match call {
+                    0 => reply(base()),
+                    1 => std::future::pending().await,
+                    _ if self.confirm => reply(appended_segment(&[row()])),
+                    _ => std::future::pending().await,
+                }
+            }
+        }
+        for confirm in [true, false] {
+            let fake = Slow {
+                calls: std::cell::Cell::new(0),
+                confirm,
+            };
+            let started = tokio::time::Instant::now();
+            let result = append_with(&fake, &id(), &[row()], "", || true).await;
+            let elapsed = tokio::time::Instant::now() - started;
+            if confirm {
+                assert_eq!(result.unwrap().total, Some(4));
+                assert_eq!(fake.calls.get(), 3);
+                assert_eq!(elapsed, TIMEOUT);
+            } else {
+                assert_eq!(result.unwrap_err(), UNCERTAIN);
+                assert_eq!(fake.calls.get(), 2 + APPEND_VERIFY_ATTEMPTS);
+                assert_eq!(elapsed, TIMEOUT + APPEND_VERIFY_BUDGET);
+            }
+        }
     }
 
     #[tokio::test]

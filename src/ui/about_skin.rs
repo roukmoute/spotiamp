@@ -461,6 +461,21 @@ impl View {
             (
                 109,
                 self.language.text(
+                    "0.2.22 / ACTUALISATION DES PLAYLISTS",
+                    "0.2.22 / PLAYLIST REFRESH",
+                ),
+                self.language.text(
+                    "Les morceaux ajoutés apparaissent automatiquement.",
+                    "Added tracks appear automatically.",
+                ),
+                self.language.text(
+                    "Vérification des ajouts sans les envoyer deux fois.",
+                    "Verify additions without sending them twice.",
+                ),
+            ),
+            (
+                154,
+                self.language.text(
                     "0.2.21 / CLIC DROIT WINDOWS",
                     "0.2.21 / WINDOWS RIGHT CLICK",
                 ),
@@ -474,7 +489,7 @@ impl View {
                 ),
             ),
             (
-                154,
+                199,
                 self.language
                     .text("0.2.20 / MENU DE LA FILE", "0.2.20 / QUEUE CONTEXT MENU"),
                 self.language.text(
@@ -487,7 +502,7 @@ impl View {
                 ),
             ),
             (
-                199,
+                244,
                 self.language.text(
                     "0.2.19 / SÉLECTION MULTIPLE DANS LA FILE",
                     "0.2.19 / QUEUE MULTI-SELECTION",
@@ -502,7 +517,7 @@ impl View {
                 ),
             ),
             (
-                244,
+                289,
                 self.language
                     .text("0.2.18 / DÉPLACER LES TITRES", "0.2.18 / REORDER TRACKS"),
                 self.language.text(
@@ -515,7 +530,7 @@ impl View {
                 ),
             ),
             (
-                289,
+                334,
                 self.language
                     .text("0.2.17 / MENU AU CLIC DROIT", "0.2.17 / RIGHT-CLICK MENU"),
                 self.language.text(
@@ -525,19 +540,6 @@ impl View {
                 self.language.text(
                     "Sélection conservée si le titre est déjà choisi.",
                     "Selection preserved when clicking a selected track.",
-                ),
-            ),
-            (
-                334,
-                self.language
-                    .text("0.2.16 / MENU ENVOYER VERS", "0.2.16 / SEND TO MENU"),
-                self.language.text(
-                    "Lire, ajouter à la file ou gérer vos playlists.",
-                    "Play, queue or manage your playlists.",
-                ),
-                self.language.text(
-                    "Un menu pour agir sur les morceaux sélectionnés.",
-                    "One menu for the selected tracks.",
                 ),
             ),
         ] {

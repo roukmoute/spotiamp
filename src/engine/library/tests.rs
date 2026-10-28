@@ -127,6 +127,7 @@ fn creation_retains_destination_on_failed_add_and_preserves_audio_and_source_sel
         assert_eq!(library.entries.len(), 1);
         assert_eq!(library.entries[0].id, id);
         assert_eq!(library.entries[0].track_count, success.then_some(3));
+        assert_eq!(worker.library.write_refresh.as_ref(), Some(&id));
         assert!(
             library
                 .playlist_write_status
@@ -1701,6 +1702,196 @@ fn playlist_write_result_does_not_change_audio_or_browsing_and_rejects_old_accou
     assert_eq!(library.entries[0].duration_ms, None);
     assert_eq!(library.selected_id, Some(destination.clone()));
     assert_eq!(worker.library.write_refresh, Some(destination));
+}
+
+#[test]
+fn playlist_append_outcomes_refresh_selected_preview_without_replaying_audio() {
+    // Use production dispatch/task creation, but never poll the runtime: no
+    // Spotify network call is needed to exercise the refresh transaction.
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let _guard = runtime.enter();
+    for confirmed in [true, false] {
+        let (mut worker, player, destination) = connected_worker();
+        worker.library.catalogue_loaded = true;
+        worker.library.ready = Some((destination.clone(), false));
+        worker.library.edit(|s| {
+            s.tracks = Arc::new(vec![row("Old preview")]);
+            s.selected_owned = true;
+            s.playlist_write_busy = true;
+        });
+        let before = worker.snapshot();
+        let previous_read = worker.library.generation;
+        let uncertain = LocalizedText::from("Unconfirmed append");
+        worker.library_update(Update::Written {
+            generation: worker.library.write_generation,
+            auth_generation: worker.auth_generation,
+            id: destination.clone(),
+            count: 1,
+            result: if confirmed {
+                Ok(crate::spotify_playlist_write::Receipt { total: Some(2) })
+            } else {
+                Err(uncertain.clone())
+            },
+        });
+        assert_eq!(worker.library.write_refresh, Some(destination.clone()));
+        let (updates, _) = mpsc::channel(1);
+        worker.restore_library_preview(&updates);
+        let refreshed_read = worker.library.generation;
+        let refresh_task = worker.library.task.as_ref().unwrap().id();
+        assert!(refreshed_read > previous_read);
+        assert!(worker.library.write_refresh.is_none());
+        assert!(worker.library.pending_queue.is_none());
+        {
+            let snapshot = worker.library.shared.lock().unwrap();
+            assert_eq!(snapshot.selected_id, Some(destination.clone()));
+            assert!(snapshot.loading);
+            assert!(!snapshot.selected_owned && !snapshot.playlist_write_busy);
+            assert_eq!(
+                snapshot.playlist_write_status,
+                if confirmed {
+                    playlist_write_success(1)
+                } else {
+                    uncertain
+                }
+            );
+        }
+        worker.restore_library_preview(&updates);
+        assert_eq!(worker.library.generation, refreshed_read);
+        assert_eq!(worker.library.task.as_ref().unwrap().id(), refresh_task);
+        worker.library_update(Update::Loaded {
+            generation: previous_read,
+            result: Ok((vec![row("Stale preview")], false)),
+        });
+        assert!(worker.library.shared.lock().unwrap().loading);
+        let refreshed = vec![row("Original title"), row("New title")];
+        worker.library_update(Update::PlaylistAccess {
+            generation: refreshed_read,
+            revision: vec![2],
+            owned: true,
+        });
+        worker.library_update(Update::Loaded {
+            generation: refreshed_read,
+            result: Ok((refreshed.clone(), false)),
+        });
+        worker.library_update(Update::Finished {
+            generation: refreshed_read,
+        });
+        let snapshot = worker.library.shared.lock().unwrap();
+        assert_eq!(&*snapshot.tracks, &refreshed);
+        assert!(!snapshot.loading);
+        assert!(snapshot.selected_owned);
+        assert_eq!(&*snapshot.selected_playlist_revision, &[2]);
+        assert_eq!(worker.snapshot(), before);
+        assert!(player.take().is_empty());
+    }
+}
+
+#[test]
+fn playlist_append_refresh_never_returns_to_a_destination_the_user_left() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let _guard = runtime.enter();
+    for navigation in ["before result", "before refresh", "during refresh"] {
+        let (mut worker, player, destination) = connected_worker();
+        let other = PlaylistId::Spotify("spotify:playlist:0000000000000000000001".into());
+        worker.library.catalogue_loaded = true;
+        worker.library.ready = Some((destination.clone(), false));
+        worker.library.edit(|s| {
+            Arc::make_mut(&mut s.entries).push(PlaylistEntry {
+                id: other.clone(),
+                name: "Another playlist".into(),
+                track_count: Some(1),
+                duration_ms: None,
+                folder: String::new(),
+                available: true,
+            });
+        });
+        let before = worker.snapshot();
+        let (updates, _) = mpsc::channel(1);
+        if navigation == "before result" {
+            worker.library_command(LibraryCommand::Select(other.clone()), &updates);
+        }
+        worker.library_update(Update::Written {
+            generation: worker.library.write_generation,
+            auth_generation: worker.auth_generation,
+            id: destination,
+            count: 1,
+            result: Err("Unconfirmed append".into()),
+        });
+        if navigation == "before refresh" {
+            worker.library_command(LibraryCommand::Select(other.clone()), &updates);
+        }
+        let active_read = worker.library.generation;
+        worker.restore_library_preview(&updates);
+        if navigation == "during refresh" {
+            let refreshed_read = worker.library.generation;
+            assert!(refreshed_read > active_read);
+            worker.library_command(LibraryCommand::Select(other.clone()), &updates);
+            worker.library_update(Update::Loaded {
+                generation: refreshed_read,
+                result: Ok((vec![row("Late destination refresh")], false)),
+            });
+        } else {
+            assert_eq!(worker.library.generation, active_read);
+        }
+        assert!(worker.library.write_refresh.is_none());
+        let browsed = vec![row("Other playlist's title")];
+        worker.library_update(Update::Loaded {
+            generation: worker.library.generation,
+            result: Ok((browsed.clone(), false)),
+        });
+        let snapshot = worker.library.shared.lock().unwrap();
+        assert_eq!(snapshot.selected_id, Some(other), "{navigation}");
+        assert_eq!(&*snapshot.tracks, &browsed, "{navigation}");
+        assert_eq!(worker.snapshot(), before);
+        assert!(player.take().is_empty());
+    }
+}
+
+#[tokio::test]
+async fn stale_append_outcomes_cannot_refresh_or_finish_a_new_write() {
+    let mut worker = worker();
+    worker.library.write_generation = 8;
+    worker.auth_generation = 3;
+    worker.library.write_task = Some(tokio::spawn(std::future::pending()));
+    worker.library.edit(|s| {
+        s.playlist_write_busy = true;
+        s.playlist_write_status = "Current append".into();
+    });
+    let before = worker.snapshot();
+    let before_library = worker.library.shared.lock().unwrap().clone();
+    for (generation, auth_generation) in [(7, 3), (8, 2)] {
+        for confirmed in [true, false] {
+            worker.library_update(Update::Written {
+                generation,
+                auth_generation,
+                id: PlaylistId::Spotify(PLAYLIST.into()),
+                count: 1,
+                result: if confirmed {
+                    Ok(crate::spotify_playlist_write::Receipt { total: Some(2) })
+                } else {
+                    Err("Unconfirmed append".into())
+                },
+            });
+            assert!(worker.library.write_task.is_some());
+            assert!(worker.library.write_refresh.is_none());
+            let snapshot = worker.library.shared.lock().unwrap();
+            assert!(snapshot.playlist_write_busy);
+            assert_eq!(snapshot.revision, before_library.revision);
+            assert_eq!(
+                snapshot.playlist_write_status,
+                before_library.playlist_write_status
+            );
+            assert_eq!(snapshot.selected_id, before_library.selected_id);
+            assert_eq!(worker.snapshot(), before);
+        }
+    }
+    worker.library.write_task.take().unwrap().abort();
 }
 
 #[tokio::test]

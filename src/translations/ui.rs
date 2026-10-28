@@ -112,6 +112,15 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
     ),
     (
+        "0.2.22 / PLAYLIST REFRESH",
+        [
+            "0.2.22 / PLAYLIST AKTUALISIEREN",
+            "0.2.22 / ACTUALIZAR PLAYLISTS",
+            "0.2.22 / AGGIORNAMENTO PLAYLIST",
+            "0.2.22 / ATUALIZAR PLAYLISTS",
+        ],
+    ),
+    (
         "0.2.6 / MAGNETIC WINDOWS",
         [
             "0.2.6 / MAGNETISCHE FENSTER",
@@ -285,6 +294,15 @@ pub(super) const ENTRIES: &[Entry] = &[
             "Añadir a la cola",
             "Aggiungi alla coda",
             "Adicionar à fila",
+        ],
+    ),
+    (
+        "Added tracks appear automatically.",
+        [
+            "Hinzugefügte Titel erscheinen automatisch.",
+            "Las canciones añadidas aparecen automáticamente.",
+            "I brani aggiunti compaiono automaticamente.",
+            "As faixas adicionadas aparecem automaticamente.",
         ],
     ),
     (
@@ -1758,6 +1776,15 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
     ),
     ("VOLUME", ["PEGEL", "VOLUMEN", "VOLUME", "VOLUME"]),
+    (
+        "Verify additions without sending them twice.",
+        [
+            "Hinzufügen prüfen, ohne es doppelt zu senden.",
+            "Verifica las adiciones sin enviarlas dos veces.",
+            "Verifica le aggiunte senza inviarle due volte.",
+            "Verifica adições sem as enviar duas vezes.",
+        ],
+    ),
     ("Version", ["Version", "Versión", "Versione", "Versão"]),
     (
         "Window and pixels",

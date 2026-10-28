@@ -616,9 +616,11 @@ impl Worker {
                             entry.duration_ms = None;
                         }
                     });
-                    // Refresh only the destination still being browsed.
-                    self.library.write_refresh = Some(id);
                 }
+                // A lost acknowledgement may still have committed the add.
+                // Read the destination again without ever repeating the write;
+                // restore_library_preview only reloads it if still selected.
+                self.library.write_refresh = Some(id);
                 self.library.edit(|s| {
                     s.playlist_write_busy = false;
                     s.playlist_write_status = match result {

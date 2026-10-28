@@ -305,6 +305,9 @@ ferme ce choix. La sélection est ajoutée à la fin de la playlist Spotify,
 dans l'ordre affiché, sans changer la lecture en cours. Les occurrences répétées
 d'un même titre sont conservées. Spotify doit autoriser la modification de
 la destination ; une playlist en lecture seule est refusée.
+La playlist concernée est rechargée automatiquement si elle est toujours
+affichée. Si la réponse de Spotify est ambiguë, Spotiamp vérifie les nouveaux
+morceaux par une relecture avant d’annoncer le résultat, sans répéter l’ajout.
 
 Pour créer une playlist avec cette sélection, choisissez
 **Envoyer vers… → Nouvelle playlist…**, ou cliquez sur **Nouvelle…** dans
