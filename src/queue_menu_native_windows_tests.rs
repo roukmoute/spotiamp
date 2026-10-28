@@ -329,8 +329,26 @@ fn win32_releasing_one_of_two_buttons_retains_capture_without_cancelling() {
     let mut native = window(Scale::X1);
     let events = observe(&mut native);
     button(&native, 1, true, true, 80, 281);
+    assert!(native.get_mouse_down(MouseButton::Right));
     button(&native, 1, false, true, 100, 298);
     assert_eq!(unsafe { GetCapture() }, native.get_window_handle());
+    assert!(native.get_mouse_down(MouseButton::Right));
+    assert!(native.get_mouse_down(MouseButton::Left));
+    assert!(
+        !events
+            .borrow()
+            .iter()
+            .any(|event| matches!(event, MouseInput::Cancel)),
+        "a second button press must not cancel the capture already held by this window"
+    );
+    // Native APIs can report an otherwise redundant capture to the same HWND.
+    // The target still owns both buttons; this is not a stolen capture.
+    unsafe {
+        SetCapture(native.get_window_handle());
+    }
+    assert_eq!(unsafe { GetCapture() }, native.get_window_handle());
+    assert!(native.get_mouse_down(MouseButton::Right));
+    assert!(native.get_mouse_down(MouseButton::Left));
     button(&native, 1, false, false, 100, 298);
     assert_eq!(unsafe { GetCapture() }, native.get_window_handle());
     assert!(native.get_mouse_down(MouseButton::Right));

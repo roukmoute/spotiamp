@@ -430,7 +430,10 @@ unsafe extern "system" fn wnd_proc(
             let all_released = !wnd.mouse.state.iter().any(|state| *state);
             // Do not access wnd after these calls: capture changes can
             // synchronously re-enter this WndProc with the same state pointer.
-            if down {
+            if down && winuser::GetCapture() != window {
+                // A second button press already belongs to our capture.
+                // Reacquiring it can report WM_CAPTURECHANGED back to us and
+                // must not cancel the first button's still-active gesture.
                 winuser::SetCapture(window);
             } else if all_released && winuser::GetCapture() == window {
                 winuser::ReleaseCapture();
@@ -445,10 +448,11 @@ unsafe extern "system" fn wnd_proc(
         winuser::WM_CAPTURECHANGED => {
             // Releasing the last button deliberately calls ReleaseCapture,
             // which sends this message synchronously. That completed click is
-            // not a cancellation. Only losing capture with a button still held
-            // interrupts a gesture; focus loss and WM_CANCELMODE are handled
-            // separately even when no button is down.
-            if wnd.mouse.state.iter().any(|state| *state) {
+            // not a cancellation. Only losing capture to another owner with a
+            // button still held interrupts a gesture. A capture to ourselves
+            // is harmless; focus loss and WM_CANCELMODE are handled separately
+            // even when no button is down.
+            if lparam as windef::HWND != window && wnd.mouse.state.iter().any(|state| *state) {
                 cancel_mouse_input(wnd);
             }
             return 0;
